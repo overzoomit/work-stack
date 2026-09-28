@@ -254,3 +254,19 @@ test('push funziona anche se il remote non si chiama origin (regressione)', asyn
   await git.action(r.dir, 'push');
   assert.equal(execFileSync('git', ['rev-parse', 'main'], { cwd: remote }).toString().trim(), second);
 });
+
+test('un file in conflitto di merge è segnalato come conflitto, non come file non tracciato (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', 'base\n');
+  r.commit('base');
+  r.run('checkout', '-q', '-b', 'altro');
+  r.write('a.txt', 'altro\n');
+  r.commit('altro');
+  r.run('checkout', '-q', 'main');
+  r.write('a.txt', 'main\n');
+  r.commit('main');
+  assert.throws(() => r.run('merge', 'altro'));
+  const st = await git.status(r.dir);
+  assert.deepEqual(st.unstaged, [{ file: 'a.txt', code: 'X' }]);
+  assert.deepEqual(st.staged, [], 'nothing of it is staged yet');
+});

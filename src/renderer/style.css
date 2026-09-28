@@ -412,6 +412,7 @@ body.panel-hidden .layout { --right: 0px; }
 .plus { color: var(--green); } .minus { color: var(--red); } .bin { color: var(--muted); }
 .code.M { color: var(--vcs-mod); } .code.A, .code.U { color: var(--green); } .code.D { color: var(--muted); }
 .code.R, .code.C { color: var(--purple); }
+.code.X { color: var(--red); font-weight: 700; } /* merge conflict */
 .s-M { color: var(--vcs-mod); } .s-A { color: var(--green); } .s-U { color: var(--vcs-new); } .s-D { color: var(--muted); text-decoration: line-through; }
 .s-R, .s-C { color: var(--vcs-mod); }
 
@@ -572,6 +573,7 @@ body.panel-hidden .layout { --right: 0px; }
 .tn.vcs-add .tn-name { color: var(--green); }
 .tn.vcs-new .tn-name { color: var(--vcs-new); }
 .tn.vcs-del .tn-name { color: var(--muted); text-decoration: line-through; }
+.tn.vcs-conflict .tn-name { color: var(--red); font-weight: 600; }
 .tn.vcs-ignored .tn-name { color: var(--vcs-ignored); }
 .tn.dragging { opacity: .45; }
 .tn.drop { background: rgba(10, 132, 255, .22); box-shadow: inset 0 0 0 1px rgba(10, 132, 255, .7); }

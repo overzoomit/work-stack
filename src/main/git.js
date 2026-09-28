@@ -49,6 +49,8 @@ function parseBranchHeader(head) {
   };
 }
 
+const CONFLICTS = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
 // `ignored: false` skips the ignored-files scan (it walks the whole working
 // tree): the caller keeps the previous list for frequent refreshes.
 async function status(repo, { ignored: withIgnored = true } = {}) {
@@ -75,6 +77,11 @@ async function status(repo, { ignored: withIgnored = true } = {}) {
     if ('RC'.includes(x) || 'RC'.includes(y)) i++;
     if (x === '?' && y === '?') {
       unstaged.push({ file, code: 'U' });
+      continue;
+    }
+    // Merge conflicts (UU, AA, DU…): one entry with its own code; "U" means untracked here.
+    if (CONFLICTS.has(x + y)) {
+      unstaged.push({ file, code: 'X' });
       continue;
     }
     if (x !== ' ') staged.push({ file, code: x });

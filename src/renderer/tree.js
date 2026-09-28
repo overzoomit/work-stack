@@ -59,7 +59,7 @@ export class ProjectTree {
         }
       };
       for (const f of st.staged) mark(f.file, f.code === 'A' ? 'add' : f.code === 'D' ? 'del' : 'mod');
-      for (const f of st.unstaged) mark(f.file, f.code === 'U' ? 'new' : f.code === 'D' ? 'del' : 'mod');
+      for (const f of st.unstaged) mark(f.file, f.code === 'U' ? 'new' : f.code === 'D' ? 'del' : f.code === 'X' ? 'conflict' : 'mod');
       this.ignored = st.ignored.map((rel) => `${gitRoot}/${rel}`);
     }
     this.render();
