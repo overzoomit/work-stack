@@ -35,10 +35,8 @@ export function parseDiff(text) {
       const nr = Number(m[2]);
       // A gap between hunks means unchanged lines git didn't send.
       if (rows.length && nl - ln > 1) rows.push({ type: 'gap', count: nl - ln - 1 });
-      ln = nl - 1;
-      rn = nr - 1;
-      if (Number(m[1]) === 0) ln = 0;
-      if (Number(m[2]) === 0) rn = 0;
+      ln = Math.max(0, nl - 1); // "-0,0": the side is empty (new or deleted file)
+      rn = Math.max(0, nr - 1);
       continue;
     }
     const sign = line[0];
