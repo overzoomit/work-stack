@@ -54,21 +54,22 @@ export function parseDiff(text) {
   return { binary: false, rows };
 }
 
-const tokens = (line) => line.trim().split(/(\W)/).filter((x) => x.trim());
+// Words and single punctuation marks, whitespace dropped.
+const tokens = (line) => line.match(/\w+|[^\w\s]/g) || [];
 
-// Similarity of two lines (0..1) from their shared word tokens.
-function similarity(ta, tb) {
+// Similarity of two lines (0..1) from their shared word tokens. Tokens are
+// small integers (see align); `counts` is a zeroed scratch array, left zeroed.
+function similarity(ta, tb, counts) {
   if (!ta.length && !tb.length) return 1;
-  const counts = new Map();
-  for (const t of ta) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const t of ta) counts[t]++;
   let common = 0;
   for (const t of tb) {
-    const c = counts.get(t);
-    if (c) {
+    if (counts[t] > 0) {
       common++;
-      counts.set(t, c - 1);
+      counts[t]--;
     }
   }
+  for (const t of ta) counts[t] = 0;
   return (2 * common) / (ta.length + tb.length);
 }
 
@@ -84,11 +85,18 @@ function align(dels, adds) {
     // Huge block: plain positional pairing.
     return Array.from({ length: Math.max(n, m) }, (_, k) => [dels[k] || null, adds[k] || null]);
   }
-  const addTokens = adds.map((a) => tokens(a.t)); // tokenized once, compared n × m times
-  const sim = dels.map((d) => {
-    const dt = tokens(d.t);
-    return addTokens.map((at) => similarity(dt, at));
+  // Each line is tokenized once and its tokens mapped to integers, so the
+  // n × m comparisons count with a typed array instead of building maps.
+  const ids = new Map();
+  const toIds = (line) => tokens(line).map((t) => {
+    let id = ids.get(t);
+    if (id === undefined) ids.set(t, (id = ids.size));
+    return id;
   });
+  const addTokens = adds.map((a) => toIds(a.t));
+  const delTokens = dels.map((d) => toIds(d.t));
+  const counts = new Int32Array(ids.size);
+  const sim = delTokens.map((dt) => addTokens.map((at) => similarity(dt, at, counts)));
   // score[i][j] = best total similarity using dels[i..] and adds[j..]
   const score = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
