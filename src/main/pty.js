@@ -23,8 +23,12 @@ class PtyManager {
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     });
 
-    proc.stdout.on('data', (buf) => onData(id, buf.toString('utf8')));
-    proc.stderr.on('data', (buf) => onData(id, buf.toString('utf8')));
+    // setEncoding keeps multi-byte characters split across chunks intact
+    // (decoding each Buffer on its own turns them into U+FFFD).
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', (text) => onData(id, text));
+    proc.stderr.on('data', (text) => onData(id, text));
     proc.on('exit', (code) => {
       this.sessions.delete(id);
       onExit(id, code);
