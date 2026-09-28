@@ -348,6 +348,8 @@ export class ProjectTree {
       // Like the context menu: the project folder itself can't be renamed or trashed.
       F2: () => p !== this.project.path && this.rename(p),
       Delete: () => p !== this.project.path && this.trash(p),
+      // Mac keyboards' delete key is Backspace: ⌘⌫ moves to the trash, as in Finder.
+      Backspace: () => e.metaKey && p !== this.project.path && this.trash(p),
     }[e.key];
     if (handled) {
       e.preventDefault();

@@ -105,3 +105,15 @@ test('tasto destro: azioni del file o della cartella, rinomina e cestino disatti
   assert.equal(items['Rinomina…'].disabled, true);
   assert.equal(items['Sposta nel cestino'].disabled, true);
 });
+
+test('su Mac ⌘⌫ sposta nel cestino come nel Finder; ⌫ da solo no (regressione)', async () => {
+  const { tree } = await mounted();
+  calls.length = 0;
+  tree.select('/p/readme.md');
+  tree.onKey({ key: 'Backspace', metaKey: false, preventDefault() {} });
+  await tick();
+  assert.deepEqual(calls, []);
+  tree.onKey({ key: 'Backspace', metaKey: true, preventDefault() {} });
+  await tick();
+  assert.deepEqual(calls, [['trash', '/p/readme.md']]);
+});
