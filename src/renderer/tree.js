@@ -210,22 +210,26 @@ export class ProjectTree {
     if (!next || next === name) return;
     try {
       const dest = await work.fs.rename(p, next);
-      this.renameExpanded(p, dest);
-      await this.refreshDirs(dirname(p));
+      await this.refreshDirs(dirname(p), ...this.renameExpanded(p, dest));
       this.select(dest);
     } catch (e) {
       toastError(e);
     }
   }
 
+  // Open folders follow a renamed or moved folder; returns their new paths,
+  // whose contents must be loaded again.
   renameExpanded(from, to) {
+    const moved = [];
     for (const d of [...this.expanded]) {
       if (d === from || d.startsWith(`${from}/`)) {
         this.expanded.delete(d);
-        this.expanded.add(to + d.slice(from.length));
         this.children.delete(d);
+        moved.push(to + d.slice(from.length));
       }
     }
+    for (const d of moved) this.expanded.add(d);
+    return moved;
   }
 
   async move(p, toDir, { undo = true } = {}) {
@@ -233,9 +237,9 @@ export class ProjectTree {
     if (from === toDir) return;
     try {
       const dest = await work.fs.move(p, toDir);
-      this.renameExpanded(p, dest);
+      const moved = this.renameExpanded(p, dest);
       this.expanded.add(toDir);
-      await this.refreshDirs(from, toDir);
+      await this.refreshDirs(from, toDir, ...moved);
       this.select(dest);
       if (undo) {
         toast(`${basename(p)} spostato in ${basename(toDir)}`, {
