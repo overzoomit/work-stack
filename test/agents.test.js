@@ -286,3 +286,15 @@ test('anche l\'interruzione durante un tool lascia l\'agente in attesa (regressi
   s.read();
   assert.equal(s.status.state, 'waiting');
 });
+
+test('un carattere accentato spezzato tra due letture arriva intatto nella timeline (regressione)', () => {
+  const file = transcript(`${UUID}.jsonl`);
+  const bytes = Buffer.from(user('perché è così'));
+  const cut = bytes.indexOf(Buffer.from('è')) + 1; // in the middle of the two bytes of "è"
+  fs.writeFileSync(file, bytes.subarray(0, cut));
+  const s = new Session(file);
+  s.read();
+  fs.appendFileSync(file, bytes.subarray(cut));
+  s.read();
+  assert.deepEqual(s.events.map((e) => e.text), ['perché è così']);
+});

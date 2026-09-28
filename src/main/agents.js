@@ -3,6 +3,7 @@
 // live picture of what each agent is doing.
 const fs = require('fs');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 const os = require('os');
 
 const PROJECTS_DIR = process.env.WORK_CLAUDE_PROJECTS || path.join(os.homedir(), '.claude', 'projects');
@@ -35,6 +36,8 @@ class Session {
     this.id = path.basename(file, '.jsonl');
     this.offset = 0;
     this.partial = '';
+    // Keeps a multi-byte character cut by a read in the middle of a write.
+    this.decoder = new StringDecoder('utf8');
     this.events = [];
     this.eventSeq = 0; // grows with every event, even once the list is capped
     this.cwd = null;
@@ -51,6 +54,7 @@ class Session {
       // Truncated / rewritten: start over, dropping the half line read before.
       this.offset = 0;
       this.partial = '';
+      this.decoder = new StringDecoder('utf8');
     }
     if (st.size === this.offset) return false;
     if (this.offset === 0 && st.size > TAIL_BYTES) this.offset = st.size - TAIL_BYTES;
@@ -62,7 +66,7 @@ class Session {
     this.offset = st.size;
     this.mtime = st.mtimeMs;
 
-    const lines = (this.partial + buf.toString('utf8')).split('\n');
+    const lines = (this.partial + this.decoder.write(buf)).split('\n');
     this.partial = lines.pop();
     for (const line of lines) {
       if (!line.trim()) continue;
