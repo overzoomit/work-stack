@@ -4,6 +4,9 @@ import { esc, basename, dirname, toast, toastError, ask, contextMenu } from './u
 
 const { work } = window;
 
+// `p` is the folder `dir` itself or something inside it.
+const within = (dir, p) => p === dir || p.startsWith(`${dir}/`);
+
 export class ProjectTree {
   constructor(project, hooks) {
     this.project = project;
@@ -69,7 +72,7 @@ export class ProjectTree {
   }
 
   isIgnored(p) {
-    return this.ignored.some((i) => p === i || p.startsWith(`${i}/`));
+    return this.ignored.some((i) => within(i, p));
   }
 
   // ── Rendering ──
@@ -223,14 +226,8 @@ export class ProjectTree {
   // Open folders follow a renamed or moved folder; returns their new paths,
   // whose contents must be loaded again.
   renameExpanded(from, to) {
-    const moved = [];
-    for (const d of [...this.expanded]) {
-      if (d === from || d.startsWith(`${from}/`)) {
-        this.expanded.delete(d);
-        this.children.delete(d);
-        moved.push(to + d.slice(from.length));
-      }
-    }
+    const moved = [...this.expanded].filter((d) => within(from, d)).map((d) => to + d.slice(from.length));
+    this.forget(from);
     for (const d of moved) this.expanded.add(d);
     return moved;
   }
@@ -269,10 +266,9 @@ export class ProjectTree {
   // Drops what the tree remembers about `p` and everything inside it: a folder
   // recreated later under the same name must not show the old open subfolders.
   forget(p) {
-    const gone = (x) => x === p || x.startsWith(`${p}/`);
-    for (const d of [...this.expanded]) if (gone(d)) this.expanded.delete(d);
-    for (const d of [...this.children.keys()]) if (gone(d)) this.children.delete(d);
-    if (this.selected && gone(this.selected)) this.selected = null;
+    for (const d of [...this.expanded]) if (within(p, d)) this.expanded.delete(d);
+    for (const d of [...this.children.keys()]) if (within(p, d)) this.children.delete(d);
+    if (this.selected && within(p, this.selected)) this.selected = null;
   }
 
   open(p) {
@@ -383,7 +379,7 @@ export class ProjectTree {
     if (!this.dragging) return;
     const dir = this.dropDirFor(e.target);
     const src = this.dragging;
-    const valid = dir && dir !== dirname(src) && dir !== src && !dir.startsWith(`${src}/`);
+    const valid = dir && dir !== dirname(src) && !within(src, dir);
     this.box.querySelectorAll('.drop').forEach((el) => el.classList.remove('drop'));
     if (!valid) return;
     e.preventDefault();
