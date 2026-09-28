@@ -302,3 +302,30 @@ test('i diff ignorano un diff esterno configurato dall\'utente, come difftastic 
   assert.doesNotMatch(ofCommit, /DIFF-ESTERNO/);
   assert.match(ofCommit, /^\+uno$/m);
 });
+
+const hasGpg = (() => { try { execFileSync('gpg', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+
+test('log e dettaglio di un commit firmato si leggono anche con log.showSignature attivo (regressione)', { skip: !hasGpg && 'gpg non installato' }, async () => {
+  const gnupg = fs.mkdtempSync(path.join(os.tmpdir(), 'work-gpg-'));
+  const saved = process.env.GNUPGHOME;
+  process.env.GNUPGHOME = gnupg; // isolated keyring, removed with the temp folder
+  try {
+    execFileSync('gpg', ['--batch', '--passphrase', '', '--quick-gen-key', 'Test <t@example.com>', 'default', 'default', 'never'], { stdio: 'pipe' });
+    const r = repo();
+    r.run('config', 'user.signingkey', 't@example.com');
+    r.write('a.txt', '1\n');
+    r.run('add', '-A');
+    r.run('-c', 'commit.gpgsign=true', 'commit', '-qm', 'firmato');
+    const hash = r.run('rev-parse', 'HEAD').trim();
+    r.run('config', 'log.showSignature', 'true');
+    const [c] = await git.log(r.dir);
+    assert.equal(c.hash, hash);
+    assert.equal(c.subject, 'firmato');
+    const detail = await git.commit(r.dir, hash);
+    assert.equal(detail.hash, hash);
+    assert.equal(detail.message, 'firmato');
+  } finally {
+    if (saved === undefined) delete process.env.GNUPGHOME;
+    else process.env.GNUPGHOME = saved;
+  }
+});
