@@ -131,3 +131,13 @@ test('se cambia solo l\'a capo finale, il lato che ce l\'ha mostra ⏎ evidenzia
     assert.match(html, /ultima riga<span class="w ws" title="[^"]*a capo[^"]*">⏎<\/span>/, `${mode}: on the new side, which ends with a newline`);
   }
 });
+
+test('un file nuovo o eliminato vuoto lo dice, invece di "solo rinomina o permessi" (regressione)', () => {
+  const box = fakeBox();
+  renderDiff(box, parseDiff('diff --git a/vuoto.txt b/vuoto.txt\nnew file mode 100644\nindex 0000000..e69de29\n'), 'side');
+  assert.match(box.html(), /File nuovo vuoto/);
+  renderDiff(box, parseDiff('diff --git a/v b/v\ndeleted file mode 100644\nindex e69de29..0000000\n'), 'side');
+  assert.match(box.html(), /File vuoto eliminato/);
+  renderDiff(box, parseDiff('diff --git a/x b/x\nold mode 100644\nnew mode 100755\n'), 'side');
+  assert.match(box.html(), /solo rinomina o permessi/, 'a mode change keeps its message');
+});

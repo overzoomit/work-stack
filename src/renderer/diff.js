@@ -9,9 +9,13 @@ export function parseDiff(text) {
   const rows = [];
   const lines = text.split('\n');
   let i = 0;
-  // Git reports a binary file in the header, before any hunk.
+  let created = false;
+  let deleted = false;
+  // Git reports a binary file, or a new / deleted one, in the header before any hunk.
   for (; i < lines.length && !lines[i].startsWith('@@'); i++) {
     if (/^Binary files .* differ$/.test(lines[i])) return { binary: true, rows: [] };
+    if (lines[i].startsWith('new file mode')) created = true;
+    if (lines[i].startsWith('deleted file mode')) deleted = true;
   }
 
   let ln = 0;
@@ -57,7 +61,7 @@ export function parseDiff(text) {
     // the trailing empty line is skipped
   }
   flush();
-  return { binary: false, rows };
+  return { binary: false, rows, created, deleted };
 }
 
 // Words and single punctuation marks, whitespace dropped.
@@ -232,7 +236,10 @@ export function renderDiff(box, parsed, mode = 'side') {
     return { next() {}, prev() {}, count: 0 };
   }
   if (!rows.some((r) => r.type !== 'ctx' && r.type !== 'gap')) {
-    box.innerHTML = '<div class="d-empty">Nessuna differenza nel contenuto (solo rinomina o permessi).</div>';
+    let why = 'Nessuna differenza nel contenuto (solo rinomina o permessi).';
+    if (parsed.created) why = 'File nuovo vuoto.';
+    else if (parsed.deleted) why = 'File vuoto eliminato.';
+    box.innerHTML = `<div class="d-empty">${why}</div>`;
     return { next() {}, prev() {}, count: 0 };
   }
 
