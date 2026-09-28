@@ -246,6 +246,15 @@ async function unstage(repo, files) {
   return git(repo, ['restore', '--staged', '--', ...paths]);
 }
 
+// `git stash push` succeeds without doing anything when there is nothing to
+// save; the stash ref is compared instead of its (translated) message.
+async function stash(repo) {
+  const top = () => git(repo, ['rev-parse', '--verify', '--quiet', 'refs/stash']).then((h) => h.trim(), () => null);
+  const before = await top();
+  await git(repo, ['stash', 'push', '-u']);
+  if ((await top()) === before) throw new Error('Nessuna modifica da mettere in stash.');
+}
+
 const actions = {
   stage: (repo, { files }) => git(repo, ['add', '--', ...files]),
   unstage: (repo, { files }) => unstage(repo, files),
@@ -257,7 +266,7 @@ const actions = {
   fetch: (repo) => git(repo, ['fetch', '--all', '--prune']),
   pull: (repo) => git(repo, ['pull', '--ff-only']),
   push: (repo) => push(repo),
-  stash: (repo) => git(repo, ['stash', 'push', '-u']),
+  stash: (repo) => stash(repo),
   stashPop: (repo) => git(repo, ['stash', 'pop']),
   merge: (repo, { branch }) => git(repo, ['merge', '--no-edit', branch]),
   cherryPick: (repo, { hash }) => git(repo, ['cherry-pick', hash]),

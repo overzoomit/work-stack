@@ -380,3 +380,16 @@ test('togliere dallo stage un file rinominato toglie anche la cancellazione del 
   assert.deepEqual(st.staged, [], 'nothing left half-staged');
   assert.deepEqual(st.unstaged.map((f) => [f.file, f.code]).sort(), [['nuovo.txt', 'U'], ['vecchio.txt', 'D']]);
 });
+
+test('stash senza modifiche da salvare lo segnala invece di dare successo (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  await assert.rejects(git.action(r.dir, 'stash', {}), /Nessuna modifica/);
+  r.write('a.txt', '2\n');
+  r.write('nuovo.txt', 'x\n');
+  await git.action(r.dir, 'stash', {});
+  const st = await git.status(r.dir);
+  assert.deepEqual([...st.staged, ...st.unstaged], [], 'changes and untracked files went into the stash');
+  await assert.rejects(git.action(r.dir, 'stash', {}), /Nessuna modifica/, 'a second stash has nothing left to save');
+});
