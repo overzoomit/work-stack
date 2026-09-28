@@ -76,10 +76,9 @@ async function closeProject(p) {
   const shells = terminalsOf(p).filter((t) => !t.exited).length;
   const runs = runningCount(p);
   if (shells || runs) {
-    const parts = [
-      shells ? (shells === 1 ? 'il terminale aperto' : `i ${shells} terminali aperti`) : '',
-      runs ? (runs === 1 ? 'il processo in esecuzione' : `i ${runs} processi in esecuzione`) : '',
-    ].filter(Boolean);
+    const parts = [];
+    if (shells) parts.push(shells === 1 ? 'il terminale aperto' : `i ${shells} terminali aperti`);
+    if (runs) parts.push(runs === 1 ? 'il processo in esecuzione' : `i ${runs} processi in esecuzione`);
     const ok = await ask({
       text: `Chiudere ${p.name}? Verranno chiusi ${parts.join(' e ')}.`,
       okLabel: 'Chiudi progetto', danger: true, input: false,

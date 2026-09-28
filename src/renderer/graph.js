@@ -87,14 +87,26 @@ export function renderSvg({ rows, width }) {
 // Decorations come from `git log --decorate=full`, so local and remote
 // branches are told apart by their namespace, not by guessing from a "/"
 // (a local "feature/x" is still local).
+const REF_KINDS = [
+  ['HEAD -> refs/heads/', 'head'],
+  ['tag: refs/tags/', 'tag'],
+  ['refs/heads/', 'local'],
+  ['refs/remotes/', 'remote'],
+];
+
 export function refBadges(refs) {
   const out = [];
   for (const ref of refs) {
-    if (ref === 'HEAD') out.push({ cls: 'head', label: 'HEAD' });
-    else if (ref.startsWith('HEAD -> refs/heads/')) out.push({ cls: 'head', label: ref.slice('HEAD -> refs/heads/'.length) });
-    else if (ref.startsWith('tag: refs/tags/')) out.push({ cls: 'tag', label: ref.slice('tag: refs/tags/'.length) });
-    else if (ref.startsWith('refs/heads/')) out.push({ cls: 'local', label: ref.slice('refs/heads/'.length) });
-    else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) out.push({ cls: 'remote', label: ref.slice('refs/remotes/'.length) });
+    if (ref === 'HEAD') {
+      out.push({ cls: 'head', label: 'HEAD' });
+      continue;
+    }
+    const kind = REF_KINDS.find(([prefix]) => ref.startsWith(prefix));
+    if (!kind) continue;
+    const [prefix, cls] = kind;
+    const label = ref.slice(prefix.length);
+    if (cls === 'remote' && label.endsWith('/HEAD')) continue; // origin/HEAD duplicates the default branch
+    out.push({ cls, label });
   }
   return out;
 }

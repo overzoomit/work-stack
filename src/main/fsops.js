@@ -42,7 +42,9 @@ const inside = (real) => roots.some((r) => real === r || real.startsWith(r + pat
 //  follow: false → the operation acts on the entry itself (rename, move, trash): check its folder
 async function guard(p, { follow }) {
   const abs = path.resolve(p);
-  const real = follow ? await realOf(abs) : path.join(await realOf(path.dirname(abs)), path.basename(abs));
+  let real;
+  if (follow) real = await realOf(abs);
+  else real = path.join(await realOf(path.dirname(abs)), path.basename(abs));
   if (!inside(real)) throw new Error(`Percorso fuori dai progetti aperti: ${abs}`);
   return abs;
 }
