@@ -281,20 +281,10 @@ async function refreshGraph(project) {
     if (!row) return;
     e.preventDefault();
     const c = g.rows[Number(row.dataset.i)].commit;
-    const target = checkoutTarget(c.refs, c.hash);
     contextMenu(e.clientX, e.clientY, [
       { label: 'Mostra dettagli', run: () => row.click() },
       '-',
-      { label: target !== c.hash ? `Checkout ${target}` : 'Checkout (detached)', run: () => runGit('checkout', { branch: target }) },
-      {
-        label: 'Nuovo branch qui…',
-        run: async () => {
-          const name = await ask({ text: `Nuovo branch da ${c.hash.slice(0, 8)}`, placeholder: 'feature/…', okLabel: 'Crea' });
-          if (name) await runGit('createBranch', { name, from: c.hash });
-        },
-      },
-      { label: 'Cherry-pick', run: () => runGit('cherryPick', { hash: c.hash }) },
-      { label: 'Revert', run: () => runGit('revert', { hash: c.hash }) },
+      ...commitActions(c, { menu: true }),
       '-',
       { label: 'Copia hash', run: () => work.app.copy(c.hash) },
       { label: 'Copia messaggio', run: () => work.app.copy(c.subject) },
@@ -306,18 +296,23 @@ async function refreshGraph(project) {
     $$('#graph .g-row.active').forEach((x) => x.classList.remove('active'));
     row.classList.add('active');
     const c = g.rows[Number(row.dataset.i)].commit;
-    const target = checkoutTarget(c.refs, c.hash);
-    openCommit(project.root, c.hash, [
-      { label: target !== c.hash ? `Checkout ${target}` : 'Checkout', run: () => runGit('checkout', { branch: target }) },
-      {
-        label: 'Nuovo branch qui',
-        run: async () => {
-          const name = await ask({ text: `Nuovo branch da ${c.hash.slice(0, 8)}`, placeholder: 'feature/…', okLabel: 'Crea' });
-          if (name) await runGit('createBranch', { name, from: c.hash });
-        },
-      },
-      { label: 'Cherry-pick', run: () => runGit('cherryPick', { hash: c.hash }) },
-      { label: 'Revert', run: () => runGit('revert', { hash: c.hash }) },
-    ]);
+    openCommit(project.root, c.hash, commitActions(c));
   };
+}
+
+// What can be done with a commit, from the graph's menu or its details sheet
+// (menu labels end in "…" when a prompt follows).
+function commitActions(c, { menu = false } = {}) {
+  const target = checkoutTarget(c.refs, c.hash);
+  const newBranch = async () => {
+    const name = await ask({ text: `Nuovo branch da ${c.hash.slice(0, 8)}`, placeholder: 'feature/…', okLabel: 'Crea' });
+    if (name) await runGit('createBranch', { name, from: c.hash });
+  };
+  const detached = menu ? 'Checkout (detached)' : 'Checkout';
+  return [
+    { label: target !== c.hash ? `Checkout ${target}` : detached, run: () => runGit('checkout', { branch: target }) },
+    { label: menu ? 'Nuovo branch qui…' : 'Nuovo branch qui', run: newBranch },
+    { label: 'Cherry-pick', run: () => runGit('cherryPick', { hash: c.hash }) },
+    { label: 'Revert', run: () => runGit('revert', { hash: c.hash }) },
+  ];
 }
