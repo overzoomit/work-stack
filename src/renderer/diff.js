@@ -174,8 +174,12 @@ function gapHtml(count, from) {
     <span>⋯</span><span>${count} ${count === 1 ? 'riga invariata' : 'righe invariate'}</span></div>`;
 }
 
+// Lines between two hunks that git didn't send (they can't be expanded).
+const missingHtml = (count) =>
+  `<div class="d-gap static"><span>⋯</span><span>${count} ${count === 1 ? 'riga non inclusa' : 'righe non incluse'}</span></div>`;
+
 function sideRow(r, idx) {
-  if (r.type === 'gap') return `<div class="d-gap static"><span>⋯</span><span>${r.count} righe non incluse</span></div>`;
+  if (r.type === 'gap') return missingHtml(r.count);
   let lt = r.l ? esc(r.l.t) : '';
   let rt = r.r ? esc(r.r.t) : '';
   if (r.type === 'mod' && !r.whole) [lt, rt] = wordDiff(r.l.t, r.r.t);
@@ -186,7 +190,7 @@ function sideRow(r, idx) {
 }
 
 function unifiedRows(r, idx) {
-  if (r.type === 'gap') return `<div class="d-gap static"><span>⋯</span><span>${r.count} righe non incluse</span></div>`;
+  if (r.type === 'gap') return missingHtml(r.count);
   const line = (cls, l, rr, sign, t) =>
     `<div class="u-row ${cls}" data-i="${idx}"${cls !== 'ctx' ? ' data-change' : ''}><span class="ln">${l ?? ''}</span><span class="ln">${rr ?? ''}</span><span class="sign">${sign}</span><span class="code">${t || '&nbsp;'}</span></div>`;
   if (r.type === 'ctx') return line('ctx', r.l.n, r.r.n, '', esc(r.l.t));

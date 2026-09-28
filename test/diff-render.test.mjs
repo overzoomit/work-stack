@@ -109,3 +109,13 @@ test('F7 e Shift+F7 visitano i blocchi di modifiche in ordine e ricominciano dal
   assert.deepEqual(visited.filter((v) => typeof v === 'number').filter((v, k, all) => all[k - 1] !== v), [1, 4, 1, 4]);
   assert.ok(visited.includes('flash:4'));
 });
+
+test('il segnaposto delle righe non incluse usa il singolare per una riga (regressione)', () => {
+  for (const mode of ['side', 'unified']) {
+    const box = fakeBox();
+    // Two hunks one line apart: git left out exactly one unchanged line.
+    renderDiff(box, parseDiff('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -3 +3 @@\n-c\n+d\n'), mode);
+    assert.match(box.html(), /1 riga non inclusa/, mode);
+    assert.doesNotMatch(box.html(), /1 righe/, mode);
+  }
+});
