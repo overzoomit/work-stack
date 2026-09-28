@@ -116,14 +116,22 @@ src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
 - `WORK_SCREENSHOT=/tmp/x.png` salva uno screenshot pochi secondi dopo l'avvio.
 - `WORK_EVAL='…'` esegue uno snippet nella pagina dopo l'avvio (utile per test automatici).
 - `WORK_USER_DATA=/tmp/work-test` usa un profilo separato (i progetti salvati non vengono toccati).
+- `performance.getEntriesByName('work:ready')` dà il momento in cui l'avvio è completo.
 
 ## Prestazioni
 
 Tutto il lavoro in background è guidato da eventi, non da polling:
 - sessioni degli agenti: `fs.watch` sui file `.jsonl` (più un controllo completo ogni 60 s);
-- stato git: watcher sulla cartella `.git` più un aggiornamento dopo l'output dei terminali (al massimo ogni 2,5 s);
+- stato git: watcher sulla cartella `.git` più un aggiornamento dopo l'output dei terminali (al massimo ogni 2,5 s
+  per progetto, uno alla volta); uno stage aggiorna solo lo stato, commit/checkout/fetch anche rami e graph;
+  la scansione dei file ignorati e il graph (solo con il suo tab aperto) girano solo negli aggiornamenti completi;
   un controllo di sicurezza ogni 20 s (progetto attivo) / 60 s (altri progetti);
-- cartella corrente dei terminali: letta solo dopo che il terminale ha prodotto output.
+- cartella corrente dei terminali: letta solo per le shell, dopo che hanno prodotto output, senza bloccare il processo principale.
+
+L'output dei terminali viaggia in blocchi (ogni 8 ms o 16 KB) con controllo di flusso: se xterm resta indietro
+di oltre 1 MB la shell viene messa in pausa. La lista degli agenti viene inviata senza eventi (la timeline si
+chiede solo per la sessione selezionata). Diff e anteprime di file grandi vengono inseriti a blocchi, e i blocchi
+fuori schermo non vengono impaginati.
 
 Nell'interfaccia non ci sono animazioni in loop, e la sfocatura (`backdrop-filter`) è usata solo per menu e
 popover temporanei; le liste vengono ridisegnate solo quando il contenuto cambia.
@@ -136,3 +144,14 @@ Misure su Ubuntu 20.04 (Intel UHD 630), un progetto e un terminale aperti:
 | Dopo | ~0,5% | ~205–280 MB |
 
 La memoria di base è quella di Electron; per scendere molto sotto servirebbe passare a Tauri.
+
+Dopo l'audit delle prestazioni (stessa macchina):
+
+| Scenario | Prima | Dopo |
+|---|---|---|
+| 3 terminali che stampano per 12 s: `git status` / `ls-files --ignored` / `pgrep` | 28 / 28 / 25 | 12 / 2 / 3 |
+| Trascinamento splitter / apri-chiudi pannello con 4 terminali: `fit()` | 156 / 140 | 4 / 8 |
+| `seq 1 1000000` (7,9 MB): messaggi IPC | ~6.000 | ~400 |
+| Aggiornamento lista agenti (22 sessioni) | 98 KB | 5,5 KB |
+| Diff di un file nuovo da 20.000 righe: primo disegno / task più lungo | 1.335 / 1.305 ms | 167 / <50 ms |
+| Anteprima sorgente da 38.000 righe: task più lungo | 897 ms | <50 ms |
