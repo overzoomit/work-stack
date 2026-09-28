@@ -12,7 +12,11 @@ async function exists(p) {
   }
 }
 
-async function packageManager(dir) {
+// The "packageManager" field (Corepack) wins, then the lockfile. Only known
+// names are trusted: the value ends up in a shell command.
+async function packageManager(dir, pkg) {
+  const declared = String(pkg.packageManager || '').split('@')[0];
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(declared)) return declared;
   if (await exists(path.join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
   if (await exists(path.join(dir, 'yarn.lock'))) return 'yarn';
   if (await exists(path.join(dir, 'bun.lockb')) || await exists(path.join(dir, 'bun.lock'))) return 'bun';
@@ -36,7 +40,7 @@ async function detect(dir) {
 
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
-    const pm = await packageManager(dir);
+    const pm = await packageManager(dir, pkg);
     const names = Object.keys(pkg.scripts || {}).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
     for (const name of names) add(pm, name, `${pm} run ${shellArg(name)}`);
   } catch {

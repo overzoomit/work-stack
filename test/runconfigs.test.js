@@ -62,3 +62,12 @@ test('rileva Cargo, Django, Go e un solo Docker Compose anche con più file comp
     ['docker:compose up', 'docker compose up'],
   ]);
 });
+
+test('usa il gestore dichiarato in packageManager anche senza lockfile (regressione)', async () => {
+  const dir = folder({ 'package.json': JSON.stringify({ packageManager: 'pnpm@9.1.0', scripts: { dev: 'x' } }) });
+  assert.deepEqual((await detect(dir)).map((c) => c.command), ['pnpm run dev']);
+  const yarn = folder({ 'package.json': JSON.stringify({ packageManager: 'yarn@4.0.2+sha256.abc', scripts: { dev: 'x' } }) });
+  assert.deepEqual((await detect(yarn)).map((c) => c.command), ['yarn run dev']);
+  const weird = folder({ 'package.json': JSON.stringify({ packageManager: 'rm -rf /@1', scripts: { dev: 'x' } }) });
+  assert.deepEqual((await detect(weird)).map((c) => c.command), ['npm run dev'], 'only known managers are trusted');
+});
