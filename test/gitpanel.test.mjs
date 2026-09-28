@@ -27,6 +27,7 @@ const calls = [];
 const statusCalls = [];
 let logCalls = 0;
 let statusGate = null;
+let actionGate = null;
 let statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
 let failCheckout = false;
 globalThis.window = {
@@ -34,6 +35,7 @@ globalThis.window = {
     git: {
       action: async (repo, name, params) => {
         calls.push([name, params]);
+        await actionGate;
         if (name === 'checkout' && failCheckout) throw new Error('local changes would be overwritten');
       },
       status: async (repo, opts) => {
@@ -133,4 +135,22 @@ test('scartare un file non tracciato non chiama git e rimanda al tab Project', a
   assert.ok(onClick, 'the list handles clicks');
   await onClick({ target });
   assert.equal(calls.length, before);
+});
+
+test('un commit che finisce dopo il cambio di progetto non cancella la bozza dell\'altro progetto (regressione)', async () => {
+  statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [{ file: 'a.js', code: 'M' }], unstaged: [], ignored: [] };
+  const p1 = { path: '/p1', root: '/p1' };
+  const p2 = { path: '/p2', root: '/p2', draft: 'bozza di p2' };
+  await showGit(p1);
+  $('#commit-msg').value = 'fix: qualcosa';
+  let finish;
+  actionGate = new Promise((r) => { finish = r; });
+  const committing = $('#commit-btn').onclick();
+  await showGit(p2); // the user switches project while git commits
+  finish();
+  actionGate = null;
+  await committing;
+  assert.equal(p2.draft, 'bozza di p2');
+  assert.equal($('#commit-msg').value, 'bozza di p2', 'the message box still shows p2\'s draft');
+  assert.equal(p1.draft, '', 'the committed project\'s draft is cleared');
 });

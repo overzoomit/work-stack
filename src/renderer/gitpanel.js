@@ -221,13 +221,15 @@ export async function runGit(name, params = {}, { quiet = false, button = null, 
 }
 
 async function commit() {
+  const project = active; // the user may switch project while git commits
   const message = $('#commit-msg').value.trim();
   const amend = $('#amend').checked;
   if (!message) return toast('Scrivi un messaggio di commit.', { error: true });
-  if (!amend && !active?.gitStatus?.staged.length) return toast('Niente in stage: aggiungi dei file prima.', { error: true });
+  if (!amend && !project?.gitStatus?.staged.length) return toast('Niente in stage: aggiungi dei file prima.', { error: true });
   if (await runGit('commit', { message, amend }, { button: $('#commit-btn') })) {
+    project.draft = '';
+    if (project !== active) return;
     $('#commit-msg').value = '';
-    active.draft = '';
     $('#amend').checked = false;
   }
 }
