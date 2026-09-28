@@ -205,3 +205,18 @@ test('un file in conflitto non offre "Scarta" (git non può) ma solo lo stage pe
   assert.ok(items['Metti in stage']);
   assert.ok(!items['Scarta modifiche…']);
 });
+
+test('spuntando Amend con il messaggio vuoto si precompila il messaggio dell\'ultimo commit (regressione)', async () => {
+  statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
+  const p = { path: '/am', root: '/am' };
+  await showGit(p);
+  $('#commit-msg').value = '';
+  $('#amend').checked = true;
+  await $('#amend').onchange();
+  assert.equal($('#commit-msg').value, 'primo', 'the last commit\'s message, ready to edit');
+  assert.equal(p.draft, 'primo');
+
+  $('#commit-msg').value = 'già scritto';
+  await $('#amend').onchange();
+  assert.equal($('#commit-msg').value, 'già scritto', 'a message being written is never replaced');
+});

@@ -37,6 +37,15 @@ export function initGit({ statusChanged }) {
   $('#commit-msg').addEventListener('input', (e) => {
     if (active) active.draft = e.target.value;
   });
+  // Amend starts from the last commit's message, as in WebStorm.
+  $('#amend').onchange = async () => {
+    const project = active;
+    if (!$('#amend').checked || !project?.root || $('#commit-msg').value.trim()) return;
+    const last = await work.git.commit(project.root, 'HEAD').catch(() => null);
+    if (!last || project !== active || $('#commit-msg').value.trim()) return;
+    $('#commit-msg').value = last.message;
+    project.draft = last.message;
+  };
   $('#branch-select').onchange = async (e) => {
     const branch = e.target.value;
     const current = active?.gitStatus?.branch.name;
