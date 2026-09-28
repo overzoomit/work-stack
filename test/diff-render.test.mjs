@@ -87,3 +87,25 @@ test('in modalità unificata le righe che git non ha inviato compaiono come segn
   renderDiff(box, parsed, 'unified');
   assert.match(box.html(), /d-gap static[\s\S]*48 righe non incluse/);
 });
+
+test('F7 e Shift+F7 visitano i blocchi di modifiche in ordine e ricominciano dall\'inizio', async () => {
+  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+  const visited = [];
+  const rowFor = (i) => ({
+    scrollIntoView: () => visited.push(i),
+    getBoundingClientRect: () => ({ top: 100 }), // settled on the first check
+    classList: { add: (c) => c === 'flash' && visited.push(`flash:${i}`), remove() {} },
+    offsetWidth: 1,
+  });
+  const box = fakeBox();
+  box.querySelector = (sel) => rowFor(Number(sel.match(/data-i="(\d+)"/)[1]));
+  // Change blocks start at rows 1 (b → b2) and 4 (e → e2, then + f on row 5).
+  const nav = renderDiff(box, diff(' a\n-b\n+b2\n c\n d\n-e\n+e2\n+f'), 'side');
+  assert.equal(nav.count, 2);
+  await nav.next();
+  await nav.next();
+  await nav.next(); // wraps to the first block
+  await nav.prev(); // back to the last
+  assert.deepEqual(visited.filter((v) => typeof v === 'number').filter((v, k, all) => all[k - 1] !== v), [1, 4, 1, 4]);
+  assert.ok(visited.includes('flash:4'));
+});
