@@ -74,10 +74,11 @@ register(`data:text/javascript,${encodeURIComponent(`
 
 let nextId = 1;
 const killed = [];
+const created = [];
 globalThis.window = {
   work: {
     pty: {
-      create: async () => nextId++, write() {}, resize() {}, ack() {}, kill: (id) => killed.push(id),
+      create: async (opts) => { created.push(opts); return nextId++; }, write() {}, resize() {}, ack() {}, kill: (id) => killed.push(id),
       onData() {}, onExit() {},
     },
     app: { openExternal() {} },
@@ -148,4 +149,34 @@ test('"cerca di nuovo gli agenti" non riapre il menu se nel frattempo è stato c
   finish(['claude']);
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(pops().length, 0, 'the menu stays closed');
+});
+
+test('Claude Code parte sempre in bypass permessi: dal menu, con Continua e con Riprendi', async () => {
+  const L = await import('../src/renderer/launcher.js');
+  const p = { path: '/p', name: 'p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  L.initLauncher({ activeProject: () => p });
+  const press = () => document.querySelector('#new-agent').onpointerdown({ button: 0, stopPropagation() {} });
+  const menu = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing')).at(-1);
+  const clickRow = async (id, extra = null) => {
+    agentsReply = Promise.resolve(['claude', 'codex']);
+    press();
+    await new Promise((r) => setTimeout(r, 10));
+    const row = { dataset: { id }, classList: { contains: () => false } };
+    menu().listeners.click[0]({ target: { closest: (sel) => (sel === '.ap-row' ? row : sel === extra ? {} : null) } });
+    await new Promise((r) => setTimeout(r, 10));
+    return created.at(-1);
+  };
+
+  const claude = await clickRow('claude');
+  assert.equal(claude.command, 'claude --dangerously-skip-permissions');
+  assert.equal((await clickRow('claude', '[data-continue]')).command, 'claude --continue --dangerously-skip-permissions');
+  assert.equal((await clickRow('codex')).command, 'codex', 'other agents start as they are');
+
+  const uuid = '12345678-1234-1234-1234-123456789abc';
+  const t = await L.resumeClaude(p, '/p', uuid, 'sessione');
+  assert.equal(created.at(-1).command, `claude --resume ${uuid} --dangerously-skip-permissions`);
+  assert.match(t.el.innerHTML, /bypass permessi/, 'the pane shows the bypass badge');
+  assert.throws(() => L.resumeClaude(p, '/p', 'x; rm -rf ~', 't'), /ID di sessione non valido/);
+  await new Promise((r) => setTimeout(r, 700));
 });
