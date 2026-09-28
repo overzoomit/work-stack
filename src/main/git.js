@@ -28,6 +28,27 @@ async function root(cwd) {
   }
 }
 
+// "## <branch>[...<upstream>][ [ahead N, behind M]]" from `git status -b`.
+// Branch names may contain dots (release/1.2) but never spaces or "...".
+function parseBranchHeader(head) {
+  let rest = head.replace(/^## /, '');
+  let info = '';
+  const bracket = rest.match(/ \[([^\]]*)\]$/);
+  if (bracket) {
+    info = bracket[1];
+    rest = rest.slice(0, bracket.index);
+  }
+  rest = rest.replace(/^(No commits yet on|Initial commit on) /, '');
+  const detached = !rest || rest.startsWith('HEAD (no branch)');
+  const [name, upstream] = detached ? ['HEAD', null] : rest.split('...');
+  return {
+    name,
+    upstream: upstream || null,
+    ahead: Number(info.match(/ahead (\d+)/)?.[1] || 0),
+    behind: Number(info.match(/behind (\d+)/)?.[1] || 0),
+  };
+}
+
 async function status(repo) {
   const [out, ign] = await Promise.all([
     git(repo, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all']),
@@ -35,14 +56,7 @@ async function status(repo) {
     git(repo, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']).catch(() => ''),
   ]);
   const entries = out.split('\0').filter(Boolean);
-  const head = entries.shift() || '';
-  // "## main...origin/main [ahead 1, behind 2]"
-  const m = head.match(/^## (?:No commits yet on )?([^.\s]+)(?:\.\.\.(\S+))?(?: \[(.*)\])?/);
-  const branch = { name: m?.[1] || 'HEAD', upstream: m?.[2] || null, ahead: 0, behind: 0 };
-  if (m?.[3]) {
-    branch.ahead = Number(m[3].match(/ahead (\d+)/)?.[1] || 0);
-    branch.behind = Number(m[3].match(/behind (\d+)/)?.[1] || 0);
-  }
+  const branch = parseBranchHeader(entries.shift() || '');
 
   const staged = [];
   const unstaged = [];
@@ -194,4 +208,4 @@ async function action(repo, name, params = {}) {
   return actions[name](repo, params);
 }
 
-module.exports = { root, status, log, branches, action, commit, containing, fileDiff };
+module.exports = { root, status, log, branches, action, commit, containing, fileDiff, parseBranchHeader };
