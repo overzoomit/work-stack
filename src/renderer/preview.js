@@ -4,6 +4,7 @@
 import { marked } from '../../node_modules/marked/lib/marked.esm.js';
 import DOMPurify from '../../node_modules/dompurify/dist/purify.es.mjs';
 import { $, $$, esc, dirname, leave, toastError } from './ui.js';
+import { insertChunked, resetChunks } from './chunks.js';
 
 const { work } = window;
 
@@ -34,8 +35,12 @@ function setView(kind, v) {
   }
 }
 
-function sourceHtml(text) {
-  return `<div class="pv">${text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span><span class="code">${esc(l) || '&nbsp;'}</span>`).join('')}</div>`;
+// Up to 1 MB of text: inserted in blocks so large files open without freezing.
+function drawSource(body, text) {
+  const lines = text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span><span class="code">${esc(l) || '&nbsp;'}</span>`);
+  body.innerHTML = '<div class="pv-source"></div>';
+  const host = body.firstChild;
+  insertChunked(body, lines, { size: 500, className: 'pv', place: (el) => host.append(el) });
 }
 
 function markdownHtml(text, path) {
@@ -69,7 +74,8 @@ function draw() {
   body.scrollTop = 0;
   body.classList.toggle('rendered', view === 'rendered');
 
-  if (view === 'source') body.innerHTML = sourceHtml(text);
+  resetChunks(body);
+  if (view === 'source') drawSource(body, text);
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
   else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.

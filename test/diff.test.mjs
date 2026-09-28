@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDiff } from '../src/renderer/diff.js';
+import { parseDiff, changeStarts } from '../src/renderer/diff.js';
 
 const hunk = (body, header = '@@ -1,3 +1,3 @@') => `diff --git a/f b/f\n--- a/f\n+++ b/f\n${header}\n${body}\n`;
 
@@ -61,4 +61,11 @@ test('la riga "\\ No newline at end of file" viene ignorata', () => {
   const { rows } = parseDiff(hunk('-a\n\\ No newline at end of file\n+a\n', '@@ -1 +1 @@'));
   assert.equal(rows.length, 1);
   assert.equal(rows[0].type, 'mod');
+});
+
+test('changeStarts trova l\'inizio di ogni blocco di modifiche consecutive', () => {
+  const t = (type) => ({ type });
+  const rows = [t('ctx'), t('add'), t('add'), t('ctx'), t('gap'), t('del'), t('mod'), t('ctx'), t('add')];
+  assert.deepEqual(changeStarts(rows), [1, 5, 8]);
+  assert.deepEqual(changeStarts([t('ctx'), t('gap')]), []);
 });

@@ -1,6 +1,7 @@
 // Turns a unified git diff (with full-file context) into aligned rows and
 // renders them side-by-side (old | new) or unified, WebStorm style.
 import { esc } from './escape.js';
+import { insertChunked, resetChunks } from './chunks.js';
 
 const CONTEXT = 4;
 
@@ -206,7 +207,9 @@ export function renderDiff(box, parsed, mode = 'side') {
     i = j;
   }
   box.className = `diff ${mode}`;
-  box.innerHTML = out.join('');
+  box.innerHTML = '';
+  resetChunks(box);
+  insertChunked(box, out, { className: 'd-chunk', place: (el) => box.append(el) });
 
   // Expand a collapsed run in place.
   box.onclick = (e) => {
@@ -214,25 +217,42 @@ export function renderDiff(box, parsed, mode = 'side') {
     if (!gap) return;
     const from = Number(gap.dataset.from);
     const count = Number(gap.dataset.count);
-    const html = rows.slice(from, from + count).map((r, k) => render(r, from + k)).join('');
-    gap.insertAdjacentHTML('afterend', html);
-    gap.remove();
+    const html = rows.slice(from, from + count).map((r, k) => render(r, from + k));
+    insertChunked(box, html, { className: 'd-chunk', place: (el) => gap.replaceWith(el) });
   };
 
-  // Change blocks = first row of each consecutive run of changed rows.
-  const blocks = () => [...box.querySelectorAll('[data-change]')].filter((el) => {
-    const prev = el.previousElementSibling;
-    return !prev || !prev.hasAttribute('data-change');
-  });
+  // Change blocks = first row of each consecutive run of changed rows,
+  // computed once from the data (rows may still be streaming into the DOM).
+  const starts = changeStarts(rows);
   let cur = -1;
-  const go = (d) => {
-    const b = blocks();
-    if (!b.length) return;
-    cur = (cur + d + b.length) % b.length;
-    b[cur].scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-    b[cur].classList.remove('flash');
-    void b[cur].offsetWidth;
-    b[cur].classList.add('flash');
+  const go = async (d) => {
+    if (!starts.length) return;
+    cur = (cur + d + starts.length) % starts.length;
+    const el = box.querySelector(`[data-i="${starts[cur]}"]`);
+    if (!el) return; // its block hasn't been inserted yet
+    // Off-screen blocks have an estimated height until they are shown, so the
+    // first jump can land a little off: re-center once the blocks around the
+    // target have been laid out. The flash marks the row instead of a smooth scroll.
+    let lastTop = null;
+    for (let i = 0; i < 5; i++) {
+      el.scrollIntoView({ block: 'center' });
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+      const top = el.getBoundingClientRect().top;
+      if (top === lastTop) break; // settled (or the scroll is at its end)
+      lastTop = top;
+    }
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
   };
-  return { next: () => go(1), prev: () => go(-1), count: blocks().length };
+  return { next: () => go(1), prev: () => go(-1), count: starts.length };
+}
+
+const isChange = (r) => !!r && r.type !== 'ctx' && r.type !== 'gap';
+
+export function changeStarts(rows) {
+  const starts = [];
+  for (let i = 0; i < rows.length; i++) if (isChange(rows[i]) && !isChange(rows[i - 1])) starts.push(i);
+  return starts;
 }

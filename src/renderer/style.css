@@ -424,13 +424,14 @@ body.panel-hidden .layout { --right: 0px; }
 /* Diff body */
 .diff { flex: 1; overflow: auto; font: 12px/1.6 var(--mono); user-select: text; transition: opacity 120ms ease-out; }
 .diff.loading { opacity: .4; }
+.d-chunk, .pv { content-visibility: auto; contain-intrinsic-size: auto 7700px; } /* ~400 rows: off-screen blocks skip layout */
 .d-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px minmax(0, 1fr); }
 .u-row { display: grid; grid-template-columns: 52px 52px 18px minmax(0, 1fr); }
 .diff .ln { color: #5b6072; text-align: right; padding-right: 10px; user-select: none; font-size: 11px; }
 .diff .code { white-space: pre-wrap; word-break: break-all; padding-right: 12px; color: var(--text-2); }
 .d-row .code.r { box-shadow: inset 1px 0 0 var(--line); padding-left: 8px; }
 .d-row .code.l { padding-left: 8px; }
-.d-row + .d-row .ln:nth-of-type(3) { box-shadow: inset 1px 0 0 var(--line); }
+.d-row + .d-row .ln:nth-of-type(3), .d-chunk + .d-chunk > .d-row:first-child .ln:nth-of-type(3) { box-shadow: inset 1px 0 0 var(--line); }
 .d-row.del .l, .u-row.del .code { background: var(--diff-del); }
 .d-row.add .r, .u-row.add .code { background: var(--diff-add); }
 .d-row.mod .l { background: var(--diff-del); }
@@ -458,7 +459,8 @@ body.panel-hidden .layout { --right: 0px; }
 .viewer-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 18px; box-shadow: inset 0 -1px 0 var(--line); }
 .viewer-title { font: 500 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .viewer-body { flex: 1; overflow: auto; user-select: text; position: relative; }
-.pv { display: grid; grid-template-columns: 52px minmax(0, 1fr); font: 12px/1.6 var(--mono); padding: 10px 0; }
+.pv-source { padding: 10px 0; }
+.pv { display: grid; grid-template-columns: 52px minmax(0, 1fr); font: 12px/1.6 var(--mono); }
 .pv .ln { color: #5b6072; text-align: right; padding-right: 12px; user-select: none; font-size: 11px; }
 .pv .code { white-space: pre-wrap; word-break: break-all; padding-right: 16px; color: var(--text-2); }
 .html-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
