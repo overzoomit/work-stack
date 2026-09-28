@@ -238,6 +238,7 @@ async function openMenu() {
     }
     if (e.target.closest('.ap-rescan')) {
       refreshInstalled().then(() => {
+        if (!pop) return; // closed meanwhile: don't bring it back
         closePop();
         openMenu();
       });

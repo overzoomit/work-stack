@@ -20,7 +20,8 @@ class El {
   }
   set innerHTML(v) { this.html = v; this.parts.clear(); }
   get innerHTML() { return this.html; }
-  set className(v) { this.classList = new ClassList(); v.split(/\s+/).filter(Boolean).forEach((c) => this.classList.add(c)); }
+  set className(v) { this.cls = v; this.classList = new ClassList(); v.split(/\s+/).filter(Boolean).forEach((c) => this.classList.add(c)); }
+  get className() { return this.cls; }
   querySelector(s) { if (!this.parts.has(s)) this.parts.set(s, new El()); return this.parts.get(s); }
   querySelectorAll() { return []; }
   appendChild(c) { c.remove(); c.parent = this; this.children.push(c); return c; }
@@ -31,6 +32,10 @@ class El {
   get offsetParent() { return this.parent; }
   get offsetWidth() { return 100; }
   getClientRects() { return this.parent ? [{}] : []; }
+  getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }; }
+  setAttribute() {}
+  scrollIntoView() {}
+  contains() { return false; }
 }
 
 const nodes = new Map();
@@ -39,9 +44,11 @@ globalThis.document = {
   querySelector: (s) => { if (!nodes.has(s)) nodes.set(s, new El()); return nodes.get(s); },
   querySelectorAll: () => [],
   documentElement: new El(),
+  body: new El(),
 };
 globalThis.getComputedStyle = () => ({ animationName: 'pane-out', getPropertyValue: () => 'monospace' });
 globalThis.addEventListener = () => {};
+globalThis.removeEventListener = () => {};
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.ResizeObserver = class { observe() {} };
 
@@ -74,8 +81,11 @@ globalThis.window = {
       onData() {}, onExit() {},
     },
     app: { openExternal() {} },
+    agents: { available: () => agentsReply },
   },
 };
+let agentsReply = Promise.resolve(['claude']);
+globalThis.innerWidth = 1200;
 
 const T = await import('../src/renderer/terminals.js');
 T.initTerminals({ homeDir: '/home/u', changed() {} });
@@ -117,4 +127,25 @@ test('spostando il terminale con il focus in un altro progetto, il focus resta v
   T.closeTerminal(a.id);
   T.closeTerminal(b.id);
   await new Promise((r) => setTimeout(r, 700));
+});
+
+test('"cerca di nuovo gli agenti" non riapre il menu se nel frattempo è stato chiuso (regressione)', async () => {
+  const L = await import('../src/renderer/launcher.js');
+  const p = { path: '/p', name: 'p', focusedId: null, maximizedId: null };
+  L.initLauncher({ activeProject: () => p });
+  const button = document.querySelector('#new-agent');
+  const press = () => button.onpointerdown({ button: 0, stopPropagation() {} });
+  press(); // open
+  await new Promise((r) => setTimeout(r, 10));
+  const pops = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing'));
+  assert.equal(pops().length, 1);
+
+  let finish;
+  agentsReply = new Promise((r) => { finish = r; });
+  const rescan = { closest: (sel) => (sel === '.ap-rescan' ? {} : null) };
+  pops()[0].listeners.click[0]({ target: rescan });
+  press(); // closed by hand while the search runs
+  finish(['claude']);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(pops().length, 0, 'the menu stays closed');
 });
