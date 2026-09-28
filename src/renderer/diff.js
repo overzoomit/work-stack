@@ -58,19 +58,19 @@ export function parseDiff(text) {
 // Words and single punctuation marks, whitespace dropped.
 const tokens = (line) => line.match(/\w+|[^\w\s]/g) || [];
 
-// Similarity of two lines (0..1) from their shared word tokens. Tokens are
-// small integers (see align); `counts` is a zeroed scratch array, left zeroed.
-function similarity(ta, tb, counts) {
+// Similarity of two lines (0..1) from their shared word tokens, counted with
+// repeats. Both token lists are sorted, so a single merge pass finds them.
+function similarity(ta, tb) {
   if (!ta.length && !tb.length) return 1;
-  for (const t of ta) counts[t]++;
   let common = 0;
-  for (const t of tb) {
-    if (counts[t] > 0) {
+  for (let i = 0, j = 0; i < ta.length && j < tb.length;) {
+    if (ta[i] === tb[j]) {
       common++;
-      counts[t]--;
-    }
+      i++;
+      j++;
+    } else if (ta[i] < tb[j]) i++;
+    else j++;
   }
-  for (const t of ta) counts[t] = 0;
   return (2 * common) / (ta.length + tb.length);
 }
 
@@ -78,7 +78,6 @@ function similarity(ta, tb, counts) {
 // matching lines that actually resemble each other (like WebStorm).
 // Unmatched lines stay as pure deletions / additions.
 const MIN_SIM = 0.4;
-const tokenIds = new Map(); // reused by every block: cleared, never reallocated
 function align(dels, adds) {
   const n = dels.length;
   const m = adds.length;
@@ -87,26 +86,17 @@ function align(dels, adds) {
     // Huge block: plain positional pairing.
     return Array.from({ length: Math.max(n, m) }, (_, k) => [dels[k] || null, adds[k] || null]);
   }
-  // Each line is tokenized once and its tokens mapped to integers, so the
-  // n × m comparisons count with a typed array instead of building maps.
-  const ids = tokenIds;
-  ids.clear();
-  const toIds = (line) => tokens(line).map((t) => {
-    let id = ids.get(t);
-    if (id === undefined) ids.set(t, (id = ids.size));
-    return id;
-  });
-  const addTokens = adds.map((a) => toIds(a.t));
-  const delTokens = dels.map((d) => toIds(d.t));
-  const counts = new Int32Array(ids.size);
+  // Each line is tokenized and sorted once, then compared n × m times.
+  const addTokens = adds.map((a) => tokens(a.t).sort());
+  const delTokens = dels.map((d) => tokens(d.t).sort());
   if (n === 1 && m === 1) {
     // The common one-line edit ends up on one row either way (see the folding
     // below): with word highlights only when the two lines are alike.
     const row = [dels[0], adds[0]];
-    row.whole = similarity(delTokens[0], addTokens[0], counts) < MIN_SIM;
+    row.whole = similarity(delTokens[0], addTokens[0]) < MIN_SIM;
     return [row];
   }
-  const sim = delTokens.map((dt) => addTokens.map((at) => similarity(dt, at, counts)));
+  const sim = delTokens.map((dt) => addTokens.map((at) => similarity(dt, at)));
   // score[i][j] = best total similarity using dels[i..] and adds[j..]
   const score = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
