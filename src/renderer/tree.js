@@ -63,6 +63,9 @@ export class ProjectTree {
       this.ignored = st.ignored.map((rel) => `${gitRoot}/${rel}`);
     }
     this.render();
+    // A status change usually means files appeared or went away (an agent, a
+    // command in a terminal): re-read the open folders, repainting only if needed.
+    if (st) this.reload();
   }
 
   isIgnored(p) {

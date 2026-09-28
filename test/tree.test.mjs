@@ -127,3 +127,14 @@ test('riaprendo una cartella se ne rilegge il contenuto: i file creati nel fratt
   await tree.toggle('/s/src'); // open again
   assert.deepEqual(tree.children.get('/s/src').map((e) => e.name), ['a.js', 'nuovo.js']);
 });
+
+test('quando lo stato git cambia, le cartelle aperte si rileggono: un file nuovo compare anche nell\'albero (regressione)', async () => {
+  disk.set('/t', [file('/t/a.js')]);
+  const tree = new ProjectTree({ path: '/t', name: 't' }, {});
+  await tree.load('/t');
+  disk.set('/t', [file('/t/a.js'), file('/t/nuovo.txt')]); // an agent creates a file
+  tree.setGitStatus({ staged: [], unstaged: [{ file: 'nuovo.txt', code: 'U' }], ignored: [] }, '/t');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(tree.children.get('/t').map((e) => e.name), ['a.js', 'nuovo.txt']);
+  assert.equal(tree.vcs.get('/t/nuovo.txt'), 'new');
+});
