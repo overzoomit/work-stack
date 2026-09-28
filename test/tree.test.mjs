@@ -115,3 +115,15 @@ test('l\'albero disegna righe con rientri, stato git, file ignorati e nascosti, 
   assert.match(row('/w/app.ts'), /data-ext="ts"/);
   assert.ok(rows.some((r) => r.includes('tn loading') && r.includes('--depth:2')), 'unloaded open folder shows "…"');
 });
+
+test('riaprendo una cartella se ne rilegge il contenuto: i file creati nel frattempo compaiono (regressione)', async () => {
+  disk.set('/s', [dir('/s/src')]);
+  disk.set('/s/src', [file('/s/src/a.js')]);
+  const tree = new ProjectTree({ path: '/s', name: 's' }, {});
+  await tree.load('/s');
+  await tree.toggle('/s/src'); // open
+  await tree.toggle('/s/src'); // close
+  disk.set('/s/src', [file('/s/src/a.js'), file('/s/src/nuovo.js')]); // an agent writes a file
+  await tree.toggle('/s/src'); // open again
+  assert.deepEqual(tree.children.get('/s/src').map((e) => e.name), ['a.js', 'nuovo.js']);
+});

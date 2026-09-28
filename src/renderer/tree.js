@@ -139,10 +139,10 @@ export class ProjectTree {
       this.expanded.delete(p);
     } else {
       this.expanded.add(p);
-      if (!this.children.has(p)) {
-        this.render(); // show the folder open immediately, children follow
-        await this.load(p);
-      }
+      // Open at once with what is known ("…" the first time), then re-read:
+      // files may have appeared while the folder was closed.
+      this.render();
+      await this.load(p);
     }
     this.render();
   }
