@@ -199,3 +199,22 @@ test('se il transcript viene riscritto da capo, la riga incompleta precedente no
   s.read();
   assert.deepEqual(s.events.map((e) => e.text), ['primo', 'nuovo inizio']);
 });
+
+test('una raffica di scritture su un transcript produce un solo aggiornamento con tutti i messaggi', async (t) => {
+  const dir = path.join(PROJECTS, '-proj-live');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = '77777777-7777-7777-7777-777777777777';
+  const file = path.join(dir, `${id}.jsonl`);
+  fs.writeFileSync(file, user('inizio'));
+  const updates = [];
+  const w = new AgentWatcher((list) => updates.push(list));
+  t.after(() => w.stop());
+  w.start();
+  await new Promise((r) => setTimeout(r, 150));
+  updates.length = 0;
+  for (const text of ['uno', 'due', 'tre']) fs.appendFileSync(file, user(text)); // streaming reply
+  await new Promise((r) => setTimeout(r, 700));
+  assert.equal(updates.length, 1, 'writes within 250 ms are coalesced');
+  assert.equal(updates[0].find((a) => a.id === id).eventSeq, 4);
+  assert.deepEqual(w.events(id).map((e) => e.text), ['inizio', 'uno', 'due', 'tre']);
+});
