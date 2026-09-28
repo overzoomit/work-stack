@@ -5,7 +5,8 @@
   "description": "Work — terminali, git e agenti in un'unica dashboard",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test \"test/*.test.{js,mjs}\""
   },
   "license": "UNLICENSED",
   "dependencies": {

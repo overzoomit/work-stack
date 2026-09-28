@@ -51,6 +51,18 @@ Requisiti: Node 20+, `git`, `python3` (usato per la PTY, presente di serie su Li
   degli agenti (sinistra) o un pallino se ci sono modifiche git (destra).
 - **↻ Aggiorna** (F5) ricarica albero, git e comandi rilevati.
 
+## Test
+
+```bash
+npm test
+```
+
+Usa il test runner integrato di Node (nessuna dipendenza). Copre la logica senza interfaccia:
+diff e allineamento delle righe, layout del graph, letture git (su repository temporanei reali),
+protezione dei percorsi del Project tree (symlink compresi), watcher delle sessioni agenti, PTY e
+rilevamento dei comandi Run. I test marcati "regressione" falliscono sul codice precedente alle
+rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'app.
+
 ## Scorciatoie
 
 | Tasti | Azione |

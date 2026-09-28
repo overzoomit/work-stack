@@ -296,4 +296,4 @@ class AgentWatcher {
   }
 }
 
-module.exports = { AgentWatcher };
+module.exports = { AgentWatcher, Session, SESSION_FILE };
