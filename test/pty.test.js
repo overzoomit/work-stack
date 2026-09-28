@@ -168,3 +168,14 @@ test('tasti e ridimensionamenti inviati mentre la shell esce non fanno crashare 
   }
   assert.equal(crash, null, crash && `${crash.code} ${crash.message}`);
 });
+
+test('se il terminale non può partire (python3 assente) si chiude con 127 invece di far crashare Work', async () => {
+  const saved = process.env.PATH;
+  process.env.PATH = '/percorso/vuoto';
+  try {
+    const code = await new Promise((resolve) => new PtyManager().create({ cwd: '/tmp', cols: 80, rows: 24 }, () => {}, (_id, c) => resolve(c)));
+    assert.equal(code, 127);
+  } finally {
+    process.env.PATH = saved;
+  }
+});

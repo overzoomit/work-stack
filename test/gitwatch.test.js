@@ -59,3 +59,14 @@ test('anche in un git worktree (dove .git è un file) uno stage e un commit veng
   assert.deepEqual(await eventsAfter(wt, () => run('add', 'a.txt')), ['index']);
   assert.deepEqual(await eventsAfter(wt, () => run('commit', '-qm', 'dal worktree')), ['full']);
 });
+
+test('un file .git illeggibile o anomalo non fa fallire il watcher', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-badgit-'));
+  fs.writeFileSync(path.join(dir, '.git'), 'non è un puntatore gitdir\n');
+  const kinds = [];
+  const w = new GitWatcher((_repo, kind) => kinds.push(kind));
+  assert.doesNotThrow(() => w.watch(dir));
+  assert.doesNotThrow(() => w.watch(fs.mkdtempSync(path.join(os.tmpdir(), 'work-nogit-'))));
+  w.stop();
+  assert.deepEqual(kinds, []);
+});
