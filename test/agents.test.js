@@ -145,3 +145,48 @@ test('con lo stesso id in due cartelle, gli eventi sono quelli della sessione pi
   sessions.find((s) => s.events[0].text === 'vecchia').mtime = Date.now() - 3600 * 1000;
   assert.deepEqual(w.events(id).map((e) => e.text), ['nuova']);
 });
+
+const toolResult = (isError, text) => line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', is_error: isError, content: [{ type: 'text', text }] }] } });
+const toolCall = (name, input, usage) => line({ type: 'assistant', message: { role: 'assistant', stop_reason: 'tool_use', usage, content: [{ type: 'tool_use', name, input }] } });
+
+test('il riepilogo di un tool mostra il campo più utile del suo input', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`,
+    toolCall('Read', { file_path: '/src/a.js', limit: 10 }),
+    toolCall('Grep', { pattern: 'TODO', path: '.' }),
+    toolCall('Custom', { x: 1 }),
+    toolCall('Empty', {})));
+  s.read();
+  assert.deepEqual(s.events.map((e) => [e.tool, e.text]), [['Read', '/src/a.js'], ['Grep', 'TODO'], ['Custom', '{"x":1}'], ['Empty', '']]);
+});
+
+test('un tool fallito diventa un evento di errore, un tool riuscito no', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, toolCall('Bash', { command: 'ls' }), toolResult(true, 'permesso negato'), toolResult(false, 'ok')));
+  s.read();
+  assert.deepEqual(s.events.map((e) => [e.kind, e.text]), [['tool', 'ls'], ['error', 'permesso negato']]);
+  assert.equal(s.status.label, 'Sta ragionando…', 'a tool result means the model is thinking again');
+});
+
+test('promemoria di sistema e messaggi dei sotto-agenti non entrano nella timeline', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`,
+    user('<system-reminder>ignora</system-reminder>'),
+    line({ type: 'user', isSidechain: true, message: { role: 'user', content: 'dal sotto-agente' } }),
+    user('vero messaggio')));
+  s.read();
+  assert.deepEqual(s.events.map((e) => e.text), ['vero messaggio']);
+  assert.equal(s.toJSON().title, 'vero messaggio');
+});
+
+test('i token di contesto sommano input, cache e output dell\'ultima risposta', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, toolCall('Bash', { command: 'x' }, { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200, output_tokens: 5 })));
+  s.read();
+  assert.equal(s.toJSON().tokens, 1215);
+});
+
+test('lo stato passa ad "attende permesso" dopo 15 s su un tool e a "inattivo" dopo 10 minuti', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, toolCall('Bash', { command: 'rm -rf build' })));
+  s.read();
+  s.mtime = Date.now() - 16 * 1000;
+  assert.deepEqual(s.status, { state: 'blocked', label: 'Attende permesso: Bash' });
+  s.mtime = Date.now() - 11 * 60 * 1000;
+  assert.equal(s.status.state, 'idle');
+});
