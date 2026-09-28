@@ -26,14 +26,18 @@ export class ProjectTree {
     }
   }
 
+  // Runs on every window focus: re-reads the open folders but only repaints
+  // when something in them actually changed.
   async reload() {
     const dirs = [...this.expanded].filter((d) => d === this.project.path || this.children.has(d));
+    const snapshot = () => JSON.stringify(dirs.map((d) => this.children.get(d)));
+    const before = snapshot();
     await Promise.all(dirs.map((d) => this.load(d)));
     // Drop expanded folders that no longer exist.
     for (const d of this.expanded) {
       if (d !== this.project.path && !this.find(d)) this.expanded.delete(d);
     }
-    this.render();
+    if (snapshot() !== before) this.render();
   }
 
   find(p) {
