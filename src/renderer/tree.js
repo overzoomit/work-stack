@@ -334,8 +334,9 @@ export class ProjectTree {
         else if (p !== this.project.path) this.select(dirname(p));
       },
       Enter: () => this.open(p),
-      F2: () => this.rename(p),
-      Delete: () => this.trash(p),
+      // Like the context menu: the project folder itself can't be renamed or trashed.
+      F2: () => p !== this.project.path && this.rename(p),
+      Delete: () => p !== this.project.path && this.trash(p),
     }[e.key];
     if (handled) {
       e.preventDefault();

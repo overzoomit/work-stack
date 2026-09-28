@@ -110,6 +110,7 @@ async function create(parent, name, dir) {
 async function rename(from, name) {
   checkName(name);
   const src = await guard(from, { follow: false });
+  if (await isRoot(src)) throw new Error('Non puoi rinominare la cartella del progetto.');
   const dest = await guard(path.join(path.dirname(src), name), { follow: false });
   if (dest === src) return dest;
   if (await exists(dest)) throw new Error(`Esiste già: ${name}`);
@@ -119,6 +120,7 @@ async function rename(from, name) {
 
 async function move(from, toDir) {
   const src = await guard(from, { follow: false });
+  if (await isRoot(src)) throw new Error('Non puoi spostare la cartella del progetto.');
   const destDir = await guard(toDir, { follow: true });
   const dest = path.join(destDir, path.basename(src));
   if (dest === src) return dest;

@@ -144,3 +144,10 @@ test('mostra nel file manager solo elementi del progetto', async () => {
   await assert.rejects(fsops.reveal(path.join(outside, 'secret.txt')), /fuori dai progetti/);
   assert.equal(shellCalls.length, 1);
 });
+
+test('la cartella del progetto non si può rinominare né spostare, da nessuna via (regressione)', async () => {
+  await assert.rejects(fsops.rename(project, 'altro-nome'), /cartella del progetto/);
+  fs.mkdirSync(path.join(project, 'dentro'));
+  await assert.rejects(fsops.move(project, path.join(project, 'dentro')), /cartella del progetto|dentro sé stessa/);
+  assert.ok(fs.existsSync(path.join(project, 'src', 'a.txt')), 'the project is where it was');
+});
