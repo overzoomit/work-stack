@@ -584,7 +584,11 @@ addEventListener('keydown', (e) => {
     resume: async (a) => {
       const p = projectFor(a.cwd) || await addProject((await work.git.root(a.cwd)) || a.cwd, { withTerminal: false });
       if (p !== active) await activateProject(p);
-      resumeClaude(p, a.cwd, a.id, a.title.slice(0, 40));
+      try {
+        resumeClaude(p, a.cwd, a.id, a.title.slice(0, 40));
+      } catch (e) {
+        toastError(e);
+      }
     },
     shellAt: (cwd) => active && openTerminal(projectFor(cwd) || active, { cwd }),
     openRepo: async (cwd) => {

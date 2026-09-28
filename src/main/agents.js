@@ -9,6 +9,9 @@ const PROJECTS_DIR = process.env.WORK_CLAUDE_PROJECTS || path.join(os.homedir(),
 const WINDOW_MS = 24 * 3600 * 1000; // sessions touched in the last 24h
 const TAIL_BYTES = 256 * 1024;
 const MAX_EVENTS = 60;
+// Claude Code names transcripts <session-uuid>.jsonl. The id ends up in a
+// shell command ("claude --resume <id>"), so anything else is ignored.
+const SESSION_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
 
 function summarizeInput(name, input = {}) {
   if (input.command) return input.command;
@@ -196,7 +199,7 @@ class AgentWatcher {
       if (this.watchers.has(dir)) continue;
       try {
         const w = fs.watch(dir, (_ev, name) => {
-          if (name && name.endsWith('.jsonl')) this.touch(path.join(dir, name));
+          if (name && SESSION_FILE.test(name)) this.touch(path.join(dir, name));
         });
         w.on('error', () => {
           w.close();
@@ -248,7 +251,7 @@ class AgentWatcher {
       const dir = path.join(PROJECTS_DIR, d);
       let files = [];
       try {
-        files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
+        files = fs.readdirSync(dir).filter((f) => SESSION_FILE.test(f));
       } catch {
         continue;
       }

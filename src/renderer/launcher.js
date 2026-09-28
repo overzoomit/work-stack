@@ -92,8 +92,12 @@ export function launchDefault() {
   launch(a);
 }
 
-// Resume a Claude Code session from the agents list.
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resume a Claude Code session from the agents list. The id is interpolated
+// into a shell command, so it must be a plain UUID.
 export function resumeClaude(project, cwd, sessionId, title) {
+  if (!SESSION_ID.test(sessionId)) throw new Error(`ID di sessione non valido: ${sessionId}`);
   return openTerminal(project, {
     cwd,
     command: `claude --resume ${sessionId} ${CLAUDE_BYPASS}`,
