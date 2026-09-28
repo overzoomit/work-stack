@@ -1,8 +1,10 @@
 // Shared UI primitives: helpers, toasts, prompt modal, context menu, sheets.
+import { esc } from './escape.js';
 
+export { esc };
 export const $ = (s, root = document) => root.querySelector(s);
 export const $$ = (s, root = document) => [...root.querySelectorAll(s)];
-export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 // Replace an element's markup only when it actually changed: avoids re-layout
 // and repaint for periodic refreshes that produce the same list.
 export function setHtml(el, html) {

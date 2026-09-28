@@ -1,6 +1,6 @@
 // Turns a unified git diff (with full-file context) into aligned rows and
 // renders them side-by-side (old | new) or unified, WebStorm style.
-import { esc } from './ui.js';
+import { esc } from './escape.js';
 
 const CONTEXT = 4;
 
