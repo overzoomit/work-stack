@@ -27,6 +27,17 @@ export class El {
   querySelector(s) { if (!this.parts.has(s)) this.parts.set(s, new El()); return this.parts.get(s); }
   querySelectorAll() { return []; }
   appendChild(c) { c.remove(); c.parent = this; this.children.push(c); return c; }
+  insertBefore(c, ref) {
+    if (!ref) return this.appendChild(c);
+    c.remove();
+    c.parent = this;
+    this.children.splice(this.children.indexOf(ref), 0, c);
+    return c;
+  }
+  get parentNode() { return this.parent; }
+  get nextSibling() { return this.parent ? this.parent.children[this.parent.children.indexOf(this) + 1] || null : null; }
+  setPointerCapture() {}
+  animate() {}
   remove() { if (!this.parent) return; const a = this.parent.children; a.splice(a.indexOf(this), 1); this.parent = null; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
   removeEventListener() {}
@@ -34,7 +45,7 @@ export class El {
   get offsetParent() { return this.parent; }
   get offsetWidth() { return 100; }
   getClientRects() { return this.parent ? [{}] : []; }
-  getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }; }
+  getBoundingClientRect() { return this.rect || { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }; }
   setAttribute() {}
   insertAdjacentHTML(_where, html) { const el = new El(); el.innerHTML = html; this.appendChild(el); }
   focus() {}
@@ -55,11 +66,15 @@ globalThis.getComputedStyle = () => ({ animationName: 'pane-out', getPropertyVal
 // Window listeners are kept so tests can press keys (env.key).
 const winListeners = {};
 globalThis.addEventListener = (type, fn) => { (winListeners[type] ??= []).push(fn); };
-globalThis.removeEventListener = () => {};
+globalThis.removeEventListener = (type, fn) => {
+  const list = winListeners[type] || [];
+  if (list.includes(fn)) list.splice(list.indexOf(fn), 1);
+};
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.ResizeObserver = class { observe() {} };
 globalThis.innerWidth = 1200;
 globalThis.innerHeight = 800;
+globalThis.matchMedia = () => ({ matches: true }); // reduced motion: no FLIP animations to wait for
 
 export class FakeTerminal {
   constructor(options) { this.options = options; this.cols = 80; this.rows = 24; this.textarea = new El(); this.written = ''; }
@@ -97,6 +112,11 @@ export const env = {
   onData: null,
   onExit: null,
   output(id, data) { env.onData(id, data); },
+  // Pointer events on the window (drag gestures listen there).
+  pointer(type, x, y) {
+    const e = { type, clientX: x, clientY: y, pointerId: 1, button: 0 };
+    for (const fn of [...(winListeners[type] || [])]) fn(e);
+  },
   key(key, mods = {}) {
     const e = { key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, target: document.body, ...mods, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
     for (const fn of winListeners.keydown || []) fn(e);

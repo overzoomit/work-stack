@@ -2,7 +2,7 @@
 // environment (xterm stub, minimal DOM, scriptable pty bridge).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { env, FakeTerminal, $, tick } from './helpers/renderer-env.mjs';
+import { env, FakeTerminal, $, tick, El } from './helpers/renderer-env.mjs';
 
 const { killed, created } = env;
 
@@ -158,5 +158,44 @@ test('l\'aspetto vale per tutti i terminali e la dimensione del testo resta nei 
   assert.equal(T.getAppearance().theme, committed, 'hovering a theme does not change the saved one');
   assert.notEqual(JSON.stringify(t.term.options.theme), previewed, 'leaving the swatch restores the saved theme');
   T.closeTerminal(t.id);
+  await tick(700);
+});
+
+test('trascinare un pannello per l\'intestazione lo riordina; Esc annulla; sul tab di un altro progetto lo sposta', async () => {
+  const dropped = [];
+  T.initTerminals({ homeDir: '/home/u', changed() {}, dropOnTab: (t, tab) => { dropped.push([t.id, tab.dataset.path]); return true; } });
+  const p = { path: '/g', name: 'g', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const [a, b, c] = [await T.openTerminal(p), await T.openTerminal(p), await T.openTerminal(p)];
+  // Three panes side by side, 100 px wide.
+  [a, b, c].forEach((t, i) => { t.el.rect = { left: i * 100, right: i * 100 + 100, top: 0, bottom: 300, width: 100, height: 300 }; });
+  const order = () => T.terminalsOf(p).map((t) => t.id);
+  const grab = (t, x, y) => t.el.querySelector('.pane-head').listeners.pointerdown[0]({ button: 0, clientX: x, clientY: y, currentTarget: t.el.querySelector('.pane-head'), target: { closest: () => null } });
+
+  grab(a, 50, 10);
+  env.pointer('pointermove', 52, 11); // under the threshold: still a click
+  env.pointer('pointermove', 280, 250); // lower half of c (tall panes split top/bottom)
+  env.pointer('pointerup', 280, 250);
+  assert.deepEqual(order(), [b.id, c.id, a.id]);
+
+  grab(a, 250, 10);
+  env.pointer('pointermove', 20, 150);
+  env.key('Escape');
+  env.pointer('pointerup', 20, 150);
+  assert.deepEqual(order(), [b.id, c.id, a.id], 'Escape cancels the move');
+
+  // A project tab under the pointer: the pane moves to that project.
+  const tab = new El();
+  tab.dataset.path = '/altro';
+  tab.rect = { left: 0, right: 80, top: -40, bottom: -10, width: 80, height: 30 };
+  const realAll = document.querySelectorAll;
+  document.querySelectorAll = (sel) => (sel === '.ptab:not(.active)' ? [tab] : realAll(sel));
+  grab(b, 50, 10);
+  env.pointer('pointermove', 40, -20);
+  env.pointer('pointerup', 40, -20);
+  document.querySelectorAll = realAll;
+  assert.deepEqual(dropped, [[b.id, '/altro']]);
+
+  [a, b, c].forEach((t) => T.closeTerminal(t.id));
   await tick(700);
 });
