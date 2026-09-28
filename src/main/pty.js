@@ -32,8 +32,10 @@ class PtyManager {
     const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
     const argv = command ? [shell, '-lc', command] : [shell, '-l'];
 
+    // A folder deleted since (a removed worktree…) would make spawn fail: open in home.
+    const dir = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
     const proc = spawn('python3', [HELPER, String(cols), String(rows), ...argv], {
-      cwd: cwd || os.homedir(),
+      cwd: dir,
       env: shellEnv(),
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     });
@@ -42,7 +44,7 @@ class PtyManager {
     // (decoding each Buffer on its own turns them into U+FFFD).
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
-    const session = { proc, cwd, buffer: '', timer: null, unacked: 0, paused: false };
+    const session = { proc, cwd: dir, buffer: '', timer: null, unacked: 0, paused: false };
     // Output is coalesced into one message every few ms (a busy command
     // prints thousands of small chunks) and flushed right away past 64 KB.
     const flush = () => {
@@ -63,7 +65,15 @@ class PtyManager {
     };
     proc.stdout.on('data', push);
     proc.stderr.on('data', push);
+    // Any other start failure (python3 missing…) ends the terminal instead of
+    // becoming an uncaught error in the main process.
+    proc.on('error', () => {
+      if (!this.sessions.has(id)) return;
+      this.sessions.delete(id);
+      onExit(id, 127);
+    });
     proc.on('exit', (code) => {
+      if (!this.sessions.has(id)) return; // already ended by an 'error'
       flush();
       this.sessions.delete(id);
       onExit(id, code);

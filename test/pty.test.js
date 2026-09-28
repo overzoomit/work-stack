@@ -137,3 +137,13 @@ test('l\'helper funziona anche con Python 3.8, il python3 di Ubuntu 20.04 (regre
   assert.deepEqual(await run('exit 3'), { code: 3, err: '' });
   assert.deepEqual(await run('kill -TERM $$'), { code: 128 + 15, err: '' }, 'killed by a signal: shell convention');
 });
+
+test('un terminale aperto in una cartella che non esiste più parte dalla home invece di far crashare Work (regressione)', async () => {
+  const { out, code } = await new Promise((resolve) => {
+    const ptys = new PtyManager();
+    let text = '';
+    ptys.create({ cwd: '/cartella/che/non/esiste', cols: 80, rows: 24, command: 'pwd' }, (_id, d) => { text += d; }, (_id, c) => resolve({ out: text, code: c }));
+  });
+  assert.equal(code, 0);
+  assert.equal(out.trim(), require('fs').realpathSync(require('os').homedir()));
+});
