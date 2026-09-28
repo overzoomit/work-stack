@@ -69,6 +69,8 @@ export class FakeTerminal {
   onResize() {}
   onTitleChange() {}
   write(d, cb) { this.written += d; cb?.(); }
+  getSelection() { return this.selection || ''; }
+  paste(text) { this.pasted = text; }
   clear() { this.written = ''; }
   focus() { FakeTerminal.focused = this; }
   dispose() { this.disposed = true; }
@@ -88,6 +90,9 @@ export const env = {
   killed: [], // pty ids killed
   input: [], // [id, data] written to ptys
   opened: [], // URLs opened in the browser
+  copied: [], // text put on the clipboard
+  clipboard: '',
+  cwds: new Map(), // pty id -> folder reported by pty.cwd
   agentsReply: Promise.resolve(['claude']),
   onData: null,
   onExit: null,
@@ -105,12 +110,17 @@ globalThis.window = {
       create: async (opts) => { env.created.push(opts); env.lastId = nextId++; return env.lastId; },
       write: (id, data) => env.input.push([id, data]),
       resize() {},
+      cwd: async (id) => env.cwds.get(id) || null,
       ack() {},
       kill: (id) => env.killed.push(id),
       onData: (fn) => { env.onData = fn; },
       onExit: (fn) => { env.onExit = fn; },
     },
-    app: { openExternal: (url) => env.opened.push(url) },
+    app: {
+      openExternal: (url) => env.opened.push(url),
+      copy: (text) => env.copied.push(text),
+      paste: async () => env.clipboard,
+    },
     agents: { available: () => env.agentsReply },
     run: { detect: async () => env.detected || [] },
   },

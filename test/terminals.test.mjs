@@ -2,7 +2,7 @@
 // environment (xterm stub, minimal DOM, scriptable pty bridge).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { env, FakeTerminal } from './helpers/renderer-env.mjs';
+import { env, FakeTerminal, $, tick } from './helpers/renderer-env.mjs';
 
 const { killed, created } = env;
 
@@ -97,4 +97,66 @@ test('Claude Code parte sempre in bypass permessi: dal menu, con Continua e con 
   assert.match(t.el.innerHTML, /bypass permessi/, 'the pane shows the bypass badge');
   assert.throws(() => L.resumeClaude(p, '/p', 'x; rm -rf ~', 't'), /ID di sessione non valido/);
   await new Promise((r) => setTimeout(r, 700));
+});
+
+test('la lista laterale mostra i terminali del progetto con titolo, cartella e quello attivo', async () => {
+  const p = { path: '/home/u/app', name: 'app', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const a = await T.openTerminal(p);
+  const b = await T.openTerminal(p, { title: 'server <dev>', cwd: '/home/u/app/api' });
+  T.renderTermList(p);
+  const html = $('#term-list').innerHTML;
+  assert.equal($('#term-count').textContent, 2);
+  assert.match(html, new RegExp(`data-id="${a.id}" class=""[\\s\\S]*<code>~/app</code>`), 'home shown as ~');
+  assert.match(html, new RegExp(`data-id="${b.id}" class="active"[\\s\\S]*server &lt;dev&gt;[\\s\\S]*<code>~/app/api</code>`));
+
+  // The shell moved to another folder: the header and the list follow.
+  env.cwds.set(a.id, '/tmp/lavoro');
+  await T.pollCwd(a);
+  assert.equal(a.cwd, '/tmp/lavoro');
+  assert.match(a.el.querySelector('.pane-cwd').innerHTML, /<bdi>\/tmp\/lavoro<\/bdi>/);
+
+  T.renameTerminal(a, 'build');
+  assert.equal(a.el.querySelector('.pane-title').textContent, 'build');
+  T.closeTerminal(a.id);
+  T.closeTerminal(b.id);
+  await tick(700);
+});
+
+test('copia e incolla: la selezione va negli appunti, l\'incolla arriva al terminale ancora vivo', async () => {
+  const p = { path: '/c', name: 'c', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p);
+  assert.equal(T.copySelection(t), false, 'nothing selected: nothing copied');
+  t.term.selection = 'npm test';
+  assert.equal(T.copySelection(t), true);
+  assert.deepEqual(env.copied.at(-1), 'npm test');
+  env.clipboard = 'echo ciao';
+  await T.pasteInto(t);
+  assert.equal(t.term.pasted, 'echo ciao', 'through xterm paste (bracketed when the shell supports it)');
+  t.term.pasted = null;
+  env.exit(t.id, 0);
+  await T.pasteInto(t);
+  assert.equal(t.term.pasted, null, 'an exited terminal takes no input');
+  T.closeTerminal(t.id);
+  await tick(700);
+});
+
+test('l\'aspetto vale per tutti i terminali e la dimensione del testo resta nei limiti', async () => {
+  const p = { path: '/d', name: 'd', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p);
+  T.setAppearance({ fontSize: 99, cursorStyle: 'block' });
+  assert.equal(t.term.options.fontSize, 28, 'clamped to the maximum');
+  assert.equal(t.term.options.cursorStyle, 'block');
+  T.setAppearance({ fontSize: 1 });
+  assert.equal(T.getAppearance().fontSize, 9, 'clamped to the minimum');
+  const committed = T.getAppearance().theme;
+  T.previewTheme('pro');
+  const previewed = JSON.stringify(t.term.options.theme);
+  T.previewTheme(null);
+  assert.equal(T.getAppearance().theme, committed, 'hovering a theme does not change the saved one');
+  assert.notEqual(JSON.stringify(t.term.options.theme), previewed, 'leaving the swatch restores the saved theme');
+  T.closeTerminal(t.id);
+  await tick(700);
 });
