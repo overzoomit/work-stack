@@ -52,3 +52,13 @@ test('le assegnazioni POSIX ::= e :::= non diventano target, le regole con doppi
   const dir = folder({ Makefile: 'CC ::= gcc\nFLAGS :::= -O2\nclean::\n\trm -f *.o\nbuild: deps\n\tcc main.c\n' });
   assert.deepEqual((await detect(dir)).map((c) => c.name), ['clean', 'build']);
 });
+
+test('rileva Cargo, Django, Go e un solo Docker Compose anche con più file compose', async () => {
+  const dir = folder({ 'Cargo.toml': '', 'manage.py': '', 'go.mod': 'module x\n', 'compose.yaml': '', 'docker-compose.yml': '' });
+  assert.deepEqual((await detect(dir)).map((c) => [c.id, c.command]), [
+    ['cargo:run', 'cargo run'], ['cargo:test', 'cargo test'], ['cargo:build', 'cargo build'],
+    ['django:runserver', 'python manage.py runserver'],
+    ['go:run', 'go run .'], ['go:test', 'go test ./...'],
+    ['docker:compose up', 'docker compose up'],
+  ]);
+});
