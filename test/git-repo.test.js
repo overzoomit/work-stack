@@ -237,3 +237,20 @@ test('togliere un file dallo stage funziona anche in un repository senza commit 
   assert.ok(st.unstaged.some((f) => f.file === 'a.txt' && f.code === 'U'), 'back to untracked');
   assert.ok(fs.existsSync(path.join(r.dir, 'a.txt')), 'the file itself is kept');
 });
+
+test('push funziona anche se il remote non si chiama origin (regressione)', async () => {
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'work-bare-'));
+  execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'pipe' });
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.run('remote', 'add', 'upstream', remote);
+  // First push of a new branch: sets the upstream on the only remote.
+  await git.action(r.dir, 'push');
+  assert.equal(r.run('rev-parse', '--abbrev-ref', 'main@{upstream}').trim(), 'upstream/main');
+  // Later pushes follow the configured upstream.
+  r.write('a.txt', '2\n');
+  const second = r.commit('second');
+  await git.action(r.dir, 'push');
+  assert.equal(execFileSync('git', ['rev-parse', 'main'], { cwd: remote }).toString().trim(), second);
+});
