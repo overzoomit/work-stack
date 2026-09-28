@@ -218,3 +218,20 @@ test('una raffica di scritture su un transcript produce un solo aggiornamento co
   assert.equal(updates[0].find((a) => a.id === id).eventSeq, 4);
   assert.deepEqual(w.events(id).map((e) => e.text), ['inizio', 'uno', 'due', 'tre']);
 });
+
+test('dopo stop non arrivano più aggiornamenti, nemmeno da scritture appena avvenute (regressione)', async () => {
+  const dir = path.join(PROJECTS, '-proj-stop');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, '88888888-8888-8888-8888-888888888888.jsonl');
+  fs.writeFileSync(file, user('inizio'));
+  let updates = 0;
+  const w = new AgentWatcher(() => updates++);
+  w.start();
+  await new Promise((r) => setTimeout(r, 150));
+  updates = 0;
+  fs.appendFileSync(file, user('ultima'));
+  await new Promise((r) => setTimeout(r, 100)); // the write is seen, its flush is pending
+  w.stop();
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(updates, 0);
+});

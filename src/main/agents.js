@@ -180,6 +180,8 @@ class AgentWatcher {
 
   stop() {
     this.timers.forEach(clearInterval);
+    clearTimeout(this.flushTimer); // a burst still being coalesced must not emit after stop
+    this.flushTimer = null;
     for (const w of this.watchers.values()) w.close();
     this.watchers.clear();
   }
