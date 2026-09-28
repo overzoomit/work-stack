@@ -93,3 +93,16 @@ test('wordDiff evidenzia solo la parte cambiata e fa l\'escape dell\'HTML', () =
   assert.deepEqual(wordDiff('if (a < b) x', 'if (a < c) x'), ['if (a &lt; <span class="w">b</span>) x', 'if (a &lt; <span class="w">c</span>) x']);
   assert.deepEqual(wordDiff('uguale', 'uguale'), ['uguale', 'uguale']);
 });
+
+test('una modifica di soli spazi o fine riga si vede: i caratteri invisibili diventano simboli (regressione)', () => {
+  // CRLF → LF: the only difference is a trailing \r.
+  const [crlf, lf] = wordDiff('const a = 1;\r', 'const a = 1;');
+  assert.equal(crlf, 'const a = 1;<span class="w ws" title="Cambiano solo spazi o fine riga">␍</span>');
+  assert.equal(lf, 'const a = 1;');
+  // Indentation: tab replaced by spaces.
+  const [tab, spaces] = wordDiff('\tx', '  x');
+  assert.match(tab, /<span class="w ws"[^>]*>→<\/span>x/);
+  assert.match(spaces, /<span class="w ws"[^>]*>··<\/span>x/);
+  // A real change keeps its plain highlight, spaces included.
+  assert.deepEqual(wordDiff('a b', 'a  c'), ['a <span class="w">b</span>', 'a <span class="w"> c</span>']);
+});

@@ -152,12 +152,20 @@ export function wordDiff(a, b) {
   let s = 0;
   while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
   if (s > 0 && isLow(a.charCodeAt(a.length - s))) s--;
+  // Only spaces, tabs or line endings changed (CRLF → LF, re-indent): shown
+  // as symbols, otherwise the highlight would wrap invisible characters.
+  const ws = /^\s*$/.test(a.slice(p, a.length - s)) && /^\s*$/.test(b.slice(p, b.length - s));
   const mark = (x) => {
     const mid = x.slice(p, x.length - s);
-    return esc(x.slice(0, p)) + (mid ? `<span class="w">${esc(mid)}</span>` : '') + esc(x.slice(x.length - s));
+    const hl = !mid ? '' : ws
+      ? `<span class="w ws" title="Cambiano solo spazi o fine riga">${mid.replace(/\s/g, (c) => WS_GLYPHS[c] || '·')}</span>`
+      : `<span class="w">${esc(mid)}</span>`;
+    return esc(x.slice(0, p)) + hl + esc(x.slice(x.length - s));
   };
   return [mark(a), mark(b)];
 }
+
+const WS_GLYPHS = { '\r': '␍', '\t': '→', ' ': '·' };
 
 // Which rows stay visible: every change plus CONTEXT lines around it.
 function visibility(rows) {
