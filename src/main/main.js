@@ -101,8 +101,8 @@ ipcMain.handle('fs:create', (_e, parent, name, dir) => fsops.create(parent, name
 ipcMain.handle('fs:rename', (_e, from, name) => fsops.rename(from, name));
 ipcMain.handle('fs:move', (_e, from, toDir) => fsops.move(from, toDir));
 ipcMain.handle('fs:trash', (_e, p) => fsops.trash(p));
-ipcMain.handle('fs:openPath', (_e, p) => shell.openPath(p));
-ipcMain.handle('fs:reveal', (_e, p) => shell.showItemInFolder(p));
+ipcMain.handle('fs:openPath', (_e, p) => fsops.openPath(p));
+ipcMain.handle('fs:reveal', (_e, p) => fsops.reveal(p));
 
 // ── Run configurations ───────────────────────────────────────
 ipcMain.handle('run:detect', (_e, dir) => runconfigs.detect(dir));

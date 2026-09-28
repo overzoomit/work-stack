@@ -1,22 +1,53 @@
 // File-system operations for the Project tree. Every path must live inside
 // one of the open projects, so the renderer can't touch anything else.
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const { shell } = require('electron');
 
-let roots = [];
+let roots = []; // real paths of the open projects
 
 function setRoots(list) {
-  roots = list.map((p) => path.resolve(p));
+  roots = list.map((p) => {
+    try {
+      return fsSync.realpathSync(path.resolve(p));
+    } catch {
+      return path.resolve(p);
+    }
+  });
 }
 
-function guard(p) {
-  const abs = path.resolve(p);
-  if (!roots.some((r) => abs === r || abs.startsWith(r + path.sep))) {
-    throw new Error(`Percorso fuori dai progetti aperti: ${abs}`);
+// Real path of `p` even if its last parts don't exist yet: resolve the
+// deepest existing ancestor and append the rest.
+async function realOf(p) {
+  let cur = p;
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(cur), ...tail.reverse());
+    } catch {
+      const up = path.dirname(cur);
+      if (up === cur) return p;
+      tail.push(path.basename(cur));
+      cur = up;
+    }
   }
+}
+
+const inside = (real) => roots.some((r) => real === r || real.startsWith(r + path.sep));
+
+// Checks a path against the open projects using real paths, so a symlink
+// inside a project can't be used to reach files outside it.
+//  follow: true  → the operation follows the link (read, list, open): check its target
+//  follow: false → the operation acts on the entry itself (rename, move, trash): check its folder
+async function guard(p, { follow }) {
+  const abs = path.resolve(p);
+  const real = follow ? await realOf(abs) : path.join(await realOf(path.dirname(abs)), path.basename(abs));
+  if (!inside(real)) throw new Error(`Percorso fuori dai progetti aperti: ${abs}`);
   return abs;
 }
+
+const isRoot = async (abs) => roots.includes(await realOf(abs));
 
 function checkName(name) {
   if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
@@ -36,7 +67,7 @@ async function exists(p) {
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 async function list(dir) {
-  const abs = guard(dir);
+  const abs = await guard(dir, { follow: true });
   const entries = await fs.readdir(abs, { withFileTypes: true });
   const out = [];
   for (const e of entries) {
@@ -57,7 +88,7 @@ async function list(dir) {
 const MAX_PREVIEW = 1024 * 1024;
 
 async function read(file) {
-  const abs = guard(file);
+  const abs = await guard(file, { follow: true });
   const st = await fs.stat(abs);
   if (st.size > MAX_PREVIEW) return { tooBig: true, size: st.size };
   const buf = await fs.readFile(abs);
@@ -67,7 +98,7 @@ async function read(file) {
 
 async function create(parent, name, dir) {
   checkName(name);
-  const abs = guard(path.join(parent, name));
+  const abs = await guard(path.join(parent, name), { follow: false });
   if (await exists(abs)) throw new Error(`Esiste già: ${name}`);
   if (dir) await fs.mkdir(abs);
   else await fs.writeFile(abs, '', { flag: 'wx' });
@@ -76,8 +107,8 @@ async function create(parent, name, dir) {
 
 async function rename(from, name) {
   checkName(name);
-  const src = guard(from);
-  const dest = guard(path.join(path.dirname(src), name));
+  const src = await guard(from, { follow: false });
+  const dest = await guard(path.join(path.dirname(src), name), { follow: false });
   if (dest === src) return dest;
   if (await exists(dest)) throw new Error(`Esiste già: ${name}`);
   await fs.rename(src, dest);
@@ -85,8 +116,8 @@ async function rename(from, name) {
 }
 
 async function move(from, toDir) {
-  const src = guard(from);
-  const destDir = guard(toDir);
+  const src = await guard(from, { follow: false });
+  const destDir = await guard(toDir, { follow: true });
   const dest = path.join(destDir, path.basename(src));
   if (dest === src) return dest;
   if (destDir === src || destDir.startsWith(src + path.sep)) throw new Error('Non puoi spostare una cartella dentro sé stessa.');
@@ -96,9 +127,18 @@ async function move(from, toDir) {
 }
 
 async function trash(p) {
-  const abs = guard(p);
-  if (roots.includes(abs)) throw new Error('Non puoi eliminare la cartella del progetto.');
+  const abs = await guard(p, { follow: false });
+  if (await isRoot(abs)) throw new Error('Non puoi eliminare la cartella del progetto.');
   await shell.trashItem(abs);
 }
 
-module.exports = { setRoots, list, read, create, rename, move, trash };
+// Opening follows links (it may launch the target), revealing only shows the entry.
+async function openPath(p) {
+  return shell.openPath(await guard(p, { follow: true }));
+}
+
+async function reveal(p) {
+  shell.showItemInFolder(await guard(p, { follow: false }));
+}
+
+module.exports = { setRoots, list, read, create, rename, move, trash, openPath, reveal };
