@@ -196,7 +196,9 @@ async function fileDiff(repo, { hash, file, oldFile, staged, untracked }) {
   if (untracked) {
     return git(repo, ['diff', FULL_CONTEXT, '--no-color', '--no-index', '--', '/dev/null', file], { okCodes: [0, 1] });
   }
-  return git(repo, ['diff', FULL_CONTEXT, '--no-color', ...(staged ? ['--cached'] : []), '--', file]);
+  // --ours (-2) only affects conflicted files: a plain diff against our side,
+  // with the conflict markers as added lines, instead of a combined "@@@" diff.
+  return git(repo, ['diff', FULL_CONTEXT, '--no-color', ...(staged ? ['--cached'] : ['--ours']), '--', file]);
 }
 
 const isRef = (repo, ref) => git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false);

@@ -270,3 +270,21 @@ test('un file in conflitto di merge è segnalato come conflitto, non come file n
   assert.deepEqual(st.unstaged, [{ file: 'a.txt', code: 'X' }]);
   assert.deepEqual(st.staged, [], 'nothing of it is staged yet');
 });
+
+test('il diff di un file in conflitto si apre e mostra i marcatori come righe aggiunte (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', 'base\n');
+  r.commit('base');
+  r.run('checkout', '-q', '-b', 'altro');
+  r.write('a.txt', 'altro\n');
+  r.commit('altro');
+  r.run('checkout', '-q', 'main');
+  r.write('a.txt', 'main\n');
+  r.commit('main');
+  assert.throws(() => r.run('merge', 'altro'));
+  const { parseDiff } = await import('../src/renderer/diff.js');
+  const parsed = parseDiff(await git.fileDiff(r.dir, { file: 'a.txt' }));
+  const added = parsed.rows.filter((x) => x.r && !x.l).map((x) => x.r.t);
+  assert.ok(added.some((t) => t.startsWith('<<<<<<<')), 'conflict start marker');
+  assert.ok(added.includes('altro'), 'their side');
+});
