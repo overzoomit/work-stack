@@ -632,6 +632,7 @@ addEventListener('keydown', (e) => {
   } else showWelcome();
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();
+  performance.mark('work:ready'); // boot finished: read with performance.getEntriesByName
 
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).
   setInterval(() => refreshGit(active), 20000);
