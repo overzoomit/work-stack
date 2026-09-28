@@ -14,6 +14,7 @@ import fcntl
 import os
 import pty
 import select
+import signal
 import struct
 import sys
 import termios
@@ -60,9 +61,11 @@ def main():
         if 0 in ready:
             data = os.read(0, 65536)
             if not data:
-                inputs.remove(0)
-            else:
-                os.write(master, data)
+                # stdin closed: Work is gone (quit, crash, killed). Hang up the
+                # shell like a closed terminal window, instead of leaving it orphaned.
+                hang_up(pid, master)
+                break
+            os.write(master, data)
 
         if CONTROL_FD in ready:
             data = os.read(CONTROL_FD, 1024)
@@ -76,6 +79,14 @@ def main():
 
     _, status = os.waitpid(pid, 0)
     sys.exit(exit_code(status))
+
+
+def hang_up(pid, master):
+    try:
+        os.killpg(pid, signal.SIGHUP)  # the shell leads its own session and process group
+    except OSError:
+        pass
+    os.close(master)
 
 
 def exit_code(status):

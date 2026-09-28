@@ -179,3 +179,20 @@ test('se il terminale non può partire (python3 assente) si chiude con 127 invec
     process.env.PATH = saved;
   }
 });
+
+test('se Work termina di colpo, l\'helper chiude la shell invece di lasciarla orfana (regressione)', async () => {
+  const { spawn } = require('child_process');
+  const helper = require('path').join(__dirname, '..', 'src', 'main', 'pty-helper.py');
+  const p = spawn('python3', [helper, '80', '24', '/bin/sh', '-c', 'sleep 30'], { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+  p.stdout.resume();
+  await new Promise((r) => setTimeout(r, 300));
+  const started = Date.now();
+  p.stdin.end(); // what the helper sees when its parent dies: stdin closes
+  const exited = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 3000);
+    p.on('exit', () => { clearTimeout(t); resolve(true); });
+  });
+  if (!exited) p.kill('SIGKILL');
+  assert.ok(exited, 'the helper (and its shell) exit');
+  assert.ok(Date.now() - started < 3000);
+});
