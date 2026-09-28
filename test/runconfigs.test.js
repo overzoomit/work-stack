@@ -57,7 +57,8 @@ test('rileva Cargo, Django, Go e un solo Docker Compose anche con più file comp
   const dir = folder({ 'Cargo.toml': '', 'manage.py': '', 'go.mod': 'module x\n', 'compose.yaml': '', 'docker-compose.yml': '' });
   assert.deepEqual((await detect(dir)).map((c) => [c.id, c.command]), [
     ['cargo:run', 'cargo run'], ['cargo:test', 'cargo test'], ['cargo:build', 'cargo build'],
-    ['django:runserver', 'python manage.py runserver'],
+    // python3, not python: Ubuntu 20.04 and recent macOS have no bare "python" (regressione).
+    ['django:runserver', 'python3 manage.py runserver'],
     ['go:run', 'go run .'], ['go:test', 'go test ./...'],
     ['docker:compose up', 'docker compose up'],
   ]);

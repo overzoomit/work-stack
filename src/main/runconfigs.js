@@ -61,7 +61,7 @@ async function detect(dir) {
     add('cargo', 'test', 'cargo test');
     add('cargo', 'build', 'cargo build');
   }
-  if (await exists(path.join(dir, 'manage.py'))) add('django', 'runserver', 'python manage.py runserver');
+  if (await exists(path.join(dir, 'manage.py'))) add('django', 'runserver', 'python3 manage.py runserver'); // no bare "python" on Ubuntu 20.04 / recent macOS
   if (await exists(path.join(dir, 'go.mod'))) {
     add('go', 'run', 'go run .');
     add('go', 'test', 'go test ./...');
