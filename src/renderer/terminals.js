@@ -77,7 +77,13 @@ export function initTerminals({ homeDir, changed, openAppearance, activity, menu
   onActivity = activity || onActivity;
   onMenu = menu || onMenu;
   onDropOnTab = dropOnTab || onDropOnTab;
-  new ResizeObserver(() => requestAnimationFrame(fitAll)).observe($('#terminals'));
+  // Refit once the grid stops changing size: a splitter drag or a panel
+  // transition resizes it every frame, and each fit reflows the scrollback.
+  let fitTimer = 0;
+  new ResizeObserver(() => {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(fitAll, 80);
+  }).observe($('#terminals'));
 
   work.pty.onData((id, data) => {
     const t = all.get(id);
