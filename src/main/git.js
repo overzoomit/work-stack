@@ -208,7 +208,10 @@ async function checkout(repo, branch) {
 
 const actions = {
   stage: (repo, { files }) => git(repo, ['add', '--', ...files]),
-  unstage: (repo, { files }) => git(repo, ['restore', '--staged', '--', ...files]),
+  // Before the first commit there is no HEAD to restore from: just untrack.
+  unstage: async (repo, { files }) => git(repo, (await isRef(repo, 'HEAD'))
+    ? ['restore', '--staged', '--', ...files]
+    : ['rm', '--cached', '-q', '--', ...files]),
   discard: (repo, { files }) => git(repo, ['checkout', '--', ...files]),
   stageAll: (repo) => git(repo, ['add', '-A']),
   commit: (repo, { message, amend }) => git(repo, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),

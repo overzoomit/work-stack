@@ -225,3 +225,15 @@ test('il log del graph non mostra i commit interni degli stash (regressione)', a
   const subjects = (await git.log(r.dir)).map((c) => c.subject);
   assert.deepEqual(subjects, ['init']);
 });
+
+test('togliere un file dallo stage funziona anche in un repository senza commit (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.write('b.txt', '2\n');
+  r.run('add', 'a.txt', 'b.txt');
+  await git.action(r.dir, 'unstage', { files: ['a.txt'] });
+  const st = await git.status(r.dir);
+  assert.deepEqual(st.staged, [{ file: 'b.txt', code: 'A' }]);
+  assert.ok(st.unstaged.some((f) => f.file === 'a.txt' && f.code === 'U'), 'back to untracked');
+  assert.ok(fs.existsSync(path.join(r.dir, 'a.txt')), 'the file itself is kept');
+});
