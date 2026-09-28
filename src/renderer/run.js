@@ -128,6 +128,7 @@ async function start(p, cfg) {
       }
     },
   });
+  if (p === active) render(); // its terminal is ready: stop and clear apply to it now
 }
 
 function stop(p = active, cfg = selected(p)) {
@@ -239,7 +240,9 @@ export function showOutput(p, r) {
 
 export function renderRunTab() {
   const list = $('#run-list');
-  const runs = active ? [...active.runs.values()].filter((r) => r.t) : [];
+  // A run counts from the moment its console exists, not once its terminal is
+  // ready: otherwise the render right after ▶ drops it and nothing is shown.
+  const runs = active ? [...active.runs.values()].filter((r) => r.box) : [];
   if (!runs.includes(shown)) shown = runs.find(isRunning) || runs[0] || null;
   $('#run-empty').hidden = runs.length > 0;
   list.innerHTML = runs.map((r, i) => {
