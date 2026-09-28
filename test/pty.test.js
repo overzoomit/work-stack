@@ -111,3 +111,16 @@ test('write invia l\'input alla shell e resize cambia la dimensione vista dai pr
   assert.match(out, /30 100/);
   ptys.killAll();
 });
+
+test('le shell non ereditano le variabili npm_* del processo che ha avviato Work (regressione)', async () => {
+  process.env.npm_config_prefix = '/tmp/prefisso';
+  process.env.npm_lifecycle_event = 'start';
+  try {
+    const { out } = await runInPty('env | grep -c "^npm_" ; echo "HOME=$HOME"');
+    assert.match(out, /^0\s/, 'no npm_* variables (nvm refuses to run with npm_config_prefix set)');
+    assert.match(out, /HOME=\//, 'the rest of the environment is kept');
+  } finally {
+    delete process.env.npm_config_prefix;
+    delete process.env.npm_lifecycle_event;
+  }
+});

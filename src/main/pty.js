@@ -13,6 +13,14 @@ const FLUSH_SIZE = 16 * 1024; // larger chunks make xterm block the UI longer pe
 const HIGH_WATER = 1024 * 1024; // chars sent but not yet processed by xterm
 const LOW_WATER = 256 * 1024;
 
+// The user's environment, minus what `npm start` adds to Work's own process:
+// npm_* variables leak into every shell and break tools like nvm.
+function shellEnv() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (/^npm_/i.test(k)) delete env[k];
+  return env;
+}
+
 class PtyManager {
   constructor() {
     this.sessions = new Map();
@@ -26,7 +34,7 @@ class PtyManager {
 
     const proc = spawn('python3', [HELPER, String(cols), String(rows), ...argv], {
       cwd: cwd || os.homedir(),
-      env: process.env,
+      env: shellEnv(),
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     });
 
