@@ -165,3 +165,36 @@ test('un\'azione sconosciuta viene rifiutata', async () => {
   const r = repo();
   await assert.rejects(git.action(r.dir, 'rm -rf'), /sconosciuta/);
 });
+
+test('root trova la cima del repository da una sottocartella e null fuori da un repository', async () => {
+  const r = repo();
+  r.write('src/deep/a.txt', '1\n');
+  assert.equal(await git.root(path.join(r.dir, 'src', 'deep')), fs.realpathSync(r.dir));
+  assert.equal(await git.root(fs.mkdtempSync(path.join(os.tmpdir(), 'work-norepo-'))), null);
+});
+
+test('containing elenca solo i rami che contengono il commit', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  const base = r.commit('base');
+  r.run('checkout', '-q', '-b', 'feature/x');
+  r.write('a.txt', '2\n');
+  const tip = r.commit('feature');
+  assert.deepEqual((await git.containing(r.dir, base)).sort(), ['feature/x', 'main']);
+  assert.deepEqual(await git.containing(r.dir, tip), ['feature/x']);
+  assert.deepEqual(await git.containing(r.dir, 'non-esiste'), []);
+});
+
+test('il diff di un commit con rinomina confronta il vecchio e il nuovo percorso', async () => {
+  const r = repo();
+  r.write('vecchio.txt', 'uno\ndue\ntre\nquattro\ncinque\n');
+  r.commit('init');
+  r.run('mv', 'vecchio.txt', 'nuovo.txt');
+  r.write('nuovo.txt', 'uno\ndue\nTRE\nquattro\ncinque\n');
+  const hash = r.commit('rinomina e modifica');
+  const text = await git.fileDiff(r.dir, { hash, file: 'nuovo.txt', oldFile: 'vecchio.txt' });
+  assert.match(text, /rename from vecchio\.txt/);
+  assert.match(text, /rename to nuovo\.txt/);
+  assert.match(text, /^-tre$/m);
+  assert.match(text, /^\+TRE$/m);
+});
