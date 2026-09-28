@@ -1,27 +1,8 @@
-// Git panel wiring, with a minimal fake DOM and a fake `window.work` bridge.
+// Git panel wiring, on the shared fake renderer environment with a
+// scriptable `window.work.git` bridge.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-function el() {
-  return {
-    value: '', innerHTML: '', textContent: '', hidden: false, checked: false, dataset: {},
-    style: {}, firstChild: {}, children: [],
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    listeners: {},
-    addEventListener(type, fn) { this.listeners[type] = fn; }, removeEventListener() {}, appendChild() {}, remove() {},
-    querySelector: () => null, querySelectorAll: () => [], getAnimations: () => [],
-  };
-}
-const byId = new Map();
-globalThis.document = {
-  querySelector: (s) => {
-    if (!byId.has(s)) byId.set(s, el());
-    return byId.get(s);
-  },
-  querySelectorAll: () => [],
-  createElement: el,
-};
-globalThis.addEventListener = () => {};
+import { openMenuItems, tick } from './helpers/renderer-env.mjs';
 
 const calls = [];
 const statusCalls = [];
@@ -30,8 +11,7 @@ let statusGate = null;
 let actionGate = null;
 let statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
 let failCheckout = false;
-globalThis.window = {
-  work: {
+Object.assign(globalThis.window.work, {
     git: {
       action: async (repo, name, params) => {
         calls.push([name, params]);
@@ -50,9 +30,14 @@ globalThis.window = {
       },
       root: async (p) => p,
       watch() {},
+      commit: async (repo, hash) => ({
+        hash, parents: [], author: 'Anna', email: 'a@x', time: 0, committer: 'Anna', ctime: 0,
+        refs: [], message: 'primo', files: [],
+      }),
+      containing: async () => [],
+      fileDiff: async () => '',
     },
-  },
-};
+});
 
 const { initGit, showGit, refreshGit, setGraphVisible } = await import('../src/renderer/gitpanel.js');
 const $ = (sel) => document.querySelector(sel);
@@ -131,7 +116,7 @@ test('scartare un file non tracciato non chiama git e rimanda al tab Project', a
   const before = calls.length;
   const li = { dataset: { file: 'nuovo.txt', staged: '', code: 'U' } };
   const target = { closest: (sel) => (sel === 'li[data-file]' ? li : sel === '[data-act]' ? { dataset: { act: 'discard' } } : null) };
-  const onClick = $('#unstaged').listeners?.click;
+  const onClick = $('#unstaged').listeners?.click?.[0];
   assert.ok(onClick, 'the list handles clicks');
   await onClick({ target });
   assert.equal(calls.length, before);
@@ -153,4 +138,57 @@ test('un commit che finisce dopo il cambio di progetto non cancella la bozza del
   assert.equal(p2.draft, 'bozza di p2');
   assert.equal($('#commit-msg').value, 'bozza di p2', 'the message box still shows p2\'s draft');
   assert.equal(p1.draft, '', 'the committed project\'s draft is cleared');
+});
+
+const rowTarget = (i) => ({ closest: (sel) => (sel === '.g-row' ? { dataset: { i: String(i) }, classList: { add() {} }, click() {} } : null) });
+
+test('graph: clic su un commit apre il dettaglio con Checkout del suo ramo; il tasto destro offre le azioni', async () => {
+  statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
+  const project = { path: '/g', root: '/g' };
+  setGraphVisible(true);
+  await showGit(project);
+  await tick();
+  $('#graph').onclick({ target: rowTarget(0) });
+  await tick();
+  assert.equal($('#review').hidden, false, 'the commit details open');
+  const buttons = Object.fromEntries($('#review-actions').children.map((b) => [b.textContent, b]));
+  assert.deepEqual(Object.keys(buttons), ['Checkout main', 'Nuovo branch qui', 'Cherry-pick', 'Revert']);
+  buttons['Checkout main'].onclick();
+  await tick();
+  assert.deepEqual(calls.at(-1), ['checkout', { branch: 'main' }]);
+
+  $('#graph').oncontextmenu({ target: rowTarget(0), preventDefault() {}, clientX: 5, clientY: 5 });
+  const items = openMenuItems();
+  assert.ok(items['Checkout main'] && items['Nuovo branch qui…'] && items['Cherry-pick'] && items.Revert && items['Copia hash']);
+  items['Cherry-pick'].onclick();
+  await tick();
+  assert.deepEqual(calls.at(-1), ['cherryPick', { hash: 'c1' }]);
+  setGraphVisible(false);
+});
+
+test('tasto destro su un file: stage/unstage, anteprima, e "Scarta" solo per file tracciati non in stage', async () => {
+  statusReply = {
+    branch: { name: 'main', ahead: 0, behind: 0 },
+    staged: [{ file: 'a.js', code: 'M' }],
+    unstaged: [{ file: 'b.js', code: 'M' }, { file: 'nuovo.txt', code: 'U' }, { file: 'via.js', code: 'D' }],
+    ignored: [],
+  };
+  await showGit({ path: '/f', root: '/f' });
+  const menuFor = (list, file, code, staged) => {
+    const li = { dataset: { file, code, staged: staged ? '1' : '' } };
+    $(list).listeners.contextmenu[0]({ target: { closest: () => li }, preventDefault() {}, clientX: 1, clientY: 1 });
+    return openMenuItems();
+  };
+  let items = menuFor('#unstaged', 'b.js', 'M', false);
+  assert.ok(items['Metti in stage'] && items['Scarta modifiche…'] && items['Anteprima file'] && items["Mostra nell'albero"]);
+  items['Metti in stage'].onclick();
+  await tick();
+  assert.deepEqual(calls.at(-1), ['stage', { files: ['b.js'] }]);
+
+  items = menuFor('#staged', 'a.js', 'M', true);
+  assert.ok(items['Togli dallo stage'] && !items['Scarta modifiche…'], 'staged changes are not discarded from here');
+  items = menuFor('#unstaged', 'nuovo.txt', 'U', false);
+  assert.ok(!items['Scarta modifiche…'], 'untracked files are deleted from the Project tab, not discarded');
+  items = menuFor('#unstaged', 'via.js', 'D', false);
+  assert.equal(items['Anteprima file'].disabled, true, 'a deleted file has nothing to preview');
 });
