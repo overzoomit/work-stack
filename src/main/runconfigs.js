@@ -45,7 +45,8 @@ async function detect(dir) {
 
   try {
     const make = await fs.readFile(path.join(dir, 'Makefile'), 'utf8');
-    const targets = [...make.matchAll(/^([a-zA-Z0-9][\w.-]*)\s*:(?!=)/gm)].map((m) => m[1]);
+    // "name:" or "name::" is a rule; "name := …", "::=" and ":::=" are assignments.
+    const targets = [...make.matchAll(/^([a-zA-Z0-9][\w.-]*)\s*:(?!:{0,2}=)/gm)].map((m) => m[1]);
     for (const t of [...new Set(targets)]) add('make', t, `make ${t}`);
   } catch {
     // no Makefile

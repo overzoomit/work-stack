@@ -47,3 +47,8 @@ test('un nome di script con spazi o caratteri della shell arriva intatto come un
   assert.ok(!fs.existsSync(path.join(dir, 'PWNED')));
   assert.equal((await detect(dir)).find((c) => c.name === 'build:prod').command, 'npm run build:prod', 'plain names stay unquoted');
 });
+
+test('le assegnazioni POSIX ::= e :::= non diventano target, le regole con doppio due punti sì (regressione)', async () => {
+  const dir = folder({ Makefile: 'CC ::= gcc\nFLAGS :::= -O2\nclean::\n\trm -f *.o\nbuild: deps\n\tcc main.c\n' });
+  assert.deepEqual((await detect(dir)).map((c) => c.name), ['clean', 'build']);
+});
