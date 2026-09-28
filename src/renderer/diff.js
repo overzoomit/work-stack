@@ -54,10 +54,10 @@ export function parseDiff(text) {
   return { binary: false, rows };
 }
 
+const tokens = (line) => line.trim().split(/(\W)/).filter((x) => x.trim());
+
 // Similarity of two lines (0..1) from their shared word tokens.
-function similarity(a, b) {
-  const ta = a.trim().split(/(\W)/).filter((x) => x.trim());
-  const tb = b.trim().split(/(\W)/).filter((x) => x.trim());
+function similarity(ta, tb) {
   if (!ta.length && !tb.length) return 1;
   const counts = new Map();
   for (const t of ta) counts.set(t, (counts.get(t) || 0) + 1);
@@ -84,7 +84,11 @@ function align(dels, adds) {
     // Huge block: plain positional pairing.
     return Array.from({ length: Math.max(n, m) }, (_, k) => [dels[k] || null, adds[k] || null]);
   }
-  const sim = dels.map((d) => adds.map((a) => similarity(d.t, a.t)));
+  const addTokens = adds.map((a) => tokens(a.t)); // tokenized once, compared n × m times
+  const sim = dels.map((d) => {
+    const dt = tokens(d.t);
+    return addTokens.map((at) => similarity(dt, at));
+  });
   // score[i][j] = best total similarity using dels[i..] and adds[j..]
   const score = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
   for (let i = n - 1; i >= 0; i--) {
