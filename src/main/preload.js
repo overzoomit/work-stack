@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('work', {
   pty: {
     create: invoke('pty:create'),
     write: (id, data) => ipcRenderer.send('pty:write', id, data),
+    ack: (id, chars) => ipcRenderer.send('pty:ack', id, chars),
     resize: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
     kill: (id) => ipcRenderer.send('pty:kill', id),
     cwd: invoke('pty:cwd'),

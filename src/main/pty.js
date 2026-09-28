@@ -8,6 +8,10 @@ const os = require('os');
 
 const HELPER = path.join(__dirname, 'pty-helper.py');
 const execFileAsync = promisify(execFile);
+const FLUSH_MS = 8;
+const FLUSH_SIZE = 16 * 1024; // larger chunks make xterm block the UI longer per write
+const HIGH_WATER = 1024 * 1024; // chars sent but not yet processed by xterm
+const LOW_WATER = 256 * 1024;
 
 class PtyManager {
   constructor() {
@@ -30,15 +34,51 @@ class PtyManager {
     // (decoding each Buffer on its own turns them into U+FFFD).
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
-    proc.stdout.on('data', (text) => onData(id, text));
-    proc.stderr.on('data', (text) => onData(id, text));
+    const session = { proc, cwd, buffer: '', timer: null, unacked: 0, paused: false };
+    // Output is coalesced into one message every few ms (a busy command
+    // prints thousands of small chunks) and flushed right away past 64 KB.
+    const flush = () => {
+      clearTimeout(session.timer);
+      session.timer = null;
+      if (!session.buffer) return;
+      const text = session.buffer;
+      session.buffer = '';
+      session.unacked += text.length;
+      onData(id, text);
+      // Flow control: stop reading while the terminal is far behind.
+      if (session.unacked > HIGH_WATER && !session.paused) this.setPaused(session, true);
+    };
+    const push = (text) => {
+      session.buffer += text;
+      if (session.buffer.length >= FLUSH_SIZE) flush();
+      else if (!session.timer) session.timer = setTimeout(flush, FLUSH_MS);
+    };
+    proc.stdout.on('data', push);
+    proc.stderr.on('data', push);
     proc.on('exit', (code) => {
+      flush();
       this.sessions.delete(id);
       onExit(id, code);
     });
 
-    this.sessions.set(id, { proc, cwd });
+    this.sessions.set(id, session);
     return id;
+  }
+
+  // The renderer confirms how much output xterm has processed.
+  ack(id, chars) {
+    const s = this.sessions.get(id);
+    if (!s) return;
+    s.unacked = Math.max(0, s.unacked - chars);
+    if (s.paused && s.unacked < LOW_WATER) this.setPaused(s, false);
+  }
+
+  setPaused(s, paused) {
+    s.paused = paused;
+    for (const stream of [s.proc.stdout, s.proc.stderr]) {
+      if (paused) stream.pause();
+      else stream.resume();
+    }
   }
 
   write(id, data) {
@@ -70,7 +110,10 @@ class PtyManager {
   }
 
   kill(id) {
-    this.sessions.get(id)?.proc.kill('SIGHUP');
+    const s = this.sessions.get(id);
+    if (!s) return;
+    if (s.paused) this.setPaused(s, false); // nobody will ack any more: let it drain and exit
+    s.proc.kill('SIGHUP');
   }
 
   killAll() {

@@ -60,6 +60,14 @@ function applyAppearance() {
 
 const all = new Map(); // pty id -> pane
 const early = new Map(); // output that arrives before a pane registers its id
+const closedIds = new Set(); // output may still arrive after a pane is closed
+
+// Acknowledged once xterm has parsed it: the main process pauses a shell that
+// gets too far ahead of its terminal (flow control).
+function writeOutput(t, data) {
+  t.term.write(data, () => work.pty.ack(t.id, data.length));
+  t.onOutput?.(data);
+}
 let home = '';
 let active = null; // active project
 let onChange = () => {};
@@ -88,10 +96,14 @@ export function initTerminals({ homeDir, changed, openAppearance, activity, menu
   work.pty.onData((id, data) => {
     const t = all.get(id);
     if (t) {
-      t.term.write(data);
-      t.onOutput?.(data);
+      writeOutput(t, data);
       onActivity(t);
-    } else early.set(id, [...(early.get(id) || []), data]);
+    } else if (closedIds.has(id)) {
+      work.pty.ack(id, data.length); // last words of a closed pane
+    } else {
+      if (!early.has(id)) early.set(id, []);
+      early.get(id).push(data);
+    }
   });
   work.pty.onExit((id, code) => {
     const t = all.get(id);
@@ -204,10 +216,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   pending.delete(t);
   t.id = id;
   all.set(id, t);
-  for (const chunk of early.get(id) || []) {
-    term.write(chunk);
-    t.onOutput?.(chunk);
-  }
+  for (const chunk of early.get(id) || []) writeOutput(t, chunk);
   early.delete(id);
 
   term.onData((d) => !t.exited && work.pty.write(id, d));
@@ -291,6 +300,7 @@ export function closeTerminal(id) {
   if (!t) return;
   if (!t.exited) work.pty.kill(id);
   all.delete(id);
+  closedIds.add(id);
   const p = t.project;
   if (p.maximizedId === id) p.maximizedId = null;
   t.el.classList.add('closing');

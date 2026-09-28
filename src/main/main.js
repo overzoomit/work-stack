@@ -78,6 +78,7 @@ ipcMain.handle('projects:save', (_e, next) => {
 ipcMain.handle('pty:create', (_e, opts) =>
   ptys.create(opts, (id, data) => send('pty:data', id, data), (id, code) => send('pty:exit', id, code)));
 ipcMain.on('pty:write', (_e, id, data) => ptys.write(id, data));
+ipcMain.on('pty:ack', (_e, id, chars) => ptys.ack(id, chars));
 ipcMain.on('pty:resize', (_e, id, cols, rows) => ptys.resize(id, cols, rows));
 ipcMain.on('pty:kill', (_e, id) => ptys.kill(id));
 ipcMain.handle('pty:cwd', (_e, id) => ptys.cwd(id));

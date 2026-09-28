@@ -43,3 +43,44 @@ test('cwd legge la cartella corrente della shell senza bloccare', async () => {
   assert.equal(await pending, dir);
   ptys.killAll();
 });
+
+test('l\'output viene accorpato in pochi messaggi', async () => {
+  const ptys = new PtyManager();
+  let messages = 0;
+  let out = '';
+  await new Promise((resolve) => {
+    const id = ptys.create({ cwd: '/tmp', cols: 80, rows: 24, command: 'seq 1 200000' }, (_id, data) => {
+      messages++;
+      out += data;
+      ptys.ack(id, data.length);
+    }, resolve);
+  });
+  assert.ok(out.includes('200000'));
+  assert.ok(messages < 200, `messaggi: ${messages}`);
+});
+
+test('senza conferme dal terminale la shell viene messa in pausa, con le conferme finisce', async () => {
+  const ptys = new PtyManager();
+  let received = 0;
+  let exited = false;
+  const id = ptys.create({ cwd: '/tmp', cols: 80, rows: 24, command: 'seq 1 2000000' }, (_id, data) => {
+    received += data.length;
+  }, () => { exited = true; });
+  await new Promise((r) => setTimeout(r, 1500));
+  // ~14 MB in total: it must stop a little past the 1 MB high-water mark.
+  assert.equal(exited, false);
+  assert.ok(received < 2 * 1024 * 1024, `ricevuti ${received}`);
+  // Acknowledge everything as it arrives: the command runs to the end.
+  assert.equal(ptys.sessions.get(id).paused, true);
+  await new Promise((resolve) => {
+    const tick = setInterval(() => {
+      if (exited) {
+        clearInterval(tick);
+        resolve();
+        return;
+      }
+      ptys.ack(id, Number.MAX_SAFE_INTEGER);
+    }, 20);
+  });
+  assert.equal(exited, true);
+});
