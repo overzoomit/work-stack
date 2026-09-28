@@ -14,9 +14,13 @@ function load() {
   }
 }
 
+// Written to a temporary file and renamed over the old one: a write cut short
+// (disk full, crash) never leaves a truncated state.json behind.
 function save(state) {
   fs.mkdirSync(path.dirname(file()), { recursive: true });
-  fs.writeFileSync(file(), JSON.stringify(state, null, 2));
+  const tmp = `${file()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  fs.renameSync(tmp, file());
 }
 
 module.exports = { load, save };
