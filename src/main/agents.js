@@ -13,13 +13,12 @@ const MAX_EVENTS = 60;
 // shell command ("claude --resume <id>"), so anything else is ignored.
 const SESSION_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
 
-function summarizeInput(name, input = {}) {
-  if (input.command) return input.command;
-  if (input.file_path) return input.file_path;
-  if (input.pattern) return input.pattern;
-  if (input.url) return input.url;
-  if (input.description) return input.description;
-  if (input.prompt) return input.prompt;
+// The most telling field of a tool call's input, in order of preference.
+const SUMMARY_FIELDS = ['command', 'file_path', 'pattern', 'url', 'description', 'prompt'];
+
+function summarizeInput(input = {}) {
+  const field = SUMMARY_FIELDS.find((f) => input[f]);
+  if (field) return input[field];
   const s = JSON.stringify(input);
   return s.length > 2 ? s : '';
 }
@@ -112,7 +111,7 @@ class Session {
           this.push({ ts, kind: 'text', text: c.text.trim().slice(0, 400) });
         } else if (c.type === 'tool_use') {
           this.lastTool = c.name;
-          this.push({ ts, kind: 'tool', tool: c.name, text: summarizeInput(c.name, c.input).slice(0, 300) });
+          this.push({ ts, kind: 'tool', tool: c.name, text: summarizeInput(c.input).slice(0, 300) });
         }
       }
       if (msg.stop_reason === 'tool_use') this.lastKind = 'assistant-tool';
