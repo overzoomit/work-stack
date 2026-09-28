@@ -84,12 +84,17 @@ export function renderSvg({ rows, width }) {
   return `<svg width="${width}" height="${h}" fill="none" stroke-width="2" stroke-linecap="round">${parts.join('')}${nodes.join('')}</svg>`;
 }
 
+// Decorations come from `git log --decorate=full`, so local and remote
+// branches are told apart by their namespace, not by guessing from a "/"
+// (a local "feature/x" is still local).
 export function refBadges(refs) {
-  return refs.map((ref) => {
-    if (ref.startsWith('HEAD -> ')) return { cls: 'head', label: ref.slice(8) };
-    if (ref === 'HEAD') return { cls: 'head', label: 'HEAD' };
-    if (ref.startsWith('tag: ')) return { cls: 'tag', label: ref.slice(5) };
-    if (ref.includes('/')) return { cls: 'remote', label: ref };
-    return { cls: 'local', label: ref };
-  }).filter((b) => !b.label.endsWith('/HEAD'));
+  const out = [];
+  for (const ref of refs) {
+    if (ref === 'HEAD') out.push({ cls: 'head', label: 'HEAD' });
+    else if (ref.startsWith('HEAD -> refs/heads/')) out.push({ cls: 'head', label: ref.slice('HEAD -> refs/heads/'.length) });
+    else if (ref.startsWith('tag: refs/tags/')) out.push({ cls: 'tag', label: ref.slice('tag: refs/tags/'.length) });
+    else if (ref.startsWith('refs/heads/')) out.push({ cls: 'local', label: ref.slice('refs/heads/'.length) });
+    else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) out.push({ cls: 'remote', label: ref.slice('refs/remotes/'.length) });
+  }
+  return out;
 }

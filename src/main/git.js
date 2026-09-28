@@ -82,7 +82,7 @@ async function log(repo, limit = 400) {
   const fmt = ['%H', '%P', '%D', '%an', '%at', '%s'].join(SEP) + REC;
   let out;
   try {
-    out = await git(repo, ['log', '--all', '--date-order', `-n${limit}`, `--format=${fmt}`]);
+    out = await git(repo, ['log', '--all', '--date-order', '--decorate=full', `-n${limit}`, `--format=${fmt}`]);
   } catch {
     return []; // repo without commits
   }
@@ -144,7 +144,7 @@ async function commitFiles(repo, hash) {
 
 async function commit(repo, hash) {
   const fmt = ['%H', '%P', '%an', '%ae', '%at', '%cn', '%ct', '%D', '%B'].join(SEP);
-  const out = await git(repo, ['show', '-s', `--format=${fmt}`, hash]);
+  const out = await git(repo, ['show', '-s', '--decorate=full', `--format=${fmt}`, hash]);
   const [h, parents, author, email, time, committer, ctime, refs, body] = out.split(SEP);
   const { files } = await commitFiles(repo, h);
   return {
