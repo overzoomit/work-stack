@@ -51,8 +51,9 @@ async function guard(p, { follow }) {
 
 const isRoot = async (abs) => roots.includes(await realOf(abs));
 
+// ".git" is refused too: the tree hides it, and a stray one breaks git there.
 function checkName(name) {
-  if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
+  if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..' || name.toLowerCase() === '.git') {
     throw new Error(`Nome non valido: ${name}`);
   }
 }

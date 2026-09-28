@@ -151,3 +151,10 @@ test('la cartella del progetto non si può rinominare né spostare, da nessuna v
   await assert.rejects(fsops.move(project, path.join(project, 'dentro')), /cartella del progetto|dentro sé stessa/);
   assert.ok(fs.existsSync(path.join(project, 'src', 'a.txt')), 'the project is where it was');
 });
+
+test('rifiuta ".git" come nome: sarebbe nascosto nell\'albero e romperebbe git in quella cartella (regressione)', async () => {
+  await assert.rejects(fsops.create(path.join(project, 'src'), '.git', false), /Nome non valido/);
+  await assert.rejects(fsops.create(project, '.GIT', true), /Nome non valido/, 'case-insensitive file systems too');
+  await assert.rejects(fsops.rename(path.join(project, 'src', 'a.txt'), '.git'), /Nome non valido/);
+  assert.ok(!fs.existsSync(path.join(project, 'src', '.git')));
+});
