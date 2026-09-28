@@ -5,6 +5,7 @@ import { FitAddon } from '../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs'
 import { WebLinksAddon } from '../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs';
 import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
+import { tildify } from './paths.js';
 
 const { work } = window;
 
@@ -261,7 +262,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
 
 function paintHead(t) {
   t.el.querySelector('.pane-title').textContent = t.title;
-  t.el.querySelector('.pane-cwd').innerHTML = `<bdi>${esc(t.procTitle || (t.cwd || '').replace(home, '~'))}</bdi>`;
+  t.el.querySelector('.pane-cwd').innerHTML = `<bdi>${esc(t.procTitle || tildify(t.cwd, home))}</bdi>`;
   t.el.querySelector('.dot').className = `dot ${dotClass(t)}`;
   t.el.classList.toggle('exited', t.exited);
   onChange();
@@ -344,7 +345,7 @@ export function renderTermList(project) {
       <span class="dot ${dotClass(t)}"></span>
       <div class="li-main">
         <div class="li-title">${esc(t.title)}</div>
-        <div class="li-sub"><code>${esc((t.cwd || '').replace(home, '~'))}</code></div>
+        <div class="li-sub"><code>${esc(tildify(t.cwd, home))}</code></div>
       </div>
     </li>`).join(''));
   if (changed) for (const li of list.children) {

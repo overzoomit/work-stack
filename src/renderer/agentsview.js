@@ -1,5 +1,6 @@
 // Agents: sidebar list (this project first) + detail timeline in the panel.
 import { $, esc, ago, setHtml, contextMenu } from './ui.js';
+import { tildify } from './paths.js';
 
 const { work } = window;
 
@@ -103,7 +104,7 @@ async function renderAgentDetail() {
   box.innerHTML = `
     <div class="agent-head">
       <h3>${esc(a.title)}</h3>
-      <div class="li-sub">${esc((a.cwd || '').replace(home, '~'))}</div>
+      <div class="li-sub">${esc(tildify(a.cwd, home))}</div>
     </div>
     <div class="agent-state">
       <span class="dot ${a.status.state}"></span>${esc(a.status.label)}

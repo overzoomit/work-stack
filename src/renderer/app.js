@@ -11,6 +11,7 @@ import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
+import { tildify } from './paths.js';
 
 const { work } = window;
 
@@ -66,7 +67,7 @@ async function activateProject(p) {
   showProject(p);
   renderTermList(p);
   p.tree.mount($('#tree'));
-  $('#status-repo').textContent = p.path.replace(info.home, '~');
+  $('#status-repo').textContent = tildify(p.path, info.home);
   renderAgentList();
   showRun(p);
   await showGit(p);
