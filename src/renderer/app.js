@@ -6,7 +6,7 @@ import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject, flipMove,
 } from './terminals.js';
-import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks } from './gitpanel.js';
+import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
@@ -440,6 +440,7 @@ function showTab(name) {
   $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   $$('.tab-body').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   if (name === 'project') $('#tree').focus({ preventScroll: true });
+  setGraphVisible(name === 'graph');
 }
 $$('#tabs button').forEach((b) => {
   b.onpointerdown = () => showTab(b.dataset.tab);
@@ -564,8 +565,9 @@ addEventListener('keydown', (e) => {
       return true;
     },
   });
-  // .git changed (commit, checkout, stage, fetch…): refresh that repository's projects.
-  work.git.onChanged((repo) => projects.filter((p) => p.root === repo).forEach((p) => refreshGit(p, true)));
+  // .git changed: an index-only change (stage) needs the status, anything else
+  // (commit, checkout, fetch…) also branches and graph.
+  work.git.onChanged((repo, kind) => projects.filter((p) => p.root === repo).forEach((p) => refreshGit(p, kind !== 'index')));
   initGit({
     statusChanged: (p) => {
       p.tree.setGitStatus(p.gitStatus, p.root);

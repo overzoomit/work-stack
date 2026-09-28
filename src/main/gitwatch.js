@@ -25,10 +25,19 @@ class GitWatcher {
     }
     if (!isDir) return;
 
+    // Changes are batched for 300 ms. If only the index moved (git add, or a
+    // shell prompt running `git status`) the UI needs the status alone;
+    // anything else (HEAD, refs, FETCH_HEAD…) may change branches and graph.
+    let onlyIndex = true;
     const fire = (name) => {
       if (name && IGNORED.test(name)) return;
+      if (name !== 'index') onlyIndex = false;
       clearTimeout(entry.timer);
-      entry.timer = setTimeout(() => this.onChange(repo), 300);
+      entry.timer = setTimeout(() => {
+        const kind = onlyIndex ? 'index' : 'full';
+        onlyIndex = true;
+        this.onChange(repo, kind);
+      }, 300);
     };
     const add = (dir, opts = {}) => {
       try {
@@ -40,7 +49,7 @@ class GitWatcher {
       }
     };
     add(gitDir); // HEAD, index, FETCH_HEAD, MERGE_HEAD…
-    add(path.join(gitDir, 'refs'), { recursive: true }); // branches, tags, remotes
+    add(path.join(gitDir, 'refs'), { recursive: true }); // branches, tags, remotes (never named "index")
   }
 
   unwatch(repo) {

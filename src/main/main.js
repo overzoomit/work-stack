@@ -16,7 +16,7 @@ const TEST_MODE = !!(process.env.WORK_SCREENSHOT || process.env.WORK_EVAL);
 const ptys = new PtyManager();
 let win = null;
 let agents = null;
-const gitWatcher = new GitWatcher((repo) => send('git:changed', repo));
+const gitWatcher = new GitWatcher((repo, kind) => send('git:changed', repo, kind));
 let state = null;
 
 function send(channel, ...args) {

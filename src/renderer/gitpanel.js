@@ -240,7 +240,22 @@ async function refreshBranches(project) {
     ${remote.length ? `<optgroup label="Remoti">${remote.map((b) => `<option>${esc(b.name)}</option>`).join('')}</optgroup>` : ''}`;
 }
 
+// The graph (git log + up to 400 rows) is only built while its tab is shown;
+// otherwise it is marked stale and rebuilt when the tab opens.
+let graphVisible = false;
+let graphStale = true;
+
+export function setGraphVisible(visible) {
+  graphVisible = visible;
+  if (visible && graphStale && active?.root) refreshGraph(active);
+}
+
 async function refreshGraph(project) {
+  if (!graphVisible) {
+    graphStale = true;
+    return;
+  }
+  graphStale = false;
   const commits = await work.git.log(project.root);
   if (project !== active) return;
   const box = $('#graph');
