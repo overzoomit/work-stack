@@ -235,3 +235,18 @@ test('dopo stop non arrivano più aggiornamenti, nemmeno da scritture appena avv
   await new Promise((r) => setTimeout(r, 500));
   assert.equal(updates, 0);
 });
+
+test('una sessione in una cartella di progetto appena creata compare senza aspettare altre scritture (regressione)', async (t) => {
+  const updates = [];
+  const w = new AgentWatcher((list) => updates.push(list));
+  t.after(() => w.stop());
+  w.start();
+  await new Promise((r) => setTimeout(r, 150));
+  const id = '99999999-9999-9999-9999-999999999999';
+  const dir = path.join(PROJECTS, '-proj-nuovo');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, `${id}.jsonl`), user('prima riga'));
+  await new Promise((r) => setTimeout(r, 800));
+  assert.ok(w.list().some((a) => a.id === id), 'listed');
+  assert.ok(updates.some((l) => l.some((a) => a.id === id)), 'and sent to the UI');
+});

@@ -170,6 +170,7 @@ class AgentWatcher {
     this.scan();
     this.emit();
     this.watchRoot();
+    this.started = true;
     this.timers.push(setInterval(() => {
       this.prune();
       this.scan();
@@ -217,7 +218,15 @@ class AgentWatcher {
         });
         this.watchers.set(dir, w);
       } catch {
-        // not a directory or vanished
+        continue; // not a directory or vanished
+      }
+      // A project folder that appeared after start may already hold a session
+      // written before its watcher existed: read it now, not at its next write.
+      if (!this.started) continue;
+      try {
+        for (const f of fs.readdirSync(dir)) if (SESSION_FILE.test(f)) this.touch(path.join(dir, f));
+      } catch {
+        // vanished right after appearing
       }
     }
   }
