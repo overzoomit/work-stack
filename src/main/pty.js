@@ -46,7 +46,7 @@ class PtyManager {
     proc.stderr.setEncoding('utf8');
     const session = { proc, cwd: dir, buffer: '', timer: null, unacked: 0, paused: false };
     // Output is coalesced into one message every few ms (a busy command
-    // prints thousands of small chunks) and flushed right away past 64 KB.
+    // prints thousands of small chunks) and flushed right away past FLUSH_SIZE.
     const flush = () => {
       clearTimeout(session.timer);
       session.timer = null;
@@ -65,6 +65,10 @@ class PtyManager {
     };
     proc.stdout.on('data', push);
     proc.stderr.on('data', push);
+    // Keys or a resize sent while the shell exits hit a closed pipe (EPIPE):
+    // expected, and harmless — the exit event follows.
+    proc.stdin.on('error', () => {});
+    proc.stdio[3].on('error', () => {});
     // Any other start failure (python3 missing…) ends the terminal instead of
     // becoming an uncaught error in the main process.
     proc.on('error', () => {

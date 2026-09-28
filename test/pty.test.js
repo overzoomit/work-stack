@@ -147,3 +147,24 @@ test('un terminale aperto in una cartella che non esiste più parte dalla home i
   assert.equal(code, 0);
   assert.equal(out.trim(), require('fs').realpathSync(require('os').homedir()));
 });
+
+test('tasti e ridimensionamenti inviati mentre la shell esce non fanno crashare Work (regressione)', async () => {
+  let crash = null;
+  const onCrash = (e) => { crash = e; };
+  process.on('uncaughtException', onCrash);
+  try {
+    const ptys = new PtyManager();
+    await Promise.all(Array.from({ length: 20 }, () => new Promise((resolve) => {
+      const id = ptys.create({ cwd: '/tmp', cols: 80, rows: 24, command: 'exit 0' }, () => {}, resolve);
+      const spam = setInterval(() => {
+        if (!ptys.sessions.has(id)) return clearInterval(spam);
+        ptys.write(id, 'x'.repeat(1000));
+        ptys.resize(id, 80, 24);
+      }, 0);
+    })));
+    await new Promise((r) => setTimeout(r, 300)); // late EPIPE errors surface asynchronously
+  } finally {
+    process.off('uncaughtException', onCrash);
+  }
+  assert.equal(crash, null, crash && `${crash.code} ${crash.message}`);
+});
