@@ -84,3 +84,30 @@ test('senza conferme dal terminale la shell viene messa in pausa, con le conferm
   });
   assert.equal(exited, true);
 });
+
+test('chiudere una sessione in pausa per il controllo di flusso la fa terminare comunque', async () => {
+  const ptys = new PtyManager();
+  let exited = false;
+  const id = ptys.create({ cwd: '/tmp', cols: 80, rows: 24, command: 'seq 1 5000000' }, () => {}, () => { exited = true; });
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.equal(ptys.sessions.get(id).paused, true, 'nobody acked: the shell is paused');
+  ptys.kill(id);
+  for (let i = 0; i < 50 && !exited; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(exited, true);
+});
+
+test('write invia l\'input alla shell e resize cambia la dimensione vista dai programmi', async () => {
+  const ptys = new PtyManager();
+  let out = '';
+  const id = ptys.create({ cwd: '/tmp', cols: 80, rows: 24, command: 'read line; echo "got:$line"; sleep 0.3; stty size' }, (_id, d) => {
+    out += d;
+    ptys.ack(_id, d.length);
+  }, () => {});
+  await new Promise((r) => setTimeout(r, 300));
+  ptys.resize(id, 100, 30);
+  ptys.write(id, 'ciao\r');
+  for (let i = 0; i < 40 && !/\d+ \d+/.test(out.split('got:')[1] || ''); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.match(out, /got:ciao/);
+  assert.match(out, /30 100/);
+  ptys.killAll();
+});
