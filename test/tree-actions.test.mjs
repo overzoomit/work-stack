@@ -135,3 +135,21 @@ test('cestino: il file selezionato non resta selezionato e un errore del disco d
   await tree.trash('/p');
   assert.equal(calls.filter((c) => c[1] === '/p').length, 0, 'the project folder is never trashed');
 });
+
+test('cestinando una cartella aperta si dimenticano anche le sottocartelle e il loro contenuto (regressione)', async () => {
+  disk.set('/q', [dir('/q/build')]);
+  disk.set('/q/build', [dir('/q/build/assets')]);
+  disk.set('/q/build/assets', [file('/q/build/assets/old.js')]);
+  const tree = new ProjectTree({ path: '/q', name: 'q' }, { refreshGit() {} });
+  await tree.load('/q');
+  for (const d of ['/q/build', '/q/build/assets']) {
+    tree.expanded.add(d);
+    await tree.load(d);
+  }
+  tree.selected = '/q/build/assets/old.js';
+  disk.set('/q', []);
+  await tree.trash('/q/build');
+  assert.deepEqual([...tree.expanded].filter((d) => d.startsWith('/q/build')), [], 'no folder of the trashed tree stays open');
+  assert.ok(!tree.children.has('/q/build/assets'), 'its old content is not kept');
+  assert.equal(tree.selected, null, 'a selection inside the trashed folder is cleared');
+});

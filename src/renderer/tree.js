@@ -255,13 +255,21 @@ export class ProjectTree {
     if (p === this.project.path) return;
     try {
       await work.fs.trash(p);
-      this.expanded.delete(p);
-      if (this.selected === p) this.selected = null;
+      this.forget(p);
       await this.refreshDirs(dirname(p));
       toast(`${basename(p)} spostato nel cestino`);
     } catch (e) {
       toastError(e);
     }
+  }
+
+  // Drops what the tree remembers about `p` and everything inside it: a folder
+  // recreated later under the same name must not show the old open subfolders.
+  forget(p) {
+    const gone = (x) => x === p || x.startsWith(`${p}/`);
+    for (const d of [...this.expanded]) if (gone(d)) this.expanded.delete(d);
+    for (const d of [...this.children.keys()]) if (gone(d)) this.children.delete(d);
+    if (this.selected && gone(this.selected)) this.selected = null;
   }
 
   open(p) {
