@@ -267,3 +267,22 @@ test('una sessione il cui file viene cancellato sparisce dalla lista (regression
   assert.ok(!w.list().some((a) => a.id === id), 'gone from the list');
   assert.ok(!updates.at(-1).some((a) => a.id === id), 'and the UI was told');
 });
+
+const interrupt = (text, withToolResult) => line({ type: 'user', message: { role: 'user', content: [
+  ...(withToolResult ? [{ type: 'tool_result', is_error: true, content: 'The user doesn\'t want to proceed with this tool use.' }] : []),
+  { type: 'text', text },
+] } });
+
+test('dopo un\'interruzione l\'agente attende il tuo input, non "sta ragionando" (regressione)', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, user('fai il deploy'), reply('Inizio…'), interrupt('[Request interrupted by user]')));
+  s.read();
+  assert.equal(s.status.state, 'waiting');
+  assert.deepEqual(s.events.map((e) => e.text), ['fai il deploy', 'Inizio…'], 'the marker is not shown as your message');
+});
+
+test('anche l\'interruzione durante un tool lascia l\'agente in attesa (regressione)', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, user('pulisci'), toolCall('Bash', { command: 'rm -rf dist' }),
+    interrupt('[Request interrupted by user for tool use]', true)));
+  s.read();
+  assert.equal(s.status.state, 'waiting');
+});

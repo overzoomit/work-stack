@@ -93,6 +93,11 @@ class Session {
 
     if (e.type === 'user') {
       const content = msg.content;
+      // Esc / Ctrl+C in Claude Code: the turn is over and it waits for you.
+      if (textOf(content).startsWith('[Request interrupted by user')) {
+        this.lastKind = 'assistant-end';
+        return;
+      }
       if (Array.isArray(content) && content.some((c) => c.type === 'tool_result')) {
         const r = content.find((c) => c.type === 'tool_result');
         this.lastKind = 'tool-result';
