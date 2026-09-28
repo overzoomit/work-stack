@@ -401,3 +401,13 @@ test('push con HEAD staccato spiega cosa fare invece dell\'errore grezzo di git'
   r.run('checkout', '-q', '--detach');
   await assert.rejects(git.action(r.dir, 'push', {}), /HEAD staccato/);
 });
+
+test('un diff enorme viene rifiutato con un messaggio chiaro invece di un errore tecnico (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.write('huge.log', 'riga di log con un po\' di testo\n'.repeat(300000)); // ~9 MB, untracked
+  await assert.rejects(git.fileDiff(r.dir, { file: 'huge.log', untracked: true }), /Differenze troppo grandi da mostrare/);
+  const small = await git.fileDiff(r.dir, { file: 'a.txt' });
+  assert.equal(small, '', 'normal diffs still work');
+});

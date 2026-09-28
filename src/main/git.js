@@ -11,11 +11,12 @@ const FULL_CONTEXT = '-U100000'; // whole file, the viewer collapses unchanged r
 const PLAIN = ['--no-ext-diff', '--no-color'];
 
 // okCodes: `git diff --no-index` exits 1 when files differ, which is not an error.
-function git(cwd, args, { input, okCodes = [0] } = {}) {
+function git(cwd, args, { input, okCodes = [0], maxBuffer = 64 * 1024 * 1024, tooBig = null } = {}) {
   return new Promise((resolve, reject) => {
-    const child = execFile('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
+    const child = execFile('git', args, { cwd, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } },
       (err, stdout, stderr) => {
-        if (err && !okCodes.includes(err.code)) reject(new Error((stderr || err.message).trim()));
+        if (err?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && tooBig) reject(new Error(tooBig));
+        else if (err && !okCodes.includes(err.code)) reject(new Error((stderr || err.message).trim()));
         else resolve(stdout);
       });
     if (input !== undefined) child.stdin.end(input);
@@ -197,19 +198,22 @@ async function containing(repo, hash) {
 // Unified diff with the whole file as context.
 //  - commit: { hash, file, oldFile }
 //  - working copy: { file, staged, untracked }
+// The viewer parses the whole diff at once: past ~200k lines it would freeze.
+const DIFF_LIMIT = { maxBuffer: 8 * 1024 * 1024, tooBig: 'Differenze troppo grandi da mostrare (oltre 8 MB).' };
+
 async function fileDiff(repo, { hash, file, oldFile, staged, untracked }) {
   if (hash) {
     const parent = await parentOf(repo, hash);
     const paths = oldFile && oldFile !== file ? [oldFile, file] : [file];
-    return git(repo, ['diff', FULL_CONTEXT, '-M', ...PLAIN, parent, hash, '--', ...paths]);
+    return git(repo, ['diff', FULL_CONTEXT, '-M', ...PLAIN, parent, hash, '--', ...paths], DIFF_LIMIT);
   }
   if (untracked) {
-    return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, '--no-index', '--', '/dev/null', file], { okCodes: [0, 1] });
+    return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, '--no-index', '--', '/dev/null', file], { okCodes: [0, 1], ...DIFF_LIMIT });
   }
   // --ours (-2) only affects conflicted files: a plain diff against our side,
   // with the conflict markers as added lines, instead of a combined "@@@" diff.
   const paths = oldFile && oldFile !== file ? ['-M', '--', oldFile, file] : ['--', file];
-  return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, ...(staged ? ['--cached'] : ['--ours']), ...paths]);
+  return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, ...(staged ? ['--cached'] : ['--ours']), ...paths], DIFF_LIMIT);
 }
 
 const isRef = (repo, ref) => git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false);
