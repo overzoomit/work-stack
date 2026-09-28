@@ -140,7 +140,7 @@ export async function openCommit(repo, hash, actions = []) {
     const box = $('#ci-contains');
     box.classList.remove('muted');
     box.innerHTML = list.length
-      ? list.slice(0, 12).map((b) => `<span class="ref ${b.includes('/') ? 'remote' : 'local'}">${esc(b)}</span>`).join(' ')
+      ? list.slice(0, 12).map((b) => `<span class="ref ${b.remote ? 'remote' : 'local'}">${esc(b.name)}</span>`).join(' ')
         + (list.length > 12 ? ` <span class="muted">+${list.length - 12}</span>` : '')
       : '<span class="muted">nessuno</span>';
   });

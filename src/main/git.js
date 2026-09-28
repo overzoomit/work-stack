@@ -181,8 +181,12 @@ async function commit(repo, hash) {
 
 async function containing(repo, hash) {
   try {
-    const out = await git(repo, ['branch', '-a', '--contains', hash, '--format=%(refname:short)']);
-    return out.split('\n').filter((b) => b && !b.endsWith('/HEAD'));
+    const out = await git(repo, ['branch', '-a', '--contains', hash, '--format=%(refname)']);
+    // Full ref names: a local feature/x must not look like a remote branch.
+    return out.split('\n').filter((ref) => ref && !ref.endsWith('/HEAD')).map((ref) => {
+      const remote = ref.startsWith('refs/remotes/');
+      return { name: ref.replace(/^refs\/(heads|remotes)\//, ''), remote };
+    });
   } catch {
     return [];
   }

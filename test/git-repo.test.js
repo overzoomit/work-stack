@@ -197,9 +197,22 @@ test('containing elenca solo i rami che contengono il commit', async () => {
   r.run('checkout', '-q', '-b', 'feature/x');
   r.write('a.txt', '2\n');
   const tip = r.commit('feature');
-  assert.deepEqual((await git.containing(r.dir, base)).sort(), ['feature/x', 'main']);
-  assert.deepEqual(await git.containing(r.dir, tip), ['feature/x']);
+  const names = (list) => list.map((b) => b.name).sort();
+  assert.deepEqual(names(await git.containing(r.dir, base)), ['feature/x', 'main']);
+  assert.deepEqual(await git.containing(r.dir, tip), [{ name: 'feature/x', remote: false }]);
   assert.deepEqual(await git.containing(r.dir, 'non-esiste'), []);
+});
+
+test('containing distingue rami locali e remoti dal nome completo, non dallo slash (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  const base = r.commit('base');
+  r.run('branch', 'feature/x');
+  r.run('update-ref', 'refs/remotes/origin/main', base);
+  r.run('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+  const list = await git.containing(r.dir, base);
+  const byName = Object.fromEntries(list.map((b) => [b.name, b.remote]));
+  assert.deepEqual(byName, { 'feature/x': false, main: false, 'origin/main': true });
 });
 
 test('il diff di un commit con rinomina confronta il vecchio e il nuovo percorso', async () => {
