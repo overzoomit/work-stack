@@ -444,10 +444,20 @@ function startPaneDrag(t, e) {
   const x0 = e.clientX;
   const y0 = e.clientY;
   let dragging = false;
-  let target = null; // { kind: 'pane', el } | { kind: 'tab', el }
+  let target = null; // { kind: 'pane', el, after } | { kind: 'tab', el }
+  let zones = []; // drop zones measured once: the grid doesn't move during a drag
 
-  const clearTarget = () => {
-    document.querySelectorAll('.drop-before, .drop-after, .drop-tab').forEach((x) => x.classList.remove('drop-before', 'drop-after', 'drop-tab'));
+  const measure = () => [
+    ...[...document.querySelectorAll('.ptab:not(.active)')].map((x) => ({ kind: 'tab', el: x, r: x.getBoundingClientRect() })),
+    ...panesOf(t.project).filter((x) => x.el !== el && !x.el.classList.contains('off'))
+      .map((x) => ({ kind: 'pane', el: x.el, r: x.el.getBoundingClientRect() })),
+  ];
+
+  const mark = (next) => {
+    if (next?.el === target?.el && next?.after === target?.after) return; // same spot: no DOM work
+    target?.el.classList.remove('drop-before', 'drop-after', 'drop-tab');
+    target = next;
+    if (target) target.el.classList.add(target.kind === 'tab' ? 'drop-tab' : target.after ? 'drop-after' : 'drop-before');
   };
 
   const move = (ev) => {
@@ -461,37 +471,31 @@ function startPaneDrag(t, e) {
       } catch {
         // pointer already released
       }
+      zones = measure();
       el.classList.add('dragging');
       document.body.classList.add('pane-dragging');
     }
     el.style.transform = `translate(${dx}px, ${dy}px) scale(0.98)`;
-    // Hit-test what's under the pointer (the dragged pane ignores pointer events).
-    clearTarget();
-    target = null;
-    const under = document.elementsFromPoint(ev.clientX, ev.clientY).find((n) => !el.contains(n));
-    const tab = under?.closest('.ptab');
-    const pane = under?.closest('.pane');
-    if (tab && !tab.classList.contains('active')) {
-      target = { kind: 'tab', el: tab };
-      tab.classList.add('drop-tab');
-    } else if (pane && pane !== el && !pane.classList.contains('off')) {
-      const r = pane.getBoundingClientRect();
-      const after = r.width > r.height * 1.2 ? ev.clientX > r.left + r.width / 2 : ev.clientY > r.top + r.height / 2;
-      target = { kind: 'pane', el: pane, after };
-      pane.classList.add(after ? 'drop-after' : 'drop-before');
-    }
+    const { clientX: x, clientY: y } = ev;
+    const zone = zones.find(({ r }) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+    if (!zone) return mark(null);
+    if (zone.kind === 'tab') return mark({ kind: 'tab', el: zone.el });
+    const { r } = zone;
+    const after = r.width > r.height * 1.2 ? x > r.left + r.width / 2 : y > r.top + r.height / 2;
+    mark({ kind: 'pane', el: zone.el, after });
   };
 
   const end = (ev) => {
-    head.removeEventListener('pointermove', move);
-    head.removeEventListener('pointerup', end);
-    head.removeEventListener('pointercancel', end);
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', end);
+    removeEventListener('pointercancel', end);
     removeEventListener('keydown', esc, true);
     if (!dragging) return;
     document.body.classList.remove('pane-dragging');
-    clearTarget();
+    const drop = target;
+    mark(null);
     const cancelled = ev?.type === 'keydown' || ev?.type === 'pointercancel';
-    if (!cancelled && target?.kind === 'tab' && onDropOnTab(t, target.el)) {
+    if (!cancelled && drop?.kind === 'tab' && onDropOnTab(t, drop.el)) {
       el.classList.remove('dragging');
       el.style.transform = '';
       return;
@@ -500,8 +504,8 @@ function startPaneDrag(t, e) {
     flip(panes, () => {
       el.classList.remove('dragging');
       el.style.transform = '';
-      if (!cancelled && target?.kind === 'pane') {
-        target.el.parentNode.insertBefore(el, target.after ? target.el.nextSibling : target.el);
+      if (!cancelled && drop?.kind === 'pane') {
+        drop.el.parentNode.insertBefore(el, drop.after ? drop.el.nextSibling : drop.el);
         relayout();
         onChange();
       }
@@ -515,9 +519,11 @@ function startPaneDrag(t, e) {
     }
   };
 
-  head.addEventListener('pointermove', move);
-  head.addEventListener('pointerup', end);
-  head.addEventListener('pointercancel', end);
+  // On window, not the header: a release anywhere (even before the drag
+  // threshold, outside the header) always ends the gesture.
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', end);
+  addEventListener('pointercancel', end);
   addEventListener('keydown', esc, true);
 }
 
