@@ -1,6 +1,6 @@
 // Git side of the right panel: changes, commit box, branch actions, graph.
 import { $, $$, esc, ago, toast, toastError, ask, contextMenu } from './ui.js';
-import { layout, renderSvg, refBadges } from './graph.js';
+import { layout, renderSvg, refBadges, checkoutTarget } from './graph.js';
 import { openCommit, openWorking } from './review.js';
 
 const { work } = window;
@@ -276,11 +276,11 @@ async function refreshGraph(project) {
     if (!row) return;
     e.preventDefault();
     const c = g.rows[Number(row.dataset.i)].commit;
-    const branchRef = refBadges(c.refs).find((b) => b.cls === 'local' || b.cls === 'head');
+    const target = checkoutTarget(c.refs, c.hash);
     contextMenu(e.clientX, e.clientY, [
       { label: 'Mostra dettagli', run: () => row.click() },
       '-',
-      { label: branchRef ? `Checkout ${branchRef.label}` : 'Checkout (detached)', run: () => runGit('checkout', { branch: branchRef?.label || c.hash }) },
+      { label: target !== c.hash ? `Checkout ${target}` : 'Checkout (detached)', run: () => runGit('checkout', { branch: target }) },
       {
         label: 'Nuovo branch qui…',
         run: async () => {
@@ -301,9 +301,9 @@ async function refreshGraph(project) {
     $$('#graph .g-row.active').forEach((x) => x.classList.remove('active'));
     row.classList.add('active');
     const c = g.rows[Number(row.dataset.i)].commit;
-    const branchRef = refBadges(c.refs).find((b) => b.cls === 'local' || b.cls === 'head');
+    const target = checkoutTarget(c.refs, c.hash);
     openCommit(project.root, c.hash, [
-      { label: branchRef ? `Checkout ${branchRef.label}` : 'Checkout', run: () => runGit('checkout', { branch: branchRef?.label || c.hash }) },
+      { label: target !== c.hash ? `Checkout ${target}` : 'Checkout', run: () => runGit('checkout', { branch: target }) },
       {
         label: 'Nuovo branch qui',
         run: async () => {

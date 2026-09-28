@@ -131,3 +131,12 @@ export function refBadges(refs) {
   }
   return out;
 }
+
+// What "Checkout" on a graph commit should check out: the branch HEAD is on,
+// else a local branch, else a remote one (git then creates the local tracking
+// branch), else the commit itself (detached).
+export function checkoutTarget(refs, hash) {
+  const badges = refBadges(refs);
+  const pick = (cls) => badges.find((b) => b.cls === cls && b.label !== 'HEAD')?.label;
+  return pick('head') || pick('local') || pick('remote') || hash;
+}

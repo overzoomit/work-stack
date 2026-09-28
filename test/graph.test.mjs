@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layout, refBadges, renderSvg } from '../src/renderer/graph.js';
+import { layout, refBadges, renderSvg, checkoutTarget } from '../src/renderer/graph.js';
 
 const commit = (hash, parents = [], refs = []) => ({ hash, parents, refs, subject: hash, author: 'a', time: 0 });
 
@@ -83,4 +83,16 @@ test('due corsie che aspettano lo stesso commit scendono dritte fino a lì, senz
   const curves = svg.match(/<path d="M[\d. ]+C[^"]+"/g) || [];
   assert.equal(curves.length, 2, 'only out of the merge and back in at x');
   assert.match(svg, /<path d="M26 26V104" stroke="#30d158"\/>/, 'lane 1 runs straight down to the row before x');
+});
+
+test('checkout dal graph: ramo corrente, poi locale, poi remoto, altrimenti hash (regressione)', () => {
+  const h = 'abc123';
+  assert.equal(checkoutTarget(['HEAD -> refs/heads/main', 'refs/remotes/origin/main'], h), 'main');
+  // HEAD staccato sullo stesso commit di un ramo locale: il ramo, non "HEAD".
+  assert.equal(checkoutTarget(['HEAD', 'refs/heads/feature/x'], h), 'feature/x');
+  // Solo un ramo remoto: il remoto, così git crea il ramo locale che lo segue.
+  assert.equal(checkoutTarget(['refs/remotes/upstream/fix', 'tag: refs/tags/v1'], h), 'upstream/fix');
+  assert.equal(checkoutTarget(['refs/remotes/origin/HEAD'], h), h);
+  assert.equal(checkoutTarget(['HEAD'], h), h);
+  assert.equal(checkoutTarget([], h), h);
 });
