@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layout, refBadges } from '../src/renderer/graph.js';
+import { layout, refBadges, renderSvg } from '../src/renderer/graph.js';
 
 const commit = (hash, parents = [], refs = []) => ({ hash, parents, refs, subject: hash, author: 'a', time: 0 });
 
@@ -45,4 +45,12 @@ test('un ramo locale con lo slash nel nome resta locale (regressione)', () => {
 
 test('HEAD staccato viene mostrato come HEAD', () => {
   assert.deepEqual(refBadges(['HEAD']), [{ cls: 'head', label: 'HEAD' }]);
+});
+
+test('una storia lineare disegna la corsia come un unico tratto verticale', () => {
+  const commits = ['a', 'b', 'c', 'd'].map((h, i, all) => ({ hash: h, parents: all[i + 1] ? [all[i + 1]] : [], refs: [] }));
+  const svg = renderSvg(layout(commits));
+  assert.equal((svg.match(/<path/g) || []).length, 1);
+  assert.match(svg, /<path d="M12 13V91" stroke="#0a84ff"\/>/); // from the first node down to the last
+  assert.equal((svg.match(/<circle/g) || []).length, 4);
 });

@@ -43,10 +43,24 @@ const color = (col) => COLORS[col % COLORS.length];
 export function renderSvg({ rows, width }) {
   const h = rows.length * ROW_H;
   let lines = '';
+  // Straight segments that continue one another (same column and colour) are
+  // drawn as one path: most of a graph is lanes passing straight down.
+  const runs = new Map(); // x -> open vertical run { y1, y2, c }
+  const flushRun = (xx, run) => {
+    lines += `<path d="M${xx} ${run.y1}V${run.y2}" stroke="${run.c}"/>`;
+  };
   const curve = (x1, y1, x2, y2, c) => {
-    if (x1 === x2) return `<path d="M${x1} ${y1}V${y2}" stroke="${c}"/>`;
+    if (x1 === x2) {
+      const run = runs.get(x1);
+      if (run && run.c === c && run.y2 === y1) run.y2 = y2;
+      else {
+        if (run) flushRun(x1, run);
+        runs.set(x1, { y1, y2, c });
+      }
+      return;
+    }
     const my = (y1 + y2) / 2;
-    return `<path d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2}" stroke="${c}"/>`;
+    lines += `<path d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2}" stroke="${c}"/>`;
   };
 
   let nodes = '';
@@ -62,16 +76,16 @@ export function renderSvg({ rows, width }) {
     for (let j = 0; j < r.before.length; j++) {
       const w = r.before[j];
       if (!w) continue;
-      if (w === hash) lines += curve(x(j), top, x(r.col), mid, color(j));
+      if (w === hash) curve(x(j), top, x(r.col), mid, color(j));
       else {
         const k = r.after.indexOf(w);
-        if (k !== -1) lines += curve(x(j), top, x(k), bottom, color(k));
+        if (k !== -1) curve(x(j), top, x(k), bottom, color(k));
       }
     }
     // Outgoing: node to each parent's lane.
     for (const p of parents) {
       const k = r.after.indexOf(p);
-      if (k !== -1) lines += curve(x(r.col), mid, x(k), bottom, color(k));
+      if (k !== -1) curve(x(r.col), mid, x(k), bottom, color(k));
     }
 
     const cx = x(r.col);
@@ -81,6 +95,7 @@ export function renderSvg({ rows, width }) {
       : `<circle cx="${cx}" cy="${mid}" r="${parents.length > 1 ? 3 : 4}" fill="${color(r.col)}"/>`;
   }
 
+  for (const [xx, run] of runs) flushRun(xx, run);
   return `<svg width="${width}" height="${h}" fill="none" stroke-width="2" stroke-linecap="round">${lines}${nodes}</svg>`;
 }
 
