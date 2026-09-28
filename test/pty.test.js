@@ -196,3 +196,15 @@ test('se Work termina di colpo, l\'helper chiude la shell invece di lasciarla or
   assert.ok(exited, 'the helper (and its shell) exit');
   assert.ok(Date.now() - started < 3000);
 });
+
+test('la fine della shell viene riportata subito anche se un job in background tiene aperto il terminale (regressione)', async () => {
+  // With job control the background sleep survives the shell and keeps the
+  // terminal open: the master sees no EOF until it ends.
+  const started = Date.now();
+  const { out, code } = await runInPty('set -m; sleep 6 & echo avviato; exit 4');
+  const elapsed = Date.now() - started;
+  require('child_process').spawnSync('pkill', ['-f', '^sleep 6$']);
+  assert.match(out, /avviato/, 'output written before the exit is not lost');
+  assert.equal(code, 4);
+  assert.ok(elapsed < 3000, `exit reported after ${elapsed} ms`);
+});

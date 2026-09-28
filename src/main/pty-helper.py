@@ -30,6 +30,15 @@ def main():
     cols, rows = int(sys.argv[1]), int(sys.argv[2])
     argv = sys.argv[3:]
 
+    # The shell's exit must end the terminal even when a background job it
+    # left behind keeps the pty open (the master then never reads EOF):
+    # SIGCHLD wakes select() through this pipe. Set up before the fork so a
+    # shell that exits at once is not missed (exec resets the child's handler).
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_w, False)
+    signal.set_wakeup_fd(wake_w)
+    signal.signal(signal.SIGCHLD, lambda *_: None)
+
     pid, master = pty.fork()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
@@ -38,8 +47,9 @@ def main():
         os.execvp(argv[0], argv)
 
     set_size(master, cols, rows)
-    inputs = [0, master, CONTROL_FD]
+    inputs = [0, master, CONTROL_FD, wake_r]
     control_buf = b""
+    status = None
 
     while True:
         try:
@@ -77,8 +87,30 @@ def main():
                 c, r = line.split()
                 set_size(master, int(c), int(r))
 
-    _, status = os.waitpid(pid, 0)
+        if wake_r in ready:
+            os.read(wake_r, 512)
+            done, st = os.waitpid(pid, os.WNOHANG)
+            if done:
+                status = st
+                drain(master)
+                break
+
+    if status is None:
+        _, status = os.waitpid(pid, 0)
     sys.exit(exit_code(status))
+
+
+def drain(master):
+    """Relay what the shell wrote before exiting, without waiting for EOF."""
+    os.set_blocking(master, False)
+    while True:
+        try:
+            data = os.read(master, 65536)
+        except OSError:  # EAGAIN: nothing left; EIO: terminal closed
+            return
+        if not data:
+            return
+        os.write(1, data)
 
 
 def hang_up(pid, master):
