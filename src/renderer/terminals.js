@@ -397,7 +397,6 @@ export function renameTerminal(t, title) {
 export function moveToProject(t, project) {
   if (t.project === project) return;
   const from = t.project;
-  if (from.focusedId === t.id) from.focusedId = terminalsOf(from).find((x) => x !== t)?.id ?? null;
   if (from.maximizedId === t.id) {
     from.maximizedId = null;
     t.el.classList.remove('maximized');
@@ -406,6 +405,13 @@ export function moveToProject(t, project) {
   t.el.classList.toggle('off', project !== active);
   t.el.classList.remove('focused');
   $('#terminals').appendChild(t.el); // last in the destination's grid
+  // focus() also moves the highlight; an empty destination focuses the newcomer.
+  if (from.focusedId === t.id) {
+    from.focusedId = null;
+    const next = terminalsOf(from)[0];
+    if (next) focus(next.id);
+  }
+  if (!all.has(project.focusedId)) focus(t.id);
   relayout();
   onChange();
 }

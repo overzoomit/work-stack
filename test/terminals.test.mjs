@@ -98,3 +98,23 @@ test('chiudendo il terminale con il focus, il focus passa a un altro terminale r
   T.closeTerminal(a.id);
   await new Promise((r) => setTimeout(r, 700));
 });
+
+test('spostando il terminale con il focus in un altro progetto, il focus resta visibile in entrambi (regressione)', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  const q = { path: '/q', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const a = await T.openTerminal(p);
+  const b = await T.openTerminal(p);
+  assert.equal(p.focusedId, b.id);
+
+  T.moveToProject(b, q);
+  assert.equal(p.focusedId, a.id);
+  assert.ok(a.el.classList.contains('focused'), 'the pane that takes the focus is highlighted');
+  assert.equal(q.focusedId, b.id, 'an empty destination focuses the pane it receives');
+  assert.deepEqual(T.terminalsOf(q).map((t) => t.id), [b.id]);
+  assert.ok(b.el.classList.contains('off'), 'q is not the active project: its pane is hidden');
+
+  T.closeTerminal(a.id);
+  T.closeTerminal(b.id);
+  await new Promise((r) => setTimeout(r, 700));
+});
