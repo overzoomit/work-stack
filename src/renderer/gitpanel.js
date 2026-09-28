@@ -39,7 +39,10 @@ export function initGit({ statusChanged }) {
   });
   $('#branch-select').onchange = async (e) => {
     const branch = e.target.value;
-    if (branch !== active?.gitStatus?.branch.name) await runGit('checkout', { branch });
+    const current = active?.gitStatus?.branch.name;
+    if (branch === current) return;
+    // A failed checkout leaves HEAD where it was: so must the selector.
+    if (!(await runGit('checkout', { branch })) && current) e.target.value = current;
   };
   $('#staged').addEventListener('click', onFileClick);
   $('#unstaged').addEventListener('click', onFileClick);
