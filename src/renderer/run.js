@@ -210,6 +210,24 @@ function openMenu() {
   contextMenu(b.left, b.bottom + 6, items);
 }
 
+// Closing a project stops its processes (marked as stopped on purpose, so
+// no failure toast or restart follows) and drops their consoles.
+export function forgetProject(p) {
+  if (!p.runs) return;
+  for (const r of p.runs.values()) {
+    r.status = 'stopping';
+    r.restart = false;
+    if (r.t) closeTerminal(r.t.id);
+    r.box?.remove();
+    if (shown === r) shown = null;
+  }
+  p.runs.clear();
+  if (active === p) active = null;
+  render();
+}
+
+export const runningCount = (p) => (p.runs ? [...p.runs.values()].filter(isRunning).length : 0);
+
 // ── Run tab (WebStorm's Run tool window) ──
 
 export function showOutput(p, r) {

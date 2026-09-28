@@ -304,8 +304,9 @@ export function closeTerminal(id) {
   onChange();
 }
 
+// Every pane of the project, including consoles mounted outside the grid.
 export function closeProjectTerminals(project) {
-  for (const t of terminalsOf(project)) closeTerminal(t.id);
+  for (const t of [...all.values()].filter((x) => x.project === project)) closeTerminal(t.id);
 }
 
 export function toggleMax(id) {

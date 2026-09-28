@@ -8,7 +8,7 @@ import {
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
-import { initRun, showRun, runningIn, detect as detectRun } from './run.js';
+import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
 
@@ -73,14 +73,20 @@ async function activateProject(p) {
 }
 
 async function closeProject(p) {
-  const running = terminalsOf(p).filter((t) => !t.exited).length;
-  if (running) {
+  const shells = terminalsOf(p).filter((t) => !t.exited).length;
+  const runs = runningCount(p);
+  if (shells || runs) {
+    const parts = [
+      shells ? (shells === 1 ? 'il terminale aperto' : `i ${shells} terminali aperti`) : '',
+      runs ? (runs === 1 ? 'il processo in esecuzione' : `i ${runs} processi in esecuzione`) : '',
+    ].filter(Boolean);
     const ok = await ask({
-      text: `Chiudere ${p.name}? ${running === 1 ? 'Il terminale aperto verrà chiuso' : `I ${running} terminali aperti verranno chiusi`}.`,
+      text: `Chiudere ${p.name}? Verranno chiusi ${parts.join(' e ')}.`,
       okLabel: 'Chiudi progetto', danger: true, input: false,
     });
     if (!ok) return;
   }
+  forgetProject(p);
   closeProjectTerminals(p);
   if (p.root && !projects.some((x) => x !== p && x.root === p.root)) work.git.unwatch(p.root);
   const i = projects.indexOf(p);
