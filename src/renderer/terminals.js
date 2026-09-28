@@ -3,7 +3,7 @@
 import { Terminal } from '../../node_modules/@xterm/xterm/lib/xterm.mjs';
 import { FitAddon } from '../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
 import { WebLinksAddon } from '../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs';
-import { $, esc, setHtml } from './ui.js';
+import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 
 const { work } = window;
@@ -288,11 +288,11 @@ export function closeTerminal(id) {
   const p = t.project;
   if (p.maximizedId === id) p.maximizedId = null;
   t.el.classList.add('closing');
-  t.el.addEventListener('animationend', () => {
+  afterExit(t.el, () => {
     t.term.dispose();
     t.el.remove();
     relayout();
-  }, { once: true });
+  });
   if (p.focusedId === id) {
     p.focusedId = null;
     const next = terminalsOf(p).pop();

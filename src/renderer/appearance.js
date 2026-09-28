@@ -1,6 +1,6 @@
 // "Aa" popover: terminal profiles (Terminal.app style), text size, cursor.
 // Hovering a swatch previews it live on every pane; clicking commits.
-import { esc } from './ui.js';
+import { esc, leave } from './ui.js';
 import { THEMES, DEFAULTS, FONT_MIN, FONT_MAX } from './themes.js';
 import { getAppearance, setAppearance, previewTheme } from './terminals.js';
 
@@ -39,8 +39,7 @@ export function closeAppearance() {
   previewTheme(null);
   removeEventListener('pointerdown', onOutside, true);
   removeEventListener('keydown', onKey, true);
-  el.classList.add('closing');
-  el.addEventListener('animationend', () => el.remove(), { once: true });
+  leave(el, () => el.remove());
 }
 
 function onOutside(e) {

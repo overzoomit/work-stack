@@ -32,12 +32,33 @@ export const fullDate = (ms) => new Date(ms).toLocaleString('it-IT', {
 });
 
 // Exit along the same path the element came in, then run `done`.
+// Runs `fn` once the exit animation just started on `el` has finished. An
+// element that is hidden or detached never fires animationend, so then `fn`
+// runs right away; a timer covers any other case where the event is lost.
+export function afterExit(el, fn, fallbackMs = 600) {
+  let done = false;
+  let timer = null;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    fn();
+  };
+  const animated = el.isConnected && el.getClientRects().length > 0 && getComputedStyle(el).animationName !== 'none';
+  if (!animated) {
+    finish();
+    return;
+  }
+  el.addEventListener('animationend', finish, { once: true });
+  timer = setTimeout(finish, fallbackMs);
+}
+
 export function leave(el, done) {
   el.classList.add('closing');
-  el.addEventListener('animationend', () => {
+  afterExit(el, () => {
     el.classList.remove('closing');
     done?.();
-  }, { once: true });
+  });
 }
 
 // ── Toasts ───────────────────────────────────────────────────

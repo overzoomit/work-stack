@@ -1,5 +1,5 @@
 // "✦ Agente" menu: launch any installed agent CLI in the active project.
-import { $, esc } from './ui.js';
+import { $, esc, leave } from './ui.js';
 import { openTerminal, sendInput } from './terminals.js';
 
 const { work } = window;
@@ -118,8 +118,7 @@ function closePop() {
   $('#new-agent').classList.remove('open');
   removeEventListener('keydown', onKey, true);
   removeEventListener('pointerdown', onOutside, true);
-  el.classList.add('closing');
-  el.addEventListener('animationend', () => el.remove(), { once: true });
+  leave(el, () => el.remove());
 }
 
 function onOutside(e) {
