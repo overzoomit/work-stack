@@ -46,6 +46,7 @@ class Session {
     this.lastTool = null;
     this.mtime = 0;
     this.tokens = 0;
+    this.permissionMode = null;
   }
 
   read() {
@@ -87,6 +88,8 @@ class Session {
 
   ingest(e) {
     if (e.cwd) this.cwd = e.cwd;
+    // "permission-mode" entries (and user messages) carry the session's mode.
+    if (e.permissionMode) this.permissionMode = e.permissionMode;
     // Title priority: explicit agent name > AI title > first prompt
     if (e.type === 'agent-name' && e.agentName) this.agentName = e.agentName;
     if (e.type === 'ai-title' && e.aiTitle) this.aiTitle = e.aiTitle;
@@ -137,8 +140,11 @@ class Session {
     if (idle > 10 * 60 * 1000) return { state: 'idle', label: 'Inattivo' };
     if (this.lastKind === 'assistant-end') return { state: 'waiting', label: 'Attende il tuo input' };
     if (this.lastKind === 'assistant-tool') {
-      // A tool call with no result for a while usually means a permission prompt.
-      if (idle > 15000) return { state: 'blocked', label: `Attende permesso: ${this.lastTool}` };
+      // A tool call with no result for a while usually means a permission
+      // prompt, unless permissions are bypassed: then it's just a long tool.
+      if (idle > 15000 && this.permissionMode !== 'bypassPermissions') {
+        return { state: 'blocked', label: `Attende permesso: ${this.lastTool}` };
+      }
       return { state: 'working', label: `Esegue ${this.lastTool}` };
     }
     return { state: 'working', label: 'Sta ragionando…' };

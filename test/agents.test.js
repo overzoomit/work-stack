@@ -298,3 +298,16 @@ test('un carattere accentato spezzato tra due letture arriva intatto nella timel
   s.read();
   assert.deepEqual(s.events.map((e) => e.text), ['perché è così']);
 });
+
+test('in modalità bypass permessi un tool lungo resta "al lavoro", non "attende permesso" (regressione)', () => {
+  const mode = (m) => line({ type: 'permission-mode', permissionMode: m });
+  const s = new Session(transcript(`${UUID}.jsonl`, mode('bypassPermissions'), user('lancia i test'), toolUse('Bash', { command: 'npm test' })));
+  s.read();
+  s.mtime = Date.now() - 60000;
+  assert.deepEqual(s.status, { state: 'working', label: 'Esegue Bash' });
+  // Switching back to a mode with prompts brings the permission reading back.
+  fs.appendFileSync(s.file, mode('default') + toolUse('Edit', { file_path: '/x.js' }));
+  s.read();
+  s.mtime = Date.now() - 20000;
+  assert.deepEqual(s.status, { state: 'blocked', label: 'Attende permesso: Edit' });
+});
