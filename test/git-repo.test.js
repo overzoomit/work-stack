@@ -393,3 +393,11 @@ test('stash senza modifiche da salvare lo segnala invece di dare successo (regre
   assert.deepEqual([...st.staged, ...st.unstaged], [], 'changes and untracked files went into the stash');
   await assert.rejects(git.action(r.dir, 'stash', {}), /Nessuna modifica/, 'a second stash has nothing left to save');
 });
+
+test('push con HEAD staccato spiega cosa fare invece dell\'errore grezzo di git', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.run('checkout', '-q', '--detach');
+  await assert.rejects(git.action(r.dir, 'push', {}), /HEAD staccato/);
+});

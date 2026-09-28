@@ -229,7 +229,8 @@ async function checkout(repo, branch) {
 // Push the current branch to the remote it already tracks; a new branch goes
 // to origin if there is one, else to the repository's only (or first) remote.
 async function push(repo) {
-  const branch = (await git(repo, ['symbolic-ref', '--short', 'HEAD'])).trim();
+  const branch = (await git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => '')).trim();
+  if (!branch) throw new Error('HEAD staccato: crea un branch da qui prima di fare push.');
   const tracked = (await git(repo, ['config', `branch.${branch}.remote`]).catch(() => '')).trim();
   const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
   const remote = tracked || (remotes.includes('origin') ? 'origin' : remotes[0] || 'origin');
