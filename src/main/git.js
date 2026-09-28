@@ -89,7 +89,8 @@ async function log(repo, limit = 400) {
   const fmt = ['%H', '%P', '%D', '%an', '%at', '%s'].join(SEP) + REC;
   let out;
   try {
-    out = await git(repo, ['log', '--all', '--date-order', '--decorate=full', `-n${limit}`, `--format=${fmt}`]);
+    // Stashes are not history: their internal WIP/index commits stay out of the graph.
+    out = await git(repo, ['log', '--exclude=refs/stash', '--all', '--date-order', '--decorate=full', `-n${limit}`, `--format=${fmt}`]);
   } catch {
     return []; // repo without commits
   }

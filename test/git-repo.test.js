@@ -215,3 +215,13 @@ test('il diff di un commit con rinomina confronta il vecchio e il nuovo percorso
   assert.match(text, /^-tre$/m);
   assert.match(text, /^\+TRE$/m);
 });
+
+test('il log del graph non mostra i commit interni degli stash (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.write('a.txt', '2\n');
+  r.run('stash', 'push', '-q');
+  const subjects = (await git.log(r.dir)).map((c) => c.subject);
+  assert.deepEqual(subjects, ['init']);
+});
