@@ -70,3 +70,20 @@ test('file binari e diff senza modifiche mostrano un messaggio invece delle righ
   assert.equal(renderDiff(same, diff(' uguale')).count, 0);
   assert.match(same.innerHTML, /Nessuna differenza/);
 });
+
+test('un blocco enorme di righe cambiate viene accoppiato per posizione, senza confronto riga per riga', () => {
+  const dels = Array.from({ length: 70 }, (_, i) => `-vecchia ${i}`);
+  const adds = Array.from({ length: 80 }, (_, i) => `+altro testo ${i}`);
+  const { rows } = diff([...dels, ...adds].join('\n'));
+  assert.equal(rows.length, 80);
+  assert.deepEqual([rows[0].l.t, rows[0].r.t], ['vecchia 0', 'altro testo 0']);
+  assert.equal(rows[79].l, null, 'extra additions stay unpaired');
+  assert.equal(rows[79].type, 'add');
+});
+
+test('in modalità unificata le righe che git non ha inviato compaiono come segnaposto', () => {
+  const box = fakeBox();
+  const parsed = parseDiff('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-a\n+b\n@@ -50,1 +50,1 @@\n-c\n+d\n');
+  renderDiff(box, parsed, 'unified');
+  assert.match(box.html(), /d-gap static[\s\S]*48 righe non incluse/);
+});
