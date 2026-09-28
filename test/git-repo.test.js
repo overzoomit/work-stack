@@ -113,6 +113,22 @@ test('il diff include tutto il file come contesto', async () => {
   assert.match(diff, /^ riga 50$/m);
 });
 
+test('branches distingue i rami locali con slash dai remoti (regressione)', async () => {
+  const origin = repo();
+  origin.write('a.txt', '1\n');
+  origin.commit('init');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-clone-'));
+  execFileSync('git', ['clone', '-q', origin.dir, dir], { stdio: 'pipe' });
+  execFileSync('git', ['branch', 'feature/x'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['checkout', '-q', 'feature/x'], { cwd: dir, stdio: 'pipe' });
+  const list = await git.branches(dir);
+  const byName = Object.fromEntries(list.map((b) => [b.name, b]));
+  assert.deepEqual(byName['feature/x'], { name: 'feature/x', current: true, remote: false });
+  assert.equal(byName.main.remote, false);
+  assert.equal(byName['origin/main'].remote, true);
+  assert.ok(!list.some((b) => b.name === 'origin' || b.name.endsWith('/HEAD')), 'origin/HEAD is not a branch');
+});
+
 test('il log distingue rami locali con slash dai remoti (decorazioni complete)', async () => {
   const r = repo();
   r.write('a.txt', 'x\n');

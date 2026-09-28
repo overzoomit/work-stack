@@ -104,12 +104,14 @@ async function log(repo, limit = 400) {
   });
 }
 
+// Local and remote branches are told apart by their full ref name: a local
+// "feature/x" contains a slash too. origin/HEAD only points at another branch.
 async function branches(repo) {
-  const out = await git(repo, ['branch', '-a', `--format=%(HEAD)${SEP}%(refname:short)`]);
+  const out = await git(repo, ['branch', '-a', `--format=%(HEAD)${SEP}%(refname)${SEP}%(refname:short)`]);
   return out.split('\n').filter(Boolean).map((l) => {
-    const [head, name] = l.split(SEP);
-    return { name, current: head === '*', remote: name.includes('/') && !name.startsWith('(') };
-  }).filter((b) => !b.name.endsWith('/HEAD') && b.name !== 'origin');
+    const [head, ref, name] = l.split(SEP);
+    return { ref, name, current: head === '*', remote: ref.startsWith('refs/remotes/') };
+  }).filter((b) => !(b.remote && b.ref.endsWith('/HEAD'))).map(({ ref, ...b }) => b);
 }
 
 // Parent to diff a commit against: first parent, or the empty tree for a root commit.
