@@ -90,3 +90,28 @@ test('reload dimentica le cartelle aperte che non esistono più', async () => {
   assert.ok(tree.expanded.has('/q/a'));
   assert.ok(!tree.expanded.has('/q/b'));
 });
+
+test('l\'albero disegna righe con rientri, stato git, file ignorati e nascosti, e "…" per le cartelle in caricamento', async () => {
+  disk.set('/w', [dir('/w/src'), dir('/w/node_modules'), file('/w/.env'), file('/w/app.ts')]);
+  disk.set('/w/src', [file('/w/src/a.ts')]);
+  const tree = new ProjectTree({ path: '/w', name: 'w' }, {});
+  const box = { innerHTML: '', scrollTop: 0, isConnected: true };
+  tree.mount(box);
+  await tree.load('/w');
+  tree.expanded.add('/w/src');
+  await tree.load('/w/src');
+  tree.expanded.add('/w/node_modules'); // open but not loaded yet
+  tree.selected = '/w/app.ts';
+  tree.setGitStatus({ staged: [], unstaged: [{ file: 'src/a.ts', code: 'M' }], ignored: ['node_modules'] }, '/w');
+  const rows = box.innerHTML.split('</div>').filter((r) => r.includes('class="tn'));
+  const row = (path) => rows.find((r) => r.includes(`data-path="${path}"`)) || '';
+  assert.match(row('/w'), /class="tn dir root open/);
+  assert.match(row('/w/src'), /class="tn dir open vcs-mod/);
+  assert.match(row('/w/src/a.ts'), /vcs-mod/);
+  assert.match(row('/w/src/a.ts'), /--depth:2/);
+  assert.match(row('/w/node_modules'), /vcs-ignored/);
+  assert.match(row('/w/.env'), /hidden-file/);
+  assert.match(row('/w/app.ts'), /selected/);
+  assert.match(row('/w/app.ts'), /data-ext="ts"/);
+  assert.ok(rows.some((r) => r.includes('tn loading') && r.includes('--depth:2')), 'unloaded open folder shows "…"');
+});
