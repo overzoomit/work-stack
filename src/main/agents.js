@@ -164,6 +164,7 @@ class AgentWatcher {
     this.emit();
     this.watchRoot();
     this.timers.push(setInterval(() => {
+      this.prune();
       this.scan();
       this.emit();
     }, 60000));
@@ -279,9 +280,17 @@ class AgentWatcher {
     if (states !== this.lastStates) this.emit();
   }
 
+  // Sessions untouched for longer than the window are dropped, so the map
+  // (and the list sent to the UI) doesn't grow while the app stays open.
+  prune() {
+    const cutoff = Date.now() - WINDOW_MS;
+    for (const [file, s] of this.sessions) if (s.mtime && s.mtime < cutoff) this.sessions.delete(file);
+  }
+
   list() {
+    const cutoff = Date.now() - WINDOW_MS;
     return [...this.sessions.values()]
-      .filter((s) => s.events.length)
+      .filter((s) => s.events.length && s.mtime >= cutoff)
       .sort((a, b) => b.mtime - a.mtime)
       .map((s) => s.toJSON());
   }
