@@ -84,11 +84,13 @@ export function renderSvg({ rows, width }) {
         if (k !== -1) curve(x(j), top, x(k), bottom, color(k));
       }
     }
-    // Outgoing: node to each parent's lane.
-    for (const p of parents) {
-      const k = r.after.indexOf(p);
+    // Outgoing: node to each parent's lane. The first parent continues in the
+    // commit's own lane, even when another lane already waits for that parent
+    // (they converge at the parent, not here).
+    parents.forEach((p, n) => {
+      const k = n === 0 && r.after[r.col] === p ? r.col : r.after.indexOf(p);
       if (k !== -1) curve(x(r.col), mid, x(k), bottom, color(k));
-    }
+    });
 
     const cx = x(r.col);
     const head = refs.some((ref) => ref.startsWith('HEAD'));

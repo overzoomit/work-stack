@@ -54,3 +54,23 @@ test('una storia lineare disegna la corsia come un unico tratto verticale', () =
   assert.match(svg, /<path d="M12 13V91" stroke="#0a84ff"\/>/); // from the first node down to the last
   assert.equal((svg.match(/<circle/g) || []).length, 4);
 });
+
+test('un merge disegna la seconda corsia che si stacca e rientra con curve, e nodi distinti per merge e HEAD', () => {
+  // m merges b into the line m → x; b branches off x.
+  const commits = [
+    commit('m', ['x', 'b'], ['HEAD -> refs/heads/main']),
+    commit('b', ['x']),
+    commit('x', []),
+  ];
+  const svg = renderSvg(layout(commits));
+  const curves = svg.match(/<path d="M[\d. ]+C[^"]+"/g) || [];
+  assert.equal(curves.length, 2, 'out of the merge into lane 1, and back into lane 0 at x');
+  assert.match(svg, /<circle cx="12" cy="13" r="5.5" fill="#0c0d10" stroke="#0a84ff" stroke-width="2.5"\/>/, 'HEAD: ring');
+  assert.match(svg, /<circle cx="26" cy="39" r="4" fill="#30d158"\/>/, 'b sits on the second lane');
+  assert.doesNotMatch(svg, /cy="13" r="3"/, 'HEAD styling wins over the merge dot');
+});
+
+test('un commit di merge senza HEAD usa un nodo più piccolo', () => {
+  const svg = renderSvg(layout([commit('m', ['x', 'b']), commit('b', ['x']), commit('x', [])]));
+  assert.match(svg, /<circle cx="12" cy="13" r="3" fill="#0a84ff"\/>/);
+});
