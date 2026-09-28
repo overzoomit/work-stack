@@ -74,3 +74,13 @@ test('un commit di merge senza HEAD usa un nodo più piccolo', () => {
   const svg = renderSvg(layout([commit('m', ['x', 'b']), commit('b', ['x']), commit('x', [])]));
   assert.match(svg, /<circle cx="12" cy="13" r="3" fill="#0a84ff"\/>/);
 });
+
+test('due corsie che aspettano lo stesso commit scendono dritte fino a lì, senza curve spurie (regressione)', () => {
+  // m merges b; b → y → x; z (another line) is drawn between y and x.
+  const svg = renderSvg(layout([
+    commit('m', ['x', 'b']), commit('b', ['y']), commit('y', ['x']), commit('z', ['w']), commit('x', []), commit('w', []),
+  ]));
+  const curves = svg.match(/<path d="M[\d. ]+C[^"]+"/g) || [];
+  assert.equal(curves.length, 2, 'only out of the merge and back in at x');
+  assert.match(svg, /<path d="M26 26V104" stroke="#30d158"\/>/, 'lane 1 runs straight down to the row before x');
+});

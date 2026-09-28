@@ -80,7 +80,9 @@ export function renderSvg({ rows, width }) {
       if (!w) continue;
       if (w === hash) curve(x(j), top, x(r.col), mid, color(j));
       else {
-        const k = r.after.indexOf(w);
+        // A lane keeps its column while it waits: another lane waiting for the
+        // same commit is not where this one goes.
+        const k = r.after[j] === w ? j : r.after.indexOf(w);
         if (k !== -1) curve(x(j), top, x(k), bottom, color(k));
       }
     }
