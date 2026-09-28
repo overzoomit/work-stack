@@ -70,7 +70,9 @@ async function status(repo, { ignored: withIgnored = true } = {}) {
     const x = e[0];
     const y = e[1];
     const file = e.slice(3);
-    if (x === 'R' || x === 'C') i++; // rename source follows as its own entry
+    // The rename source follows as its own entry, for renames in the index (R_)
+    // and in the working tree (_R, e.g. after `git add -N`).
+    if ('RC'.includes(x) || 'RC'.includes(y)) i++;
     if (x === '?' && y === '?') {
       unstaged.push({ file, code: 'U' });
       continue;

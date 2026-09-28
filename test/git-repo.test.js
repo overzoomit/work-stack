@@ -42,6 +42,17 @@ test('status separa file in stage, modificati e non tracciati', async () => {
   ]);
 });
 
+test('una rinomina solo nella copia di lavoro non crea file fantasma (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', 'uno\ndue\ntre\nquattro\n');
+  r.commit('init');
+  fs.renameSync(path.join(r.dir, 'a.txt'), path.join(r.dir, 'b.txt'));
+  r.run('add', '-N', 'b.txt');
+  const st = await git.status(r.dir);
+  assert.deepEqual(st.staged, []);
+  assert.deepEqual(st.unstaged, [{ file: 'b.txt', code: 'R' }]);
+});
+
 test('status riporta le cartelle ignorate come una sola voce', async () => {
   const r = repo();
   r.write('.gitignore', 'node_modules/\n');
