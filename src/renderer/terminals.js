@@ -190,7 +190,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     cursorStyle: settings.cursorStyle,
     allowTransparency: true,
     macOptionIsMeta: true,
-    scrollback: 10000,
+    scrollback: kind === 'run' ? 3000 : 10000, // Run logs are verbose and rerun often
     theme: xtermTheme(themeById(preview || settings.theme)),
   });
   const fit = new FitAddon();
