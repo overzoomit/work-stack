@@ -15,12 +15,14 @@ class El {
   addEventListener() {}
   querySelectorAll() { return []; }
   scrollIntoView() {}
+  focus() {}
   html() { return this.innerHTML + this.blocks.map((b) => b.innerHTML).join(''); }
 }
 const nodes = new Map();
 const $ = (s) => { if (!nodes.has(s)) nodes.set(s, new El()); return nodes.get(s); };
 globalThis.document = { querySelector: $, querySelectorAll: () => [], createElement: () => new El() };
-globalThis.addEventListener = () => {};
+const winKeys = [];
+globalThis.addEventListener = (type, fn) => type === 'keydown' && winKeys.push(fn);
 globalThis.getComputedStyle = () => ({ animationName: 'none' });
 
 const diffs = [];
@@ -123,5 +125,20 @@ test('modifiche locali: gruppi In stage e Modifiche, file non tracciato confront
   assert.deepEqual(diffs, [{ file: 'b/nuovo.txt', oldFile: undefined, staged: false, untracked: true }]);
   assert.match($('#review-labels').innerHTML, /<span>vuoto<\/span><span>Copia di lavoro<\/span>/);
   assert.match($('#review-tools-extra').innerHTML, /Metti in stage/);
+  closeReview();
+});
+
+test('frecce: cambiano file solo dall\'elenco dei file; nel diff lasciano scorrere (regressione)', async () => {
+  commitReply = Promise.resolve(COMMIT);
+  await openCommit('/repo', COMMIT.hash);
+  await tick();
+  const press = (inside) => {
+    let prevented = false;
+    const target = { closest: (sel) => (sel === inside ? {} : null) };
+    for (const fn of winKeys) fn({ key: 'ArrowDown', shiftKey: false, target, preventDefault: () => { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(press('#review-diff'), false, 'in the diff the arrow scrolls');
+  assert.equal(press('#review-files'), true, 'in the file list it moves to the next file');
   closeReview();
 });

@@ -202,7 +202,9 @@ async function selectFile(groupKey, file) {
   if (!f) return;
   session.current = { groupKey, file };
   $$('#review-files .ft-file').forEach((el) => el.classList.toggle('active', el.dataset.group === groupKey && el.dataset.file === file));
-  $('#review-files .ft-file.active')?.scrollIntoView({ block: 'nearest' });
+  const item = $('#review-files .ft-file.active');
+  item?.scrollIntoView({ block: 'nearest' });
+  item?.focus({ preventScroll: true }); // arrows move between files right away
 
   const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
   const renamed = f.oldFile && f.oldFile !== f.file ? `<span class="muted">rinominato da ${esc(f.oldFile)}</span>` : '';
@@ -283,7 +285,8 @@ addEventListener('keydown', (e) => {
     if (e.shiftKey) session.nav?.prev();
     else session.nav?.next();
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    if (e.target.closest('input, textarea')) return;
+    // Only from the file list, as in WebStorm: in the diff the arrows scroll.
+    if (!e.target.closest?.('#review-files')) return;
     e.preventDefault();
     stepFile(e.key === 'ArrowDown' ? 1 : -1);
   }
