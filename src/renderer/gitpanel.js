@@ -60,8 +60,26 @@ export async function showGit(project) {
   await refreshGit(project, true);
 }
 
+// One refresh per project at a time: requests arriving while one runs are
+// merged into a single follow-up run (full if any of them asked for it).
 export async function refreshGit(project, full = false) {
   if (!project) return;
+  if (project.gitBusy) {
+    project.gitAgain = project.gitAgain === 'full' || full ? 'full' : 'quick';
+    return;
+  }
+  project.gitBusy = true;
+  try {
+    await refreshGitNow(project, full);
+  } finally {
+    project.gitBusy = false;
+  }
+  const again = project.gitAgain;
+  project.gitAgain = null;
+  if (again) await refreshGit(project, again === 'full');
+}
+
+async function refreshGitNow(project, full) {
   if (!project.root) {
     // A folder may have become a repository (git init from a terminal).
     project.root = await work.git.root(project.path);
@@ -70,14 +88,18 @@ export async function refreshGit(project, full = false) {
     if (project === active) return showGit(project);
   }
   try {
-    const st = await work.git.status(project.root);
     const prev = project.gitStatus;
+    // The ignored-files scan walks the whole tree: only on full refreshes.
+    const st = await work.git.status(project.root, { ignored: full || !prev });
+    if (st.ignored === null) st.ignored = prev?.ignored || [];
     const headChanged = !prev || prev.branch.name !== st.branch.name
       || prev.branch.ahead !== st.branch.ahead || prev.branch.behind !== st.branch.behind;
+    const changed = !prev || JSON.stringify(prev) !== JSON.stringify(st);
     project.gitStatus = st;
-    onStatus(project);
+    // Nothing changed: skip re-rendering the tree, the tabs and the lists.
+    if (changed) onStatus(project);
     if (project !== active) return;
-    renderChanges(project);
+    if (changed) renderChanges(project);
     if (full || headChanged) await Promise.all([refreshBranches(project), refreshGraph(project)]);
   } catch (e) {
     if (full) toastError(e);

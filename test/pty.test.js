@@ -32,3 +32,14 @@ test('il terminale si presenta come xterm con colori completi', async () => {
   const { out } = await runInPty('echo "$TERM $COLORTERM"');
   assert.equal(out.trim(), 'xterm-256color truecolor');
 });
+
+test('cwd legge la cartella corrente della shell senza bloccare', async () => {
+  const ptys = new PtyManager();
+  const dir = require('fs').realpathSync(require('os').tmpdir());
+  const id = ptys.create({ cwd: dir, cols: 80, rows: 24 }, () => {}, () => {});
+  await new Promise((r) => setTimeout(r, 300));
+  const pending = ptys.cwd(id);
+  assert.ok(pending instanceof Promise);
+  assert.equal(await pending, dir);
+  ptys.killAll();
+});

@@ -49,11 +49,15 @@ function parseBranchHeader(head) {
   };
 }
 
-async function status(repo) {
+// `ignored: false` skips the ignored-files scan (it walks the whole working
+// tree): the caller keeps the previous list for frequent refreshes.
+async function status(repo, { ignored: withIgnored = true } = {}) {
   const [out, ign] = await Promise.all([
     git(repo, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all']),
     // Ignored entries collapsed to their top folder (node_modules/, dist/…).
-    git(repo, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']).catch(() => ''),
+    withIgnored
+      ? git(repo, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']).catch(() => '')
+      : null,
   ]);
   const entries = out.split('\0').filter(Boolean);
   const branch = parseBranchHeader(entries.shift() || '');
@@ -74,6 +78,7 @@ async function status(repo) {
     if (x !== ' ') staged.push({ file, code: x });
     if (y !== ' ') unstaged.push({ file, code: y });
   }
+  if (ign === null) return { branch, staged, unstaged, ignored: null };
   for (const f of ign.split('\0')) if (f) ignored.push(f.replace(/\/$/, ''));
   return { branch, staged, unstaged, ignored };
 }

@@ -50,6 +50,16 @@ test('status riporta le cartelle ignorate come una sola voce', async () => {
   assert.deepEqual((await git.status(r.dir)).ignored, ['node_modules']);
 });
 
+test('status senza scansione degli ignorati restituisce ignored null', async () => {
+  const r = repo();
+  r.write('.gitignore', 'dist/\n');
+  r.write('dist/out.js', 'x');
+  r.write('a.txt', '1\n');
+  const st = await git.status(r.dir, { ignored: false });
+  assert.equal(st.ignored, null);
+  assert.ok(st.unstaged.some((f) => f.file === 'a.txt'));
+});
+
 test('status legge un ramo con punti nel nome da un repository reale', async () => {
   const r = repo();
   r.write('a.txt', '1\n');

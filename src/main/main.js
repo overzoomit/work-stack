@@ -84,7 +84,7 @@ ipcMain.handle('pty:cwd', (_e, id) => ptys.cwd(id));
 
 // ── Git ──────────────────────────────────────────────────────
 ipcMain.handle('git:root', (_e, cwd) => git.root(cwd));
-ipcMain.handle('git:status', (_e, repo) => git.status(repo));
+ipcMain.handle('git:status', (_e, repo, opts) => git.status(repo, opts));
 ipcMain.handle('git:log', (_e, repo) => git.log(repo));
 ipcMain.handle('git:branches', (_e, repo) => git.branches(repo));
 ipcMain.handle('git:commit', (_e, repo, hash) => git.commit(repo, hash));

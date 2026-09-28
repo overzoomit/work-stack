@@ -392,18 +392,22 @@ for (const side of Object.keys(SIZES)) {
 
 // ── Event-driven refresh ────────────────────────────────────
 // Terminal output means something may have changed (a command finished, an
-// agent edited files, `cd` redrew the prompt): refresh git status and that
-// terminal's folder — at most once every 2.5 s, even while an agent's
-// spinner keeps printing, instead of polling all the time.
-const activityTimers = new Map();
-function onTerminalActivity(t) {
-  if (activityTimers.has(t)) return;
-  activityTimers.set(t, setTimeout(() => {
-    activityTimers.delete(t);
-    if (t.exited) return;
-    pollCwd(t);
-    refreshGit(t.project);
+// agent edited files, `cd` redrew the prompt): refresh that terminal's folder
+// and the project's git status — at most once every 2.5 s per terminal and
+// per project, however many panes keep printing, instead of polling.
+const cwdTimers = new Map();
+const gitTimers = new Map();
+function throttle(timers, key, fn) {
+  if (timers.has(key)) return;
+  timers.set(key, setTimeout(() => {
+    timers.delete(key);
+    fn();
   }, 2500));
+}
+function onTerminalActivity(t) {
+  // Only interactive shells change folder; agents and Run consoles don't `cd`.
+  if (t.kind === 'shell') throttle(cwdTimers, t, () => !t.exited && pollCwd(t));
+  throttle(gitTimers, t.project, () => projects.includes(t.project) && refreshGit(t.project));
 }
 
 // ── Hooks between modules ───────────────────────────────────

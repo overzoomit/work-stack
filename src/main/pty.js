@@ -1,10 +1,13 @@
 // PtyManager: one shell per terminal, bridged through pty-helper.py
 // (no native modules, works on Linux and macOS).
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
+const { promisify } = require('util');
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
 const HELPER = path.join(__dirname, 'pty-helper.py');
+const execFileAsync = promisify(execFile);
 
 class PtyManager {
   constructor() {
@@ -47,17 +50,19 @@ class PtyManager {
   }
 
   // Current working directory of the shell (Linux: /proc, macOS: lsof).
-  cwd(id) {
+  // Asynchronous: this runs often and must not block the main process.
+  async cwd(id) {
     const s = this.sessions.get(id);
     if (!s) return null;
     try {
-      const { execFileSync } = require('child_process');
-      // The shell is the only child of the python helper.
-      const shellPid = execFileSync('pgrep', ['-P', String(s.proc.pid)]).toString().trim().split('\n')[0];
-      if (process.platform === 'linux') {
-        return require('fs').readlinkSync(`/proc/${shellPid}/cwd`);
+      // The shell is the only child of the python helper; its pid never changes.
+      if (!s.shellPid) {
+        const { stdout } = await execFileAsync('pgrep', ['-P', String(s.proc.pid)]);
+        s.shellPid = stdout.trim().split('\n')[0];
       }
-      const out = execFileSync('lsof', ['-a', '-p', shellPid, '-d', 'cwd', '-Fn']).toString();
+      const shellPid = s.shellPid;
+      if (process.platform === 'linux') return await fs.promises.readlink(`/proc/${shellPid}/cwd`);
+      const { stdout: out } = await execFileAsync('lsof', ['-a', '-p', shellPid, '-d', 'cwd', '-Fn']);
       return out.split('\n').find((l) => l.startsWith('n'))?.slice(1) || s.cwd;
     } catch {
       return s.cwd;
