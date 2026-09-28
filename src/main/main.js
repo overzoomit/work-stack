@@ -110,6 +110,7 @@ ipcMain.handle('run:detect', (_e, dir) => runconfigs.detect(dir));
 
 // ── Agents ───────────────────────────────────────────────────
 ipcMain.handle('agents:list', () => agents?.list() ?? []);
+ipcMain.handle('agents:events', (_e, id) => agents?.events(id) ?? []);
 
 // Which agent CLIs are installed, resolved through a login shell so
 // nvm / ~/.local/bin paths are found like in a normal terminal.

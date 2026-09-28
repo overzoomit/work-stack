@@ -75,20 +75,28 @@ export function renderAgentList() {
   $('#toggle-sidebar').dataset.agents = urgent;
 }
 
-function renderAgentDetail() {
+async function renderAgentDetail() {
   const a = agents.find((x) => x.id === selected);
   const box = $('#agent-detail');
   if (!a) {
     box._key = null;
+    box._eventsKey = null;
     box.innerHTML = '<p class="empty">Seleziona un agente dalla colonna a sinistra.</p>';
     return;
   }
-  const key = `${a.id}|${a.events.length}|${a.status.state}|${a.status.label}|${ago(a.mtime)}|${a.tokens}`;
+  const key = `${a.id}|${a.eventSeq}|${a.status.state}|${a.status.label}|${ago(a.mtime)}|${a.tokens}`;
   if (box._key === key) return; // nothing new to show
   box._key = key;
-  const before = seen.get(a.id) ?? a.events.length;
-  const fresh = a.events.length - before;
-  seen.set(a.id, a.events.length);
+  // Events are fetched only for the selected session, and only when new ones arrived.
+  if (box._eventsKey !== `${a.id}|${a.eventSeq}`) {
+    box._events = await work.agents.events(a.id);
+    box._eventsKey = `${a.id}|${a.eventSeq}`;
+    if (box._key !== key) return; // a newer update started rendering meanwhile
+  }
+  const events = box._events;
+  const before = seen.get(a.id) ?? a.eventSeq;
+  const fresh = Math.min(a.eventSeq - before, events.length);
+  seen.set(a.id, a.eventSeq);
   const time = (ts) => new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const label = { user: 'Tu', text: 'Claude', tool: null, error: 'Errore' };
 
@@ -107,7 +115,7 @@ function renderAgentDetail() {
       <button class="btn" data-act="repo">Apri come progetto</button>
     </div>
     <ul class="timeline">
-      ${a.events.slice().reverse().map((ev, i) => `
+      ${events.slice().reverse().map((ev, i) => `
         <li class="${ev.kind}${i < fresh ? ' new' : ''}">
           <div class="t-head"><b>${esc(label[ev.kind] ?? ev.tool)}</b><span>${time(ev.ts)}</span></div>
           <div class="t-body">${esc(ev.text)}</div>

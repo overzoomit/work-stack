@@ -37,6 +37,7 @@ class Session {
     this.offset = 0;
     this.partial = '';
     this.events = [];
+    this.eventSeq = 0; // grows with every event, even once the list is capped
     this.cwd = null;
     this.title = null;
     this.lastKind = null; // user | assistant-tool | assistant-end | tool-result
@@ -72,6 +73,7 @@ class Session {
   }
 
   push(ev) {
+    this.eventSeq++;
     this.events.push(ev);
     if (this.events.length > MAX_EVENTS) this.events.shift();
   }
@@ -139,7 +141,9 @@ class Session {
       mtime: this.mtime,
       tokens: this.tokens,
       status: this.status,
-      events: this.events,
+      // Events stay out of the list (it goes to the UI several times a second);
+      // the detail view asks for them with events(id) when eventSeq moves.
+      eventSeq: this.eventSeq,
     };
   }
 }
@@ -278,6 +282,14 @@ class AgentWatcher {
   emitIfStatesChanged() {
     const states = this.list().map((a) => a.status.state).join();
     if (states !== this.lastStates) this.emit();
+  }
+
+  // The same id can live in two project folders (a session resumed elsewhere):
+  // the most recently written one is the one the list shows as active.
+  events(id) {
+    let best = null;
+    for (const s of this.sessions.values()) if (s.id === id && (!best || s.mtime > best.mtime)) best = s;
+    return best ? best.events : [];
   }
 
   // Sessions untouched for longer than the window are dropped, so the map

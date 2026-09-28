@@ -112,3 +112,36 @@ test('le sessioni più vecchie di 24 ore vengono rimosse dalla memoria (regressi
   w.prune();
   assert.ok(![...w.sessions.values()].some((s) => s.id === other));
 });
+
+test('la lista inviata all\'interfaccia non contiene gli eventi, che si chiedono per id', (t) => {
+  const dir = path.join(PROJECTS, '-proj-events');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = '44444444-4444-4444-4444-444444444444';
+  fs.writeFileSync(path.join(dir, `${id}.jsonl`), user('ciao') + reply('fatto'));
+  const w = watcher(t);
+  const a = w.list().find((x) => x.id === id);
+  assert.equal(a.events, undefined);
+  assert.equal(a.eventSeq, 2);
+  assert.deepEqual(w.events(id).map((e) => e.text), ['ciao', 'fatto']);
+  assert.deepEqual(w.events('sconosciuto'), []);
+});
+
+test('il contatore degli eventi continua a crescere oltre il limite di 60', () => {
+  const lines = Array.from({ length: 70 }, (_, i) => user(`messaggio ${i}`));
+  const s = new Session(transcript(`${UUID}.jsonl`, ...lines));
+  s.read();
+  assert.equal(s.events.length, 60);
+  assert.equal(s.toJSON().eventSeq, 70);
+});
+
+test('con lo stesso id in due cartelle, gli eventi sono quelli della sessione più recente', (t) => {
+  const id = '55555555-5555-5555-5555-555555555555';
+  for (const [folder, text] of [['-proj-old', 'vecchia'], ['-proj-new', 'nuova']]) {
+    fs.mkdirSync(path.join(PROJECTS, folder), { recursive: true });
+    fs.writeFileSync(path.join(PROJECTS, folder, `${id}.jsonl`), user(text));
+  }
+  const w = watcher(t);
+  const sessions = [...w.sessions.values()].filter((s) => s.id === id);
+  sessions.find((s) => s.events[0].text === 'vecchia').mtime = Date.now() - 3600 * 1000;
+  assert.deepEqual(w.events(id).map((e) => e.text), ['nuova']);
+});
