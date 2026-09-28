@@ -66,8 +66,11 @@ export class ProjectTree {
   }
 
   // ── Rendering ──
+  // Every project's tree shares the same #tree element: the last one mounted
+  // owns it, so background projects refreshing their git status don't paint.
   mount(box) {
     this.box = box;
+    box.owner = this;
     box.tabIndex = 0;
     box.onpointerdown = (e) => this.onPointerDown(e);
     box.ondblclick = (e) => this.onDoubleClick(e);
@@ -109,8 +112,12 @@ export class ProjectTree {
     return html;
   }
 
+  owns() {
+    return !!this.box?.isConnected && this.box.owner === this;
+  }
+
   render() {
-    if (!this.box || !this.box.isConnected) return;
+    if (!this.owns()) return;
     const scroll = this.box.scrollTop;
     const root = { name: this.project.name, path: this.project.path, dir: true };
     this.box.innerHTML = this.rowHtml(root, 0).replace('class="tn dir', 'class="tn dir root') + this.walk(root.path, 1);
@@ -154,6 +161,7 @@ export class ProjectTree {
 
   select(p) {
     this.selected = p;
+    if (!this.owns()) return;
     for (const el of this.box.querySelectorAll('.tn.selected')) el.classList.remove('selected');
     const el = this.box.querySelector(`.tn[data-path="${CSS.escape(p)}"]`);
     el?.classList.add('selected');
