@@ -12,6 +12,7 @@ import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runnin
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
 import { tildify } from './paths.js';
+import { isRefreshKey } from './keys.js';
 
 const { work } = window;
 
@@ -510,7 +511,7 @@ addEventListener('keydown', (e) => {
     togglePanel('right');
     return;
   }
-  if (e.key === 'F5' && !e.ctrlKey && !e.metaKey) {
+  if (isRefreshKey(e)) {
     e.preventDefault();
     refreshAll();
     return;
