@@ -26,6 +26,10 @@ const rank = (name) => {
   return i === -1 ? PRIORITY.length : i;
 };
 
+// Script names may contain spaces or shell characters ("e2e test"): quote
+// anything that isn't a plain word so the shell passes it as one argument.
+const shellArg = (s) => (/^[\w:.@/+=-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+
 async function detect(dir) {
   const configs = [];
   const add = (group, name, command) => configs.push({ id: `${group}:${name}`, group, name, command });
@@ -34,7 +38,7 @@ async function detect(dir) {
     const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
     const pm = await packageManager(dir);
     const names = Object.keys(pkg.scripts || {}).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-    for (const name of names) add(pm, name, pm === 'npm' ? `npm run ${name}` : `${pm} run ${name}`);
+    for (const name of names) add(pm, name, `${pm} run ${shellArg(name)}`);
   } catch {
     // no package.json
   }

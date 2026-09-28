@@ -34,3 +34,16 @@ test('un package.json non valido non impedisce di rilevare il resto', async () =
   const dir = folder({ 'package.json': '{ non json', 'Cargo.toml': '[package]' });
   assert.deepEqual((await detect(dir)).map((c) => c.command), ['cargo run', 'cargo test', 'cargo build']);
 });
+
+test('un nome di script con spazi o caratteri della shell arriva intatto come un solo argomento (regressione)', async () => {
+  const names = ['e2e test', "it's", 'a;touch PWNED', '$(id)', 'build:prod'];
+  const dir = folder({ 'package.json': JSON.stringify({ scripts: Object.fromEntries(names.map((n) => [n, 'x'])) }) });
+  const { execFileSync } = require('child_process');
+  for (const c of await detect(dir)) {
+    // Replace the package manager with printf: the shell must hand over the name unchanged, as one word.
+    const args = execFileSync('sh', ['-c', c.command.replace(/^npm run /, "printf '%s\\n' ")], { cwd: dir }).toString();
+    assert.equal(args, `${c.name}\n`, c.command);
+  }
+  assert.ok(!fs.existsSync(path.join(dir, 'PWNED')));
+  assert.equal((await detect(dir)).find((c) => c.name === 'build:prod').command, 'npm run build:prod', 'plain names stay unquoted');
+});
