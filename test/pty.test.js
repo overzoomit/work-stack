@@ -208,3 +208,23 @@ test('la fine della shell viene riportata subito anche se un job in background t
   assert.equal(code, 4);
   assert.ok(elapsed < 3000, `exit reported after ${elapsed} ms`);
 });
+
+test('avviato da npm, le shell non ereditano i node_modules/.bin, INIT_CWD e NODE aggiunti da npm (regressione)', async () => {
+  const keep = { PATH: process.env.PATH, INIT_CWD: process.env.INIT_CWD, NODE: process.env.NODE, ev: process.env.npm_lifecycle_event };
+  process.env.npm_lifecycle_event = 'start';
+  process.env.INIT_CWD = '/tmp/work-app';
+  process.env.NODE = '/tmp/node';
+  process.env.PATH = ['/tmp/work-app/node_modules/.bin', '/tmp/node_modules/.bin', '/x/@npmcli/run-script/lib/node-gyp-bin', keep.PATH].join(':');
+  try {
+    const { out } = await runInPty('echo "P=$PATH"; echo "I=${INIT_CWD-nessuno}"; echo "N=${NODE-nessuno}"');
+    assert.doesNotMatch(out, /\/tmp\/work-app\/node_modules\/\.bin|\/tmp\/node_modules\/\.bin|node-gyp-bin/);
+    assert.match(out, /I=nessuno/);
+    assert.match(out, /N=nessuno/);
+    assert.match(out, /P=.*\/usr\/bin/, 'the rest of PATH is kept');
+  } finally {
+    for (const [k, v] of Object.entries({ PATH: keep.PATH, INIT_CWD: keep.INIT_CWD, NODE: keep.NODE, npm_lifecycle_event: keep.ev })) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});

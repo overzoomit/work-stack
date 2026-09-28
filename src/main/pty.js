@@ -14,10 +14,18 @@ const HIGH_WATER = 1024 * 1024; // chars sent but not yet processed by xterm
 const LOW_WATER = 256 * 1024;
 
 // The user's environment, minus what `npm start` adds to Work's own process:
-// npm_* variables leak into every shell and break tools like nvm.
+// npm_* variables (nvm refuses to run with them), INIT_CWD and NODE, and the
+// node_modules/.bin folders npm puts in front of PATH, which would make Work's
+// own dependencies shadow the user's commands.
 function shellEnv() {
   const env = { ...process.env };
+  if (!env.npm_lifecycle_event) return env;
   for (const k of Object.keys(env)) if (/^npm_/i.test(k)) delete env[k];
+  delete env.INIT_CWD;
+  delete env.NODE;
+  env.PATH = (env.PATH || '').split(path.delimiter)
+    .filter((d) => !d.endsWith(`${path.sep}node_modules${path.sep}.bin`) && !d.endsWith('node-gyp-bin'))
+    .join(path.delimiter);
   return env;
 }
 
