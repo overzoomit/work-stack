@@ -6,6 +6,26 @@ const path = require('path');
 
 const IGNORED = /\.lock$|^objects|^logs|^COMMIT_EDITMSG$/;
 
+// A repository's own git folder and the one holding shared refs. In a linked
+// worktree `.git` is a file ("gitdir: <main>/.git/worktrees/<name>"): HEAD and
+// index live there, branches in the main repository (see its "commondir").
+function gitDirs(repo) {
+  const dotGit = path.join(repo, '.git');
+  try {
+    if (fs.statSync(dotGit).isDirectory()) return { gitDir: dotGit, commonDir: dotGit };
+    const gitDir = path.resolve(repo, fs.readFileSync(dotGit, 'utf8').match(/^gitdir: (.+)$/m)[1].trim());
+    let commonDir = gitDir;
+    try {
+      commonDir = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
+    } catch {
+      // no commondir: refs are in gitDir itself
+    }
+    return { gitDir, commonDir };
+  } catch {
+    return null;
+  }
+}
+
 class GitWatcher {
   constructor(onChange) {
     this.onChange = onChange;
@@ -16,14 +36,8 @@ class GitWatcher {
     if (!repo || this.repos.has(repo)) return;
     const entry = { watchers: [], timer: null };
     this.repos.set(repo, entry);
-    const gitDir = path.join(repo, '.git');
-    let isDir = false;
-    try {
-      isDir = fs.statSync(gitDir).isDirectory();
-    } catch {
-      return; // not a normal repo (e.g. worktree .git file): polling fallback covers it
-    }
-    if (!isDir) return;
+    const dirs = gitDirs(repo);
+    if (!dirs) return; // unreadable: the polling fallback covers it
 
     // Changes are batched for 300 ms. If only the index moved (git add, or a
     // shell prompt running `git status`) the UI needs the status alone;
@@ -48,8 +62,8 @@ class GitWatcher {
         // folder missing (e.g. no refs/remotes yet)
       }
     };
-    add(gitDir); // HEAD, index, FETCH_HEAD, MERGE_HEAD…
-    add(path.join(gitDir, 'refs'), { recursive: true }); // branches, tags, remotes (never named "index")
+    add(dirs.gitDir); // HEAD, index, FETCH_HEAD, MERGE_HEAD…
+    add(path.join(dirs.commonDir, 'refs'), { recursive: true }); // branches, tags, remotes (never named "index")
   }
 
   unwatch(repo) {

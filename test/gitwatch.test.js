@@ -48,3 +48,14 @@ test('un nuovo ramo viene segnalato come "full"', async () => {
   const r = repo();
   assert.deepEqual(await eventsAfter(r.dir, () => r.run('branch', 'feature/x')), ['full']);
 });
+
+test('anche in un git worktree (dove .git è un file) uno stage e un commit vengono segnalati (regressione)', async () => {
+  const r = repo();
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'work-wt-'));
+  fs.rmdirSync(wt);
+  r.run('worktree', 'add', '-q', '-b', 'agente', wt);
+  const run = (...args) => execFileSync('git', args, { cwd: wt, stdio: 'pipe' });
+  fs.writeFileSync(path.join(wt, 'a.txt'), '2\n');
+  assert.deepEqual(await eventsAfter(wt, () => run('add', 'a.txt')), ['index']);
+  assert.deepEqual(await eventsAfter(wt, () => run('commit', '-qm', 'dal worktree')), ['full']);
+});
