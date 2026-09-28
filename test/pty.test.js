@@ -3,6 +3,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { PtyManager } = require('../src/main/pty');
 
+// The login shell re-reads the user's profile: what it exports comes back.
+const profileText = () => ['.profile', '.bash_profile', '.bashrc'].map((f) => {
+  try {
+    return require('fs').readFileSync(require('path').join(require('os').homedir(), f), 'utf8');
+  } catch {
+    return '';
+  }
+}).join('\n');
+
 function runInPty(command) {
   const ptys = new PtyManager();
   let out = '';
@@ -210,19 +219,23 @@ test('la fine della shell viene riportata subito anche se un job in background t
 });
 
 test('avviato da npm, le shell non ereditano i node_modules/.bin, INIT_CWD e NODE aggiunti da npm (regressione)', async () => {
-  const keep = { PATH: process.env.PATH, INIT_CWD: process.env.INIT_CWD, NODE: process.env.NODE, ev: process.env.npm_lifecycle_event };
+  const keep = { PATH: process.env.PATH, INIT_CWD: process.env.INIT_CWD, NODE: process.env.NODE, ev: process.env.npm_lifecycle_event, EDITOR: process.env.EDITOR, COLOR: process.env.COLOR };
   process.env.npm_lifecycle_event = 'start';
   process.env.INIT_CWD = '/tmp/work-app';
   process.env.NODE = '/tmp/node';
+  process.env.EDITOR = 'vi'; // npm's default when the user has none
+  process.env.COLOR = '0';
   process.env.PATH = ['/tmp/work-app/node_modules/.bin', '/tmp/node_modules/.bin', '/x/@npmcli/run-script/lib/node-gyp-bin', keep.PATH].join(':');
   try {
-    const { out } = await runInPty('echo "P=$PATH"; echo "I=${INIT_CWD-nessuno}"; echo "N=${NODE-nessuno}"');
+    const { out } = await runInPty('echo "P=$PATH"; echo "I=${INIT_CWD-nessuno}"; echo "N=${NODE-nessuno}"; echo "E=${EDITOR-nessuno}"; echo "C=${COLOR-nessuno}"');
     assert.doesNotMatch(out, /\/tmp\/work-app\/node_modules\/\.bin|\/tmp\/node_modules\/\.bin|node-gyp-bin/);
     assert.match(out, /I=nessuno/);
     assert.match(out, /N=nessuno/);
+    assert.match(out, /C=nessuno/);
+    if (!/^\s*export\s+EDITOR=/m.test(profileText())) assert.match(out, /E=nessuno/, 'git would open vi instead of the system editor');
     assert.match(out, /P=.*\/usr\/bin/, 'the rest of PATH is kept');
   } finally {
-    for (const [k, v] of Object.entries({ PATH: keep.PATH, INIT_CWD: keep.INIT_CWD, NODE: keep.NODE, npm_lifecycle_event: keep.ev })) {
+    for (const [k, v] of Object.entries({ PATH: keep.PATH, INIT_CWD: keep.INIT_CWD, NODE: keep.NODE, npm_lifecycle_event: keep.ev, EDITOR: keep.EDITOR, COLOR: keep.COLOR })) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
