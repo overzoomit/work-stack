@@ -7,6 +7,8 @@ const REC = '\x1e';
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 const FULL_CONTEXT = '-U100000'; // whole file, the viewer collapses unchanged runs itself
+// The viewer parses unified diffs: a user's diff.external (difftastic…) must not run.
+const PLAIN = ['--no-ext-diff', '--no-color'];
 
 // okCodes: `git diff --no-index` exits 1 when files differ, which is not an error.
 function git(cwd, args, { input, okCodes = [0] } = {}) {
@@ -191,14 +193,14 @@ async function fileDiff(repo, { hash, file, oldFile, staged, untracked }) {
   if (hash) {
     const parent = await parentOf(repo, hash);
     const paths = oldFile && oldFile !== file ? [oldFile, file] : [file];
-    return git(repo, ['diff', FULL_CONTEXT, '-M', '--no-color', parent, hash, '--', ...paths]);
+    return git(repo, ['diff', FULL_CONTEXT, '-M', ...PLAIN, parent, hash, '--', ...paths]);
   }
   if (untracked) {
-    return git(repo, ['diff', FULL_CONTEXT, '--no-color', '--no-index', '--', '/dev/null', file], { okCodes: [0, 1] });
+    return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, '--no-index', '--', '/dev/null', file], { okCodes: [0, 1] });
   }
   // --ours (-2) only affects conflicted files: a plain diff against our side,
   // with the conflict markers as added lines, instead of a combined "@@@" diff.
-  return git(repo, ['diff', FULL_CONTEXT, '--no-color', ...(staged ? ['--cached'] : ['--ours']), '--', file]);
+  return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, ...(staged ? ['--cached'] : ['--ours']), '--', file]);
 }
 
 const isRef = (repo, ref) => git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false);

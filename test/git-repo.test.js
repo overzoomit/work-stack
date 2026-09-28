@@ -288,3 +288,17 @@ test('il diff di un file in conflitto si apre e mostra i marcatori come righe ag
   assert.ok(added.some((t) => t.startsWith('<<<<<<<')), 'conflict start marker');
   assert.ok(added.includes('altro'), 'their side');
 });
+
+test('i diff ignorano un diff esterno configurato dall\'utente, come difftastic (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', 'uno\n');
+  const hash = r.commit('init');
+  r.run('config', 'diff.external', 'sh -c "echo DIFF-ESTERNO"');
+  r.write('a.txt', 'due\n');
+  const working = await git.fileDiff(r.dir, { file: 'a.txt' });
+  assert.doesNotMatch(working, /DIFF-ESTERNO/);
+  assert.match(working, /^-uno$/m);
+  const ofCommit = await git.fileDiff(r.dir, { hash, file: 'a.txt' });
+  assert.doesNotMatch(ofCommit, /DIFF-ESTERNO/);
+  assert.match(ofCommit, /^\+uno$/m);
+});
