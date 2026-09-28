@@ -111,3 +111,36 @@ test('riconosce file binari e file troppo grandi per l\'anteprima', async () => 
   assert.equal((await fsops.read(path.join(project, 'img.bin'))).binary, true);
   assert.equal((await fsops.read(path.join(project, 'big.txt'))).tooBig, true);
 });
+
+test('un symlink rotto compare come file e non blocca l\'elenco', async () => {
+  fs.symlinkSync(path.join(project, 'non-esiste'), path.join(project, 'rotto'));
+  const entry = (await fsops.list(project)).find((e) => e.name === 'rotto');
+  assert.deepEqual(entry, { name: 'rotto', path: path.join(project, 'rotto'), dir: false });
+});
+
+test('crea una cartella che poi compare come cartella', async () => {
+  const created = await fsops.create(path.join(project, 'src'), 'nuova', true);
+  assert.equal(created, path.join(project, 'src', 'nuova'));
+  assert.equal((await fsops.list(path.join(project, 'src'))).find((e) => e.name === 'nuova').dir, true);
+});
+
+test('non sposta un file dove esiste già un file con lo stesso nome, e lascia intatto l\'originale', async () => {
+  fs.mkdirSync(path.join(project, 'dest'));
+  fs.writeFileSync(path.join(project, 'dest', 'a.txt'), 'altro\n');
+  await assert.rejects(fsops.move(path.join(project, 'src', 'a.txt'), path.join(project, 'dest')), /esiste già/);
+  assert.equal(fs.readFileSync(path.join(project, 'src', 'a.txt'), 'utf8'), 'dentro\n');
+  assert.equal(fs.readFileSync(path.join(project, 'dest', 'a.txt'), 'utf8'), 'altro\n');
+});
+
+test('rinominare con lo stesso nome non cambia nulla', async () => {
+  const p = path.join(project, 'src', 'a.txt');
+  assert.equal(await fsops.rename(p, 'a.txt'), p);
+  assert.ok(fs.existsSync(p));
+});
+
+test('mostra nel file manager solo elementi del progetto', async () => {
+  await fsops.reveal(path.join(project, 'src', 'a.txt'));
+  assert.deepEqual(shellCalls, [['reveal', path.join(project, 'src', 'a.txt')]]);
+  await assert.rejects(fsops.reveal(path.join(outside, 'secret.txt')), /fuori dai progetti/);
+  assert.equal(shellCalls.length, 1);
+});
