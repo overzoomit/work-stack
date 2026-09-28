@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDiff, changeStarts } from '../src/renderer/diff.js';
+import { parseDiff, changeStarts, wordDiff } from '../src/renderer/diff.js';
 
 const hunk = (body, header = '@@ -1,3 +1,3 @@') => `diff --git a/f b/f\n--- a/f\n+++ b/f\n${header}\n${body}\n`;
 
@@ -68,4 +68,28 @@ test('changeStarts trova l\'inizio di ogni blocco di modifiche consecutive', () 
   const rows = [t('ctx'), t('add'), t('add'), t('ctx'), t('gap'), t('del'), t('mod'), t('ctx'), t('add')];
   assert.deepEqual(changeStarts(rows), [1, 5, 8]);
   assert.deepEqual(changeStarts([t('ctx'), t('gap')]), []);
+});
+
+// A lone surrogate half renders as "�": the highlight must keep astral characters whole.
+const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+const strip = (html) => html.replace(/<[^>]+>/g, '|');
+
+test('wordDiff non spezza le emoji nel prefisso comune (regressione)', () => {
+  const [a, b] = wordDiff('a😀b', 'a😃b');
+  assert.equal(loneSurrogate.test(strip(a)), false);
+  assert.equal(a, 'a<span class="w">😀</span>b');
+  assert.equal(b, 'a<span class="w">😃</span>b');
+});
+
+test('wordDiff non spezza i caratteri astrali nel suffisso comune (regressione)', () => {
+  // Same low surrogate, different high surrogate: U+1F600 vs U+1FA00.
+  const [a, b] = wordDiff('x\u{1F600}', 'x\u{1FA00}');
+  assert.equal(loneSurrogate.test(strip(a)), false);
+  assert.equal(loneSurrogate.test(strip(b)), false);
+  assert.equal(a, 'x<span class="w">\u{1F600}</span>');
+});
+
+test('wordDiff evidenzia solo la parte cambiata e fa l\'escape dell\'HTML', () => {
+  assert.deepEqual(wordDiff('if (a < b) x', 'if (a < c) x'), ['if (a &lt; <span class="w">b</span>) x', 'if (a &lt; <span class="w">c</span>) x']);
+  assert.deepEqual(wordDiff('uguale', 'uguale'), ['uguale', 'uguale']);
 });

@@ -132,12 +132,18 @@ function align(dels, adds) {
   return folded;
 }
 
-// Highlight the changed middle of a modified line pair.
-function wordDiff(a, b) {
+const isHigh = (c) => c >= 0xd800 && c <= 0xdbff;
+const isLow = (c) => c >= 0xdc00 && c <= 0xdfff;
+
+// Highlight the changed middle of a modified line pair. The common prefix and
+// suffix never end inside a surrogate pair (emoji and other astral characters).
+export function wordDiff(a, b) {
   let p = 0;
   while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  if (p > 0 && isHigh(a.charCodeAt(p - 1))) p--;
   let s = 0;
   while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  if (s > 0 && isLow(a.charCodeAt(a.length - s))) s--;
   const mark = (x) => {
     const mid = x.slice(p, x.length - s);
     return esc(x.slice(0, p)) + (mid ? `<span class="w">${esc(mid)}</span>` : '') + esc(x.slice(x.length - s));
