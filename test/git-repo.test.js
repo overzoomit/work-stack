@@ -50,7 +50,7 @@ test('una rinomina solo nella copia di lavoro non crea file fantasma (regression
   r.run('add', '-N', 'b.txt');
   const st = await git.status(r.dir);
   assert.deepEqual(st.staged, []);
-  assert.deepEqual(st.unstaged, [{ file: 'b.txt', code: 'R' }]);
+  assert.deepEqual(st.unstaged, [{ file: 'b.txt', code: 'R', oldFile: 'a.txt' }]);
 });
 
 test('status riporta le cartelle ignorate come una sola voce', async () => {
@@ -328,4 +328,18 @@ test('log e dettaglio di un commit firmato si leggono anche con log.showSignatur
     if (saved === undefined) delete process.env.GNUPGHOME;
     else process.env.GNUPGHOME = saved;
   }
+});
+
+test('una rinomina in stage mostra il diff rispetto al vecchio file, non tutto il file come nuovo (regressione)', async () => {
+  const r = repo();
+  r.write('vecchio.txt', Array.from({ length: 20 }, (_, i) => `${i + 1}`).join('\n') + '\n');
+  r.commit('init');
+  r.run('mv', 'vecchio.txt', 'nuovo.txt');
+  r.write('nuovo.txt', Array.from({ length: 20 }, (_, i) => (i === 9 ? 'dieci' : `${i + 1}`)).join('\n') + '\n');
+  r.run('add', 'nuovo.txt');
+  const st = await git.status(r.dir);
+  assert.deepEqual(st.staged, [{ file: 'nuovo.txt', code: 'R', oldFile: 'vecchio.txt' }]);
+  const text = await git.fileDiff(r.dir, { file: 'nuovo.txt', oldFile: 'vecchio.txt', staged: true });
+  assert.match(text, /rename from vecchio\.txt/);
+  assert.equal((text.match(/^\+[^+]/gm) || []).length, 1, 'only the changed line is added');
 });

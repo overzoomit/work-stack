@@ -226,7 +226,7 @@ async function selectFile(groupKey, file) {
   const token = session.token;
   const spec = session.mode === 'commit'
     ? { hash: session.hash, file, oldFile: f.oldFile }
-    : { file, staged: groupKey === 's', untracked: f.code === 'U' };
+    : { file, oldFile: f.oldFile, staged: groupKey === 's', untracked: f.code === 'U' };
   let text;
   try {
     text = await work.git.fileDiff(session.repo, spec);

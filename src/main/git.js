@@ -75,8 +75,8 @@ async function status(repo, { ignored: withIgnored = true } = {}) {
     const y = e[1];
     const file = e.slice(3);
     // The rename source follows as its own entry, for renames in the index (R_)
-    // and in the working tree (_R, e.g. after `git add -N`).
-    if ('RC'.includes(x) || 'RC'.includes(y)) i++;
+    // and in the working tree (_R, e.g. after `git add -N`); the diff needs it.
+    const oldFile = 'RC'.includes(x) || 'RC'.includes(y) ? entries[++i] : null;
     if (x === '?' && y === '?') {
       unstaged.push({ file, code: 'U' });
       continue;
@@ -86,8 +86,9 @@ async function status(repo, { ignored: withIgnored = true } = {}) {
       unstaged.push({ file, code: 'X' });
       continue;
     }
-    if (x !== ' ') staged.push({ file, code: x });
-    if (y !== ' ') unstaged.push({ file, code: y });
+    const entry = (code) => (oldFile && 'RC'.includes(code) ? { file, code, oldFile } : { file, code });
+    if (x !== ' ') staged.push(entry(x));
+    if (y !== ' ') unstaged.push(entry(y));
   }
   if (ign === null) return { branch, staged, unstaged, ignored: null };
   for (const f of ign.split('\0')) if (f) ignored.push(f.replace(/\/$/, ''));
@@ -201,7 +202,8 @@ async function fileDiff(repo, { hash, file, oldFile, staged, untracked }) {
   }
   // --ours (-2) only affects conflicted files: a plain diff against our side,
   // with the conflict markers as added lines, instead of a combined "@@@" diff.
-  return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, ...(staged ? ['--cached'] : ['--ours']), '--', file]);
+  const paths = oldFile && oldFile !== file ? ['-M', '--', oldFile, file] : ['--', file];
+  return git(repo, ['diff', FULL_CONTEXT, ...PLAIN, ...(staged ? ['--cached'] : ['--ours']), ...paths]);
 }
 
 const isRef = (repo, ref) => git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false);
