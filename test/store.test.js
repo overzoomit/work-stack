@@ -44,3 +44,14 @@ test('una scrittura interrotta a metà non cancella lo stato salvato prima (regr
   }
   assert.deepEqual(store.load().projects.map((p) => p.path), ['/a', '/b']);
 });
+
+test('un file valido ma con la forma sbagliata non impedisce l\'avvio (regressione)', () => {
+  for (const text of ['null', '[]', '{"projects": null}', '{"projects": {"path": "/a"}}', '{"projects": [{"path": "/a"}, 3, null, {}]}']) {
+    fs.writeFileSync(file(), text);
+    const s = store.load();
+    assert.ok(Array.isArray(s.projects), text);
+    assert.ok(s.projects.every((p) => typeof p?.path === 'string'), `only entries with a path: ${text}`);
+  }
+  fs.writeFileSync(file(), '{"projects": [{"path": "/a"}, 3], "active": "/a"}');
+  assert.deepEqual(store.load(), { projects: [{ path: '/a' }], active: '/a' });
+});
