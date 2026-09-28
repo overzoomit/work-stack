@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' file: data: https:; frame-src file:">
+  <title>Work</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span>work</div>
+    <button class="icon-btn sidebar-toggle" id="toggle-sidebar" title="Mostra terminali e sessioni (Ctrl+Shift+B)" aria-pressed="true">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="0.7" y="0.7" width="16.6" height="12.6" rx="3"/><path d="M6.5 1v12"/>
+        <path class="sb-fill" d="M2.5 3.5h2M2.5 6h2M2.5 8.5h2" stroke-linecap="round"/>
+      </svg>
+      <span class="sb-badge"></span>
+    </button>
+    <nav class="project-tabs" id="project-tabs"></nav>
+    <button class="btn btn-ghost" id="new-project" title="Apri un altro progetto (Ctrl+Shift+O)">＋ Nuovo</button>
+    <div class="spacer"></div>
+    <div class="run" id="run" hidden>
+      <button class="run-config" id="run-config"><span class="dot" id="run-dot"></span><span class="run-name" id="run-name"></span><span class="run-chev">⌄</span></button>
+      <button class="run-btn run-start" id="run-start"></button>
+      <button class="run-btn run-stop" id="run-stop" title="Ferma (Ctrl+F2)"><span class="i-stop"></span></button>
+      <button class="run-url" id="run-url" hidden></button>
+    </div>
+    <button class="icon-btn refresh" id="refresh" title="Aggiorna albero e git (F5)">↻</button>
+    <button class="btn" id="new-term" title="Nuovo terminale (Ctrl+Shift+T)">＋ Terminale</button>
+    <button class="btn btn-accent" id="new-agent" title="Scegli un agente (Ctrl+Shift+A avvia l'ultimo usato)">✦ Agente <span class="btn-chev">⌄</span></button>
+    <button class="icon-btn sidebar-toggle right" id="toggle-panel" title="Mostra Project, Modifiche, Graph e Agente (Ctrl+Alt+B)" aria-pressed="true">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="0.7" y="0.7" width="16.6" height="12.6" rx="3"/><path d="M6.5 1v12"/>
+        <path class="sb-fill" d="M2.5 3.5h2M2.5 6h2M2.5 8.5h2" stroke-linecap="round"/>
+      </svg>
+      <span class="sb-badge"></span>
+    </button>
+  </header>
+
+  <main class="layout">
+    <div class="splitter" data-side="left" title="Trascina per ridimensionare · doppio clic per ripristinare"></div>
+    <div class="splitter" data-side="right" title="Trascina per ridimensionare · doppio clic per ripristinare"></div>
+    <aside class="sidebar">
+      <section>
+        <h2 class="side-head">Terminali <span class="count" id="term-count">0</span>
+          <span class="spacer"></span>
+          <button class="icon-btn panel-collapse" data-panel="left" title="Nascondi la colonna (Ctrl+Shift+B)">
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.4">
+          <rect x="0.7" y="0.7" width="16.6" height="12.6" rx="3"/><path d="M6.5 1v12"/>
+          <path class="sb-fill" d="M2.5 3.5h2M2.5 6h2M2.5 8.5h2" stroke-linecap="round"/>
+        </svg>
+          </button>
+        </h2>
+        <ul class="list" id="term-list"></ul>
+      </section>
+      <section class="grow">
+        <h2>Agenti <span class="count" id="agent-count">0</span></h2>
+        <ul class="list" id="agent-list"></ul>
+        <p class="empty" id="agent-empty">Nessuna sessione Claude Code nelle ultime 24 ore.</p>
+      </section>
+    </aside>
+
+    <section class="terminals" id="terminals">
+      <div class="term-empty" id="term-empty">
+        <p id="empty-text">Apri un progetto per iniziare</p>
+        <button class="btn" id="empty-new-term">＋ Apri progetto…</button>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs" id="tabs">
+        <button data-tab="project" class="active">Project</button>
+        <button data-tab="changes">Modifiche <span class="count" id="changes-count">0</span></button>
+        <button data-tab="graph">Graph</button>
+        <button data-tab="agent">Agente</button>
+        <button data-tab="run">Run <span class="dot hidden" id="run-tab-dot"></span></button>
+        <span class="spacer"></span>
+        <button class="icon-btn panel-collapse right" data-panel="right" title="Nascondi il pannello (Ctrl+Alt+B)">
+          <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.4">
+          <rect x="0.7" y="0.7" width="16.6" height="12.6" rx="3"/><path d="M6.5 1v12"/>
+          <path class="sb-fill" d="M2.5 3.5h2M2.5 6h2M2.5 8.5h2" stroke-linecap="round"/>
+        </svg>
+        </button>
+      </nav>
+
+      <div class="tab-body active" data-tab="project">
+        <div class="tree-tools">
+          <div class="spacer"></div>
+          <button class="icon-btn" id="tree-new-file" title="Nuovo file">＋</button>
+          <button class="icon-btn" id="tree-new-dir" title="Nuova cartella">⊞</button>
+          <button class="icon-btn" id="tree-collapse" title="Comprimi tutto">⇤</button>
+        </div>
+        <div class="tree" id="tree"></div>
+      </div>
+
+      <div class="tab-body" data-tab="changes">
+        <div class="git-none" id="git-none" hidden>
+          <p>Questa cartella non è un repository git.</p>
+          <button class="btn" id="git-init">Inizializza repository</button>
+        </div>
+        <div class="git-body" id="git-body">
+          <div class="git-actions">
+            <select id="branch-select" title="Cambia branch"></select>
+            <button class="icon-btn" data-git="newBranch" title="Nuovo branch">＋</button>
+            <div class="spacer"></div>
+            <button class="icon-btn" data-git="fetch" title="Fetch">⇣⇡</button>
+            <button class="icon-btn" data-git="pull" title="Pull (ff-only)">↓<span id="behind"></span></button>
+            <button class="icon-btn" data-git="push" title="Push">↑<span id="ahead"></span></button>
+            <button class="icon-btn" data-git="stash" title="Stash">⊟</button>
+            <button class="icon-btn" data-git="stashPop" title="Stash pop">⊞</button>
+          </div>
+          <div class="commit-box">
+            <textarea id="commit-msg" placeholder="Messaggio di commit (Ctrl+Invio)" rows="3"></textarea>
+            <div class="commit-row">
+              <label><input type="checkbox" id="amend"> amend</label>
+              <div class="spacer"></div>
+              <button class="btn btn-accent" id="commit-btn">Commit</button>
+            </div>
+          </div>
+          <div class="changes">
+            <div class="group-head">In stage <span class="count" id="staged-count">0</span></div>
+            <ul class="files" id="staged"></ul>
+            <div class="group-head">Modifiche <span class="count" id="unstaged-count">0</span>
+              <div class="spacer"></div>
+              <button class="link" id="stage-all">stage tutto</button>
+            </div>
+            <ul class="files" id="unstaged"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-body" data-tab="graph">
+        <p class="empty" id="graph-none" hidden>Nessun repository git in questo progetto.</p>
+        <div class="graph" id="graph"></div>
+      </div>
+
+      <div class="tab-body" data-tab="run">
+        <div class="run-tab-head">
+          <div class="run-list" id="run-list"></div>
+          <div class="spacer"></div>
+          <button class="run-url" id="run-tab-url" hidden></button>
+          <button class="icon-btn" id="run-tab-rerun" title="Riavvia">↻</button>
+          <button class="icon-btn" id="run-tab-stop" title="Ferma"><span class="i-stop"></span></button>
+          <button class="icon-btn" id="run-tab-clear" title="Pulisci output">⌫</button>
+        </div>
+        <p class="empty" id="run-empty">Nessun processo avviato in questo progetto. Usa ▶ in alto a destra.</p>
+        <div class="run-output" id="run-output"></div>
+      </div>
+
+      <div class="tab-body" data-tab="agent">
+        <div id="agent-detail" class="agent-detail">
+          <p class="empty">Seleziona un agente dalla colonna a sinistra.</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="status-repo"></span>
+    <span id="status-agents"></span>
+    <div class="spacer"></div>
+    <span class="hint">Ctrl+Shift+B / Ctrl+Alt+B pannelli · Shift+F10 avvia · Ctrl+F2 ferma · F5 aggiorna · Ctrl+Shift+T terminale · Ctrl+Shift+A agente · Ctrl+Shift+O progetto · Ctrl+Shift+W chiudi · Ctrl+Shift+M ingrandisci</span>
+  </footer>
+
+  <!-- Commit / changes review (WebStorm style) -->
+  <div class="sheet" id="review" hidden>
+    <div class="review-card">
+      <div class="review-head">
+        <span class="review-title" id="review-title"></span>
+        <div class="spacer"></div>
+        <div class="review-actions" id="review-actions"></div>
+        <button class="icon-btn" id="review-close" title="Chiudi (Esc)">✕</button>
+      </div>
+      <div class="review-body">
+        <aside class="review-side">
+          <div class="commit-info" id="review-info"></div>
+          <div class="ftree" id="review-files"></div>
+        </aside>
+        <section class="review-main">
+          <div class="diff-toolbar">
+            <div class="diff-file" id="review-path"></div>
+            <div class="spacer"></div>
+            <span id="review-tools-extra"></span>
+            <span class="muted small" id="review-count"></span>
+            <button class="icon-btn" id="review-prev" title="Modifica precedente (Shift+F7)">↑</button>
+            <button class="icon-btn" id="review-next" title="Modifica successiva (F7)">↓</button>
+            <div class="segmented" id="review-mode">
+              <button data-mode="side">Affiancato</button>
+              <button data-mode="unified">Unificato</button>
+            </div>
+          </div>
+          <div class="diff-labels" id="review-labels"></div>
+          <div class="diff side" id="review-diff"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- File preview -->
+  <div class="sheet" id="viewer" hidden>
+    <div class="viewer-card">
+      <div class="viewer-head">
+        <span class="viewer-title" id="viewer-title"></span>
+        <div class="spacer"></div>
+        <div class="segmented" id="viewer-mode" hidden>
+          <button data-view="rendered">Anteprima</button>
+          <button data-view="source">Sorgente</button>
+        </div>
+        <div id="viewer-actions" class="review-actions"></div>
+        <button class="icon-btn" id="viewer-close" title="Chiudi (Esc)">✕</button>
+      </div>
+      <div class="viewer-body" id="viewer-body"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal" hidden>
+    <form class="modal-card" id="modal-form">
+      <p id="modal-text"></p>
+      <input id="modal-input" autocomplete="off" spellcheck="false">
+      <div class="commit-row">
+        <div class="spacer"></div>
+        <button type="button" class="btn" id="modal-cancel">Annulla</button>
+        <button type="submit" class="btn btn-accent" id="modal-ok">OK</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
