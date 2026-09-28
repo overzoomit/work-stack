@@ -6,11 +6,13 @@ import { insertChunked, resetChunks } from './chunks.js';
 const CONTEXT = 4;
 
 export function parseDiff(text) {
-  if (/^Binary files .* differ$/m.test(text)) return { binary: true, rows: [] };
   const rows = [];
   const lines = text.split('\n');
   let i = 0;
-  while (i < lines.length && !lines[i].startsWith('@@')) i++;
+  // Git reports a binary file in the header, before any hunk.
+  for (; i < lines.length && !lines[i].startsWith('@@'); i++) {
+    if (/^Binary files .* differ$/.test(lines[i])) return { binary: true, rows: [] };
+  }
 
   let ln = 0;
   let rn = 0;
@@ -76,6 +78,7 @@ function similarity(ta, tb, counts) {
 // matching lines that actually resemble each other (like WebStorm).
 // Unmatched lines stay as pure deletions / additions.
 const MIN_SIM = 0.4;
+const tokenIds = new Map(); // reused by every block: cleared, never reallocated
 function align(dels, adds) {
   const n = dels.length;
   const m = adds.length;
@@ -86,7 +89,8 @@ function align(dels, adds) {
   }
   // Each line is tokenized once and its tokens mapped to integers, so the
   // n × m comparisons count with a typed array instead of building maps.
-  const ids = new Map();
+  const ids = tokenIds;
+  ids.clear();
   const toIds = (line) => tokens(line).map((t) => {
     let id = ids.get(t);
     if (id === undefined) ids.set(t, (id = ids.size));

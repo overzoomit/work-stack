@@ -11,8 +11,8 @@ const COLORS = ['#0a84ff', '#30d158', '#bf5af2', '#ff9f0a', '#64d2ff', '#ff375f'
 export function layout(commits) {
   const lanes = [];
   const rows = [];
+  let before = []; // lanes only change below, so each row starts where the last ended
   for (const c of commits) {
-    const before = lanes.slice();
     let col = lanes.indexOf(c.hash);
     if (col === -1) {
       col = lanes.indexOf(null);
@@ -30,7 +30,9 @@ export function layout(commits) {
       else lanes[free] = p;
     }
     while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
-    rows.push({ commit: c, col, before, after: lanes.slice() });
+    const after = lanes.slice();
+    rows.push({ commit: c, col, before, after });
+    before = after;
   }
   // Per-row text indent so a wide section of the graph doesn't push every row.
   for (const r of rows) r.indent = PAD * 2 + (Math.max(r.before.length, r.after.length, r.col + 1) - 1) * LANE_W;
