@@ -17,6 +17,7 @@ export function parseDiff(text) {
   let dels = [];
   let adds = [];
   const flush = () => {
+    if (!dels.length && !adds.length) return; // most lines are context: nothing pending
     for (const pair of align(dels, adds)) {
       const [l, r] = pair;
       rows.push({ type: l && r ? 'mod' : l ? 'del' : 'add', l, r, whole: !!pair.whole });
@@ -96,6 +97,13 @@ function align(dels, adds) {
   const addTokens = adds.map((a) => toIds(a.t));
   const delTokens = dels.map((d) => toIds(d.t));
   const counts = new Int32Array(ids.size);
+  if (n === 1 && m === 1) {
+    // The common one-line edit ends up on one row either way (see the folding
+    // below): with word highlights only when the two lines are alike.
+    const row = [dels[0], adds[0]];
+    row.whole = similarity(delTokens[0], addTokens[0], counts) < MIN_SIM;
+    return [row];
+  }
   const sim = delTokens.map((dt) => addTokens.map((at) => similarity(dt, at, counts)));
   // score[i][j] = best total similarity using dels[i..] and adds[j..]
   const score = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
