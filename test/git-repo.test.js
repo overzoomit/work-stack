@@ -140,6 +140,19 @@ test('branches distingue i rami locali con slash dai remoti (regressione)', asyn
   assert.ok(!list.some((b) => b.name === 'origin' || b.name.endsWith('/HEAD')), 'origin/HEAD is not a branch');
 });
 
+test('un ramo con lo stesso nome di un tag si chiama e si fa checkout con il suo nome (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.run('tag', 'v1.2');
+  r.run('branch', 'v1.2');
+  const list = await git.branches(r.dir);
+  assert.deepEqual(list.map((b) => b.name).sort(), ['main', 'v1.2'], 'not "heads/v1.2"');
+  const v = list.find((b) => b.name === 'v1.2');
+  await git.action(r.dir, 'checkout', { branch: v.name });
+  assert.equal((await git.status(r.dir)).branch.name, 'v1.2', 'on the branch, not a detached HEAD');
+});
+
 test('il log distingue rami locali con slash dai remoti (decorazioni complete)', async () => {
   const r = repo();
   r.write('a.txt', 'x\n');

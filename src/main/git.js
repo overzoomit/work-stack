@@ -119,12 +119,14 @@ async function log(repo, limit = 400) {
 }
 
 // Local and remote branches are told apart by their full ref name: a local
-// "feature/x" contains a slash too. origin/HEAD only points at another branch.
+// "feature/x" contains a slash too. Names come from the full ref as well:
+// refname:short turns a branch named like a tag into "heads/v1.2", which
+// checks out as a detached HEAD. origin/HEAD only points at another branch.
 async function branches(repo) {
-  const out = await git(repo, ['branch', '-a', `--format=%(HEAD)${SEP}%(refname)${SEP}%(refname:short)`]);
+  const out = await git(repo, ['branch', '-a', `--format=%(HEAD)${SEP}%(refname)`]);
   return out.split('\n').filter(Boolean).map((l) => {
-    const [head, ref, name] = l.split(SEP);
-    return { ref, name, current: head === '*', remote: ref.startsWith('refs/remotes/') };
+    const [head, ref] = l.split(SEP);
+    return { ref, name: ref.replace(/^refs\/(heads|remotes)\//, ''), current: head === '*', remote: ref.startsWith('refs/remotes/') };
   }).filter((b) => !(b.remote && b.ref.endsWith('/HEAD'))).map(({ ref, ...b }) => b);
 }
 
