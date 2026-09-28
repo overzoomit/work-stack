@@ -72,3 +72,10 @@ test('usa il gestore dichiarato in packageManager anche senza lockfile (regressi
   const weird = folder({ 'package.json': JSON.stringify({ packageManager: 'rm -rf /@1', scripts: { dev: 'x' } }) });
   assert.deepEqual((await detect(weird)).map((c) => c.command), ['npm run dev'], 'only known managers are trusted');
 });
+
+test('Make: legge anche "makefile" e "GNUmakefile" e tutti i target di una riga (regressione)', async () => {
+  const lower = folder({ makefile: 'build test: deps\n\tgo build\ndeps:\n\ttrue\n' });
+  assert.deepEqual((await detect(lower)).map((c) => c.command), ['make build', 'make test', 'make deps']);
+  const gnu = folder({ GNUmakefile: 'all:\n\ttrue\n', Makefile: 'ignored:\n' });
+  assert.deepEqual((await detect(gnu)).map((c) => c.command), ['make all'], 'GNUmakefile wins, as in make itself');
+});

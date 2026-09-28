@@ -47,13 +47,20 @@ async function detect(dir) {
     // no package.json
   }
 
-  try {
-    const make = await fs.readFile(path.join(dir, 'Makefile'), 'utf8');
-    // "name:" or "name::" is a rule; "name := …", "::=" and ":::=" are assignments.
-    const targets = [...make.matchAll(/^([a-zA-Z0-9][\w.-]*)\s*:(?!:{0,2}=)/gm)].map((m) => m[1]);
+  // The first of these make reads, in its own order.
+  for (const file of ['GNUmakefile', 'makefile', 'Makefile']) {
+    let make;
+    try {
+      make = await fs.readFile(path.join(dir, file), 'utf8');
+    } catch {
+      continue;
+    }
+    // "a b:" or "a::" is a rule (one line may name several targets);
+    // "name := …", "::=" and ":::=" are assignments.
+    const lines = make.matchAll(/^([a-zA-Z0-9][\w.-]*(?:[ \t]+[a-zA-Z0-9][\w.-]*)*)[ \t]*:(?!:{0,2}=)/gm);
+    const targets = [...lines].flatMap((m) => m[1].split(/[ \t]+/));
     for (const t of [...new Set(targets)]) add('make', t, `make ${t}`);
-  } catch {
-    // no Makefile
+    break;
   }
 
   if (await exists(path.join(dir, 'Cargo.toml'))) {
