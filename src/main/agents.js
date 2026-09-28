@@ -253,8 +253,10 @@ class AgentWatcher {
     }
     try {
       return s.read();
-    } catch {
-      return false; // vanished between event and read
+    } catch (e) {
+      if (e.code !== 'ENOENT') return false;
+      this.sessions.delete(file); // transcript deleted: drop the session
+      return true;
     }
   }
 

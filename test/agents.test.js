@@ -250,3 +250,20 @@ test('una sessione in una cartella di progetto appena creata compare senza aspet
   assert.ok(w.list().some((a) => a.id === id), 'listed');
   assert.ok(updates.some((l) => l.some((a) => a.id === id)), 'and sent to the UI');
 });
+
+test('una sessione il cui file viene cancellato sparisce dalla lista (regressione)', async (t) => {
+  const dir = path.join(PROJECTS, '-proj-del');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const file = path.join(dir, `${id}.jsonl`);
+  fs.writeFileSync(file, user('da cancellare'));
+  const updates = [];
+  const w = new AgentWatcher((list) => updates.push(list));
+  t.after(() => w.stop());
+  w.start();
+  assert.ok(w.list().some((a) => a.id === id));
+  fs.unlinkSync(file);
+  await new Promise((r) => setTimeout(r, 700));
+  assert.ok(!w.list().some((a) => a.id === id), 'gone from the list');
+  assert.ok(!updates.at(-1).some((a) => a.id === id), 'and the UI was told');
+});
