@@ -1,6 +1,7 @@
 // Finds the local address a dev server prints ("Local: http://localhost:5173/").
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g;
-const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d+[^\s'")\]]*/;
+// CSI sequences, and OSC ones (e.g. OSC 8 hyperlinks) ended by BEL or ESC \.
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d+[^\s'"`<>)\]]*/;
 
 // Wildcard binds (0.0.0.0, [::]) aren't browsable: open them as localhost.
 // Sentence punctuation after the address and a trailing slash are dropped.

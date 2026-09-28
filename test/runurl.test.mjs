@@ -23,3 +23,10 @@ test('gli indirizzi jolly si aprono come localhost, anche IPv6 (regressione)', (
   assert.equal(findLocalUrl('Server on http://[::]:9000\n'), 'http://localhost:9000');
   assert.equal(findLocalUrl('http://[::1]:9000\n'), 'http://[::1]:9000', 'IPv6 loopback is browsable as is');
 });
+
+test('link cliccabili OSC 8 chiusi da ESC \\ e URL tra parentesi angolari o backtick (regressione)', () => {
+  const osc8 = '\x1b]8;;http://localhost:3000/\x1b\\http://localhost:3000/\x1b]8;;\x1b\\';
+  assert.equal(findLocalUrl(`  ready on ${osc8}\n`), 'http://localhost:3000');
+  assert.equal(findLocalUrl('Server: <http://localhost:8080/api>\n'), 'http://localhost:8080/api');
+  assert.equal(findLocalUrl('apri `http://127.0.0.1:4000` nel browser\n'), 'http://127.0.0.1:4000');
+});
