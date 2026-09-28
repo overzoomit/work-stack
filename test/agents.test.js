@@ -190,3 +190,12 @@ test('lo stato passa ad "attende permesso" dopo 15 s su un tool e a "inattivo" d
   s.mtime = Date.now() - 11 * 60 * 1000;
   assert.equal(s.status.state, 'idle');
 });
+
+test('se il transcript viene riscritto da capo, la riga incompleta precedente non sporca la prima nuova (regressione)', () => {
+  const file = transcript(`${UUID}.jsonl`, user('primo'), '{"type":"user","message":{"role":"user","content":"a metà');
+  const s = new Session(file);
+  s.read();
+  fs.writeFileSync(file, user('nuovo inizio')); // shorter than before: rewritten from scratch
+  s.read();
+  assert.deepEqual(s.events.map((e) => e.text), ['primo', 'nuovo inizio']);
+});

@@ -47,7 +47,11 @@ class Session {
 
   read() {
     const st = fs.statSync(this.file);
-    if (st.size < this.offset) this.offset = 0; // truncated / rewritten
+    if (st.size < this.offset) {
+      // Truncated / rewritten: start over, dropping the half line read before.
+      this.offset = 0;
+      this.partial = '';
+    }
     if (st.size === this.offset) return false;
     if (this.offset === 0 && st.size > TAIL_BYTES) this.offset = st.size - TAIL_BYTES;
 
