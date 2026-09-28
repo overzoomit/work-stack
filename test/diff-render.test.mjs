@@ -119,3 +119,15 @@ test('il segnaposto delle righe non incluse usa il singolare per una riga (regre
     assert.doesNotMatch(box.html(), /1 righe/, mode);
   }
 });
+
+test('se cambia solo l\'a capo finale, il lato che ce l\'ha mostra ⏎ evidenziato (regressione)', () => {
+  // Old file had no final newline, the new one has it.
+  const parsed = parseDiff('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-ultima riga\n\\ No newline at end of file\n+ultima riga\n');
+  for (const mode of ['side', 'unified']) {
+    const box = fakeBox();
+    renderDiff(box, parsed, mode);
+    const html = box.html();
+    assert.equal((html.match(/⏎/g) || []).length, 1, mode);
+    assert.match(html, /ultima riga<span class="w ws" title="[^"]*a capo[^"]*">⏎<\/span>/, `${mode}: on the new side, which ends with a newline`);
+  }
+});

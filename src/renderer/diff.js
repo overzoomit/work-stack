@@ -48,8 +48,13 @@ export function parseDiff(text) {
     else if (sign === ' ') {
       flush();
       rows.push({ type: 'ctx', l: { n: ++ln, t }, r: { n: ++rn, t } });
+    } else if (sign === '\\') {
+      // "\ No newline at end of file": the line just read ends the file without one.
+      const prev = lines[i - 1]?.[0];
+      const last = prev === '-' ? dels.at(-1) : prev === '+' ? adds.at(-1) : null;
+      if (last) last.noEol = true;
     }
-    // "\ No newline at end of file" and the trailing empty line are skipped
+    // the trailing empty line is skipped
   }
   flush();
   return { binary: false, rows };
@@ -186,11 +191,20 @@ function gapHtml(count, from) {
 const missingHtml = (count) =>
   `<div class="d-gap static"><span>⋯</span><span>${count} ${count === 1 ? 'riga non inclusa' : 'righe non incluse'}</span></div>`;
 
+// Only the final newline changed: the side that has it shows ⏎, highlighted.
+const EOL = '<span class="w ws" title="Cambia solo l\'a capo a fine file">⏎</span>';
+function modPair(r) {
+  if (r.whole) return [esc(r.l.t), esc(r.r.t)];
+  const [a, b] = wordDiff(r.l.t, r.r.t);
+  if (r.l.t !== r.r.t || !r.l.noEol === !r.r.noEol) return [a, b];
+  return r.l.noEol ? [a, b + EOL] : [a + EOL, b];
+}
+
 function sideRow(r, idx) {
   if (r.type === 'gap') return missingHtml(r.count);
   let lt = r.l ? esc(r.l.t) : '';
   let rt = r.r ? esc(r.r.t) : '';
-  if (r.type === 'mod' && !r.whole) [lt, rt] = wordDiff(r.l.t, r.r.t);
+  if (r.type === 'mod') [lt, rt] = modPair(r);
   const change = r.type !== 'ctx' ? ' data-change' : '';
   return `<div class="d-row ${r.type}" data-i="${idx}"${change}>
     <span class="ln">${r.l?.n ?? ''}</span><span class="code l${r.l ? '' : ' blank'}">${lt || '&nbsp;'}</span>
@@ -203,7 +217,7 @@ function unifiedRows(r, idx) {
     `<div class="u-row ${cls}" data-i="${idx}"${cls !== 'ctx' ? ' data-change' : ''}><span class="ln">${l ?? ''}</span><span class="ln">${rr ?? ''}</span><span class="sign">${sign}</span><span class="code">${t || '&nbsp;'}</span></div>`;
   if (r.type === 'ctx') return line('ctx', r.l.n, r.r.n, '', esc(r.l.t));
   if (r.type === 'mod') {
-    const [a, b] = r.whole ? [esc(r.l.t), esc(r.r.t)] : wordDiff(r.l.t, r.r.t);
+    const [a, b] = modPair(r);
     return line('del', r.l.n, null, '−', a) + line('add', null, r.r.n, '+', b);
   }
   if (r.type === 'del') return line('del', r.l.n, null, '−', esc(r.l.t));
