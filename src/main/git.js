@@ -230,12 +230,19 @@ async function push(repo) {
   return git(repo, ['push', '-u', remote, 'HEAD']);
 }
 
+// A staged rename is unstaged whole: its source's deletion goes with it.
+// Before the first commit there is no HEAD to restore from: just untrack.
+async function unstage(repo, files) {
+  const { staged } = await status(repo, { ignored: false });
+  const sources = staged.filter((f) => f.oldFile && files.includes(f.file)).map((f) => f.oldFile);
+  const paths = [...files, ...sources];
+  if (!(await isRef(repo, 'HEAD'))) return git(repo, ['rm', '--cached', '-q', '--', ...paths]);
+  return git(repo, ['restore', '--staged', '--', ...paths]);
+}
+
 const actions = {
   stage: (repo, { files }) => git(repo, ['add', '--', ...files]),
-  // Before the first commit there is no HEAD to restore from: just untrack.
-  unstage: async (repo, { files }) => git(repo, (await isRef(repo, 'HEAD'))
-    ? ['restore', '--staged', '--', ...files]
-    : ['rm', '--cached', '-q', '--', ...files]),
+  unstage: (repo, { files }) => unstage(repo, files),
   discard: (repo, { files }) => git(repo, ['checkout', '--', ...files]),
   stageAll: (repo) => git(repo, ['add', '-A']),
   commit: (repo, { message, amend }) => git(repo, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),

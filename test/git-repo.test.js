@@ -343,3 +343,14 @@ test('una rinomina in stage mostra il diff rispetto al vecchio file, non tutto i
   assert.match(text, /rename from vecchio\.txt/);
   assert.equal((text.match(/^\+[^+]/gm) || []).length, 1, 'only the changed line is added');
 });
+
+test('togliere dallo stage un file rinominato toglie anche la cancellazione del vecchio (regressione)', async () => {
+  const r = repo();
+  r.write('vecchio.txt', 'contenuto\n');
+  r.commit('init');
+  r.run('mv', 'vecchio.txt', 'nuovo.txt');
+  await git.action(r.dir, 'unstage', { files: ['nuovo.txt'] });
+  const st = await git.status(r.dir);
+  assert.deepEqual(st.staged, [], 'nothing left half-staged');
+  assert.deepEqual(st.unstaged.map((f) => [f.file, f.code]).sort(), [['nuovo.txt', 'U'], ['vecchio.txt', 'D']]);
+});
