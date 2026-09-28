@@ -2,6 +2,7 @@
 // target…), start / rerun / stop it; output lives in a dedicated pane.
 import { $, esc, ask, toast, contextMenu } from './ui.js';
 import { openTerminal, closeTerminal, sendInput, killTerminal } from './terminals.js';
+import { findLocalUrl } from './runurl.js';
 
 const { work } = window;
 
@@ -9,8 +10,6 @@ let active = null;
 let hooks = { save() {}, changed() {}, reveal() {} };
 let shown = null; // run whose console is visible in the Run tab
 
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g;
-const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):\d+[^\s'")\]]*/;
 
 export function initRun(opts) {
   hooks = { ...hooks, ...opts };
@@ -104,11 +103,13 @@ async function start(p, cfg) {
     container: box,
     onOutput: (data) => {
       if (r.url) return;
-      const m = data.replace(ANSI, '').match(LOCAL_URL);
-      if (m) {
-        r.url = m[0].replace('0.0.0.0', 'localhost').replace(/\/$/, '');
-        if (p === active) render();
-      }
+      // Only complete lines are searched: an address split across two chunks
+      // ("…localhost:51" + "73/") is read once its line has ended.
+      const text = (r.partial || '') + data;
+      const end = text.lastIndexOf('\n') + 1;
+      r.partial = text.slice(end).slice(-1024);
+      r.url = findLocalUrl(text.slice(0, end));
+      if (r.url && p === active) render();
     },
     onExit: (code) => {
       const wasStopping = r.status === 'stopping';
