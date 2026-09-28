@@ -132,8 +132,9 @@ export function focused() {
   return active ? all.get(active.focusedId) : null;
 }
 
+// Open panes only: a closed pane stays in the grid while its exit animation runs.
 export function terminalsOf(project) {
-  return panesOf(project).filter((t) => t.id !== null);
+  return panesOf(project).filter((t) => all.has(t.id));
 }
 
 function relayout() {
