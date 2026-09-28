@@ -75,7 +75,15 @@ def main():
                 set_size(master, int(c), int(r))
 
     _, status = os.waitpid(pid, 0)
-    sys.exit(os.waitstatus_to_exitcode(status))
+    sys.exit(exit_code(status))
+
+
+def exit_code(status):
+    """Shell convention: the exit status, or 128 + signal when killed.
+    (os.waitstatus_to_exitcode needs Python 3.9; Ubuntu 20.04 ships 3.8.)"""
+    if os.WIFSIGNALED(status):
+        return 128 + os.WTERMSIG(status)
+    return os.WEXITSTATUS(status)
 
 
 if __name__ == "__main__":

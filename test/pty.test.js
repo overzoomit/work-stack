@@ -124,3 +124,16 @@ test('le shell non ereditano le variabili npm_* del processo che ha avviato Work
     delete process.env.npm_lifecycle_event;
   }
 });
+
+test('l\'helper funziona anche con Python 3.8, il python3 di Ubuntu 20.04 (regressione)', { skip: !require('fs').existsSync('/usr/bin/python3.8') && 'python3.8 non installato' }, async () => {
+  const { spawn } = require('child_process');
+  const helper = require('path').join(__dirname, '..', 'src', 'main', 'pty-helper.py');
+  const run = (cmd) => new Promise((resolve) => {
+    const p = spawn('/usr/bin/python3.8', [helper, '80', '24', '/bin/sh', '-c', cmd], { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('exit', (code) => resolve({ code, err }));
+  });
+  assert.deepEqual(await run('exit 3'), { code: 3, err: '' });
+  assert.deepEqual(await run('kill -TERM $$'), { code: 128 + 15, err: '' }, 'killed by a signal: shell convention');
+});
