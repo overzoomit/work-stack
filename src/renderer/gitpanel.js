@@ -120,10 +120,12 @@ function renderChanges(project) {
   const row = (f, staged) => {
     const dir = f.file.includes('/') ? f.file.slice(0, f.file.lastIndexOf('/') + 1) : '';
     const name = f.file.slice(dir.length);
+    // A conflict can't be discarded with checkout: staging marks it resolved.
+    const discard = f.code === 'X' ? '' : `<button class="icon-btn" data-act="discard" title="Scarta modifiche">↺</button>`;
     const acts = staged
       ? `<button class="icon-btn" data-act="unstage" title="Togli dallo stage">−</button>`
-      : `<button class="icon-btn" data-act="discard" title="Scarta modifiche">↺</button>
-         <button class="icon-btn" data-act="stage" title="Metti in stage">＋</button>`;
+      : `${discard}
+         <button class="icon-btn" data-act="stage" title="${f.code === 'X' ? 'Segna come risolto' : 'Metti in stage'}">＋</button>`;
     return `<li data-file="${esc(f.file)}" data-staged="${staged ? 1 : ''}" data-code="${f.code}">
       <span class="code ${f.code}">${f.code}</span>
       <span class="fname s-${f.code}"><bdi>${esc(dir)}<b>${esc(name)}</b></bdi></span>
@@ -164,6 +166,7 @@ function onFileMenu(e) {
   const file = li.dataset.file;
   const staged = !!li.dataset.staged;
   const untracked = li.dataset.code === 'U';
+  const conflict = li.dataset.code === 'X';
   const deleted = li.dataset.code === 'D';
   const abs = `${active.root}/${file}`;
   contextMenu(e.clientX, e.clientY, [
@@ -175,7 +178,7 @@ function onFileMenu(e) {
     { label: 'Anteprima file', disabled: deleted, run: () => hooks.preview?.(abs) },
     { label: "Mostra nell'albero", disabled: deleted, run: () => hooks.reveal?.(abs) },
     { label: 'Copia percorso relativo', run: () => work.app.copy(file) },
-    ...(!staged && !untracked ? ['-', {
+    ...(!staged && !untracked && !conflict ? ['-', {
       label: 'Scarta modifiche…',
       danger: true,
       run: async () => {

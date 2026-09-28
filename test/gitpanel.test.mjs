@@ -192,3 +192,16 @@ test('tasto destro su un file: stage/unstage, anteprima, e "Scarta" solo per fil
   items = menuFor('#unstaged', 'via.js', 'D', false);
   assert.equal(items['Anteprima file'].disabled, true, 'a deleted file has nothing to preview');
 });
+
+test('un file in conflitto non offre "Scarta" (git non può) ma solo lo stage per segnarlo risolto (regressione)', async () => {
+  statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [{ file: 'c.js', code: 'X' }], ignored: [] };
+  await showGit({ path: '/x', root: '/x' });
+  const row = $('#unstaged').innerHTML;
+  assert.match(row, /data-code="X"[\s\S]*data-act="stage"/);
+  assert.doesNotMatch(row, /data-act="discard"/);
+  const li = { dataset: { file: 'c.js', code: 'X', staged: '' } };
+  $('#unstaged').listeners.contextmenu[0]({ target: { closest: () => li }, preventDefault() {}, clientX: 1, clientY: 1 });
+  const items = openMenuItems();
+  assert.ok(items['Metti in stage']);
+  assert.ok(!items['Scarta modifiche…']);
+});
