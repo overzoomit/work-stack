@@ -149,6 +149,23 @@ test('il log distingue rami locali con slash dai remoti (decorazioni complete)',
   assert.ok(c.refs.includes('refs/heads/feature/x'), `refs were: ${c.refs.join(', ')}`);
 });
 
+test('il checkout di un ramo remoto di qualsiasi remote crea il ramo locale che lo segue (regressione)', async () => {
+  const up = repo();
+  up.write('a.txt', '1\n');
+  up.commit('init');
+  up.run('branch', 'feature');
+  const r = repo();
+  r.run('remote', 'add', 'upstream', up.dir);
+  r.run('fetch', '-q', 'upstream');
+  await git.action(r.dir, 'checkout', { branch: 'upstream/feature' });
+  assert.equal((await git.status(r.dir)).branch.name, 'feature');
+  assert.equal(r.run('rev-parse', '--abbrev-ref', 'feature@{upstream}').trim(), 'upstream/feature');
+  // Checking out the same remote branch again switches to the existing local one.
+  await git.action(r.dir, 'checkout', { branch: 'upstream/main' });
+  await git.action(r.dir, 'checkout', { branch: 'upstream/feature' });
+  assert.equal((await git.status(r.dir)).branch.name, 'feature');
+});
+
 test('commit tramite action usa il messaggio da stdin e cambia lo stato', async () => {
   const r = repo();
   r.write('a.txt', 'x\n');

@@ -191,13 +191,27 @@ async function fileDiff(repo, { hash, file, oldFile, staged, untracked }) {
   return git(repo, ['diff', FULL_CONTEXT, '--no-color', ...(staged ? ['--cached'] : []), '--', file]);
 }
 
+const isRef = (repo, ref) => git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false);
+
+// A remote branch ("upstream/feature", any remote) is checked out as the local
+// branch that tracks it, created on first use, instead of a detached HEAD.
+async function checkout(repo, branch) {
+  if (await isRef(repo, `refs/heads/${branch}`)) return git(repo, ['checkout', branch]);
+  const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
+  const remote = remotes.find((r) => branch.startsWith(`${r}/`));
+  if (!remote) return git(repo, ['checkout', branch]); // tag or commit
+  const local = branch.slice(remote.length + 1);
+  if (await isRef(repo, `refs/heads/${local}`)) return git(repo, ['checkout', local]);
+  return git(repo, ['checkout', '--track', branch]);
+}
+
 const actions = {
   stage: (repo, { files }) => git(repo, ['add', '--', ...files]),
   unstage: (repo, { files }) => git(repo, ['restore', '--staged', '--', ...files]),
   discard: (repo, { files }) => git(repo, ['checkout', '--', ...files]),
   stageAll: (repo) => git(repo, ['add', '-A']),
   commit: (repo, { message, amend }) => git(repo, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message }),
-  checkout: (repo, { branch }) => git(repo, ['checkout', branch.replace(/^origin\//, '')]),
+  checkout: (repo, { branch }) => checkout(repo, branch),
   createBranch: (repo, { name, from }) => git(repo, ['checkout', '-b', name, ...(from ? [from] : [])]),
   fetch: (repo) => git(repo, ['fetch', '--all', '--prune']),
   pull: (repo) => git(repo, ['pull', '--ff-only']),
