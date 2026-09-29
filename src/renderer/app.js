@@ -1,4 +1,4 @@
-import { $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu } from './ui.js';
+import { $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu, clip } from './ui.js';
 import { ProjectTree } from './tree.js';
 import { previewFile } from './preview.js';
 import { closeReview } from './review.js';
@@ -603,7 +603,7 @@ addEventListener('keydown', (e) => {
       const p = projectFor(a.cwd) || await addProject((await work.git.root(a.cwd)) || a.cwd, { withTerminal: false });
       if (p !== active) await activateProject(p);
       try {
-        resumeClaude(p, a.cwd, a.id, a.title.slice(0, 40));
+        resumeClaude(p, a.cwd, a.id, clip(a.title, 40));
       } catch (e) {
         toastError(e);
       }

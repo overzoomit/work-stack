@@ -36,3 +36,10 @@ test('esc neutralizza i caratteri HTML', () => {
   assert.equal(esc(`<img src=x onerror="a('b')">&`), '&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;');
   assert.equal(esc(null), '');
 });
+
+test('clip accorcia senza spezzare un\'emoji a metà (regressione: titolo del terminale di "Riprendi")', async () => {
+  const { clip } = await import('../src/renderer/ui.js');
+  assert.equal(clip(`${'a'.repeat(39)}🚀 resto`, 40), 'a'.repeat(39));
+  assert.equal(clip('corto', 40), 'corto');
+  assert.equal(clip('ab🚀', 4), 'ab🚀');
+});

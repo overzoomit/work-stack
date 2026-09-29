@@ -14,6 +14,12 @@ export function setHtml(el, html) {
   return true;
 }
 
+// First n characters without cutting an emoji (a surrogate pair) in half.
+export function clip(s, n) {
+  const c = s.slice(0, n);
+  return /[\uD800-\uDBFF]$/.test(c) ? c.slice(0, -1) : c;
+}
+
 export const basename = (p) => p?.split('/').filter(Boolean).pop() || p;
 export const dirname = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
 
