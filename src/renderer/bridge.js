@@ -30,6 +30,11 @@
     return () => set.delete(cb);
   };
 
+  // A file dropped from outside carries no path in the page: Tauri reports the
+  // paths of a native drop, matched here by name.
+  let dropped = [];
+  on('tauri://drag-drop', (e) => { dropped = e.payload.paths || []; });
+
   window.work = {
     app: {
       info: call('app_info'),
@@ -38,7 +43,7 @@
       openExternal: send('app_open_external', 'url'),
       copy: send('app_copy', 'text'),
       paste: call('app_paste'),
-      pathForFile: () => null,
+      pathForFile: (file) => dropped.find((p) => p.split('/').pop() === file.name) || null,
       onFocus: listen('app:focus'),
     },
     projects: {

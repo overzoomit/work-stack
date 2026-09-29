@@ -45,7 +45,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
 - [ ] **T4: git (azioni) + watcher.** `action` (stage…revert, push/pull/checkout con le stesse regole),
   `watch/unwatch` con debounce 300 ms e tipo `index`/`full`, worktree collegati.
   - Accetta: casi di `git-repo` (azioni) e `gitwatch.test.js` portati. Dipende da: T3.
-- [ ] **T5: file system del Project.** list/read/create/rename/move/copyIn/trash/openPath/reveal con la
+- [x] **T5: file system del Project.** list/read/create/rename/move/copyIn/trash/openPath/reveal con la
   guardia sui percorsi reali (symlink); percorsi dei file trascinati da fuori tramite l'evento drag & drop
   di Tauri (sostituisce `webUtils.getPathForFile`).
   - Accetta: casi di `fsops.test.js` portati, compresi quelli di regressione. Dipende da: T1.

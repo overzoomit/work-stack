@@ -1,4 +1,5 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
+mod fsops;
 mod pty;
 mod runconfigs;
 mod store;
@@ -14,15 +15,21 @@ struct AppState {
 }
 
 // ── Projects ─────────────────────────────────────────────────
+// The open projects are also what authorizes file access (see fsops).
+fn project_paths(state: &Value) -> Vec<String> {
+    state["projects"].as_array().into_iter().flatten().filter_map(|p| p["path"].as_str().map(String::from)).collect()
+}
+
 #[tauri::command]
 fn projects_load(s: State<AppState>) -> Value {
     s.state.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn projects_save(s: State<AppState>, next: Value) -> Result<(), String> {
+fn projects_save(s: State<AppState>, roots: State<fsops::Roots>, next: Value) -> Result<(), String> {
     let mut state = s.state.lock().unwrap();
     store::merge(&mut state, next);
+    roots.set(&project_paths(&state));
     store::save(&s.file, &state).map_err(|e| e.to_string())
 }
 
@@ -54,6 +61,8 @@ fn app_info(app: tauri::AppHandle) -> Value {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(fsops::Roots::default())
         .setup(|app| {
             // Debug/tests: WORK_USER_DATA keeps state separate from the real profile.
             let (dir, legacy) = match std::env::var("WORK_USER_DATA") {
@@ -62,6 +71,7 @@ fn main() {
             };
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
+            app.state::<fsops::Roots>().set(&project_paths(&state));
             app.manage(AppState { state: Mutex::new(state), file });
             app.manage(pty::PtyState::new());
             Ok(())
@@ -77,6 +87,15 @@ fn main() {
             pty::pty_resize,
             pty::pty_kill,
             pty::pty_cwd,
+            fsops::fs_list,
+            fsops::fs_read,
+            fsops::fs_create,
+            fsops::fs_rename,
+            fsops::fs_move,
+            fsops::fs_copy_in,
+            fsops::fs_trash,
+            fsops::fs_open_path,
+            fsops::fs_reveal,
             runconfigs::run_detect,
         ])
         .build(tauri::generate_context!())

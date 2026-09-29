@@ -7,7 +7,7 @@ Dettagli e criteri di accettazione in `tasks/plan.md`.
 - [ ] Checkpoint A: terminali usabili su Tauri
 - [ ] T3: git (letture)
 - [ ] T4: git (azioni) + watcher
-- [ ] T5: file system del Project
+- [x] T5: file system del Project
 - [x] T6: Run configs
 - [ ] Checkpoint B: terminali, git, albero e Run alla pari
 - [ ] T7: Agenti
