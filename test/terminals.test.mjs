@@ -237,3 +237,12 @@ test('menu agenti: ↓ e Invio avviano l\'agente evidenziato; "Installa" scrive 
   assert.ok(!/[\r\n]/.test(typed), 'never executed on its own');
   await tick(700);
 });
+
+test('su Mac Option resta Option: con la tastiera italiana serve per @ # [ ] (regressione)', async () => {
+  const p = { path: '/m', name: 'm', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p);
+  assert.notEqual(t.term.options.macOptionIsMeta, true, 'Option+ò must type @, not Meta+ò');
+  T.closeTerminal(t.id);
+  await tick(700);
+});

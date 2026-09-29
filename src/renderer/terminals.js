@@ -191,7 +191,8 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     cursorBlink: settings.cursorBlink,
     cursorStyle: settings.cursorStyle,
     allowTransparency: true,
-    macOptionIsMeta: true,
+    // Option stays Option, as in Terminal.app: Italian and other layouts type @ # [ ] with it.
+    macOptionIsMeta: false,
     scrollback: kind === 'run' ? 3000 : 10000, // Run logs are verbose and rerun often
     theme: xtermTheme(themeById(preview || settings.theme)),
   });
