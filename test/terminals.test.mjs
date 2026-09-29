@@ -199,3 +199,41 @@ test('trascinare un pannello per l\'intestazione lo riordina; Esc annulla; sul t
   [a, b, c].forEach((t) => T.closeTerminal(t.id));
   await tick(700);
 });
+
+test('menu agenti: ↓ e Invio avviano l\'agente evidenziato; "Installa" scrive il comando senza eseguirlo', async () => {
+  const L = await import('../src/renderer/launcher.js');
+  const p = { path: '/k', name: 'k', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  L.initLauncher({ activeProject: () => p });
+  const menu = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing')).at(-1);
+  const open = async () => {
+    env.agentsReply = Promise.resolve(['claude', 'opencode']);
+    document.querySelector('#new-agent').onpointerdown({ button: 0, stopPropagation() {} });
+    await tick();
+  };
+
+  // Keyboard: rows are the installed agents in menu order (Claude Code, OpenCode).
+  await open();
+  const rows = [{ id: 'claude' }, { id: 'opencode' }].map(({ id }) => {
+    const r = new El();
+    r.dataset.id = id;
+    r.click = () => menu().listeners.click[0]({ target: { closest: (sel) => (sel === '.ap-row' ? r : null) } });
+    return r;
+  });
+  menu().querySelectorAll = (sel) => (sel === '.ap-row:not(.missing)' ? rows : []);
+  env.key('ArrowDown');
+  env.key('Enter');
+  await tick();
+  assert.equal(env.created.at(-1).command, 'opencode');
+
+  // Install: a new terminal with the command typed, no Enter.
+  await open();
+  const missing = { dataset: { id: 'codex' }, classList: { contains: (c) => c === 'missing' } };
+  menu().listeners.click[0]({ target: { closest: (sel) => (sel === '.ap-row' ? missing : sel === '[data-install]' ? {} : null) } });
+  await tick(700);
+  const [id, typed] = env.input.at(-1);
+  assert.equal(id, env.lastId);
+  assert.equal(typed, 'npm i -g @openai/codex');
+  assert.ok(!/[\r\n]/.test(typed), 'never executed on its own');
+  await tick(700);
+});
