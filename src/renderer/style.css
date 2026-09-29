@@ -110,12 +110,8 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
   position: relative; z-index: 10;
 }
 .topbar button, .topbar .ptab { -webkit-app-region: no-drag; }
-.brand { font: 700 17px/1 var(--sans); letter-spacing: -0.03em; display: flex; align-items: center; gap: 7px; }
-.brand-mark {
-  width: 18px; height: 18px; border-radius: 5px;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
-}
+.brand { font: 600 17px/1 "Inter", var(--sans); letter-spacing: -0.02em; display: flex; align-items: center; gap: 6px; }
+.brand-mark { width: 18px; height: 18px; flex: none; }
 .btn-ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-2); }
 .btn-ghost:hover { background: var(--bg-3); color: var(--text); }
 .btn-small { padding: 3px 10px; font-size: 12px; }
