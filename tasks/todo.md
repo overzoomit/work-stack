@@ -15,5 +15,5 @@ Dettagli e criteri di accettazione in `tasks/plan.md`.
 - [ ] Checkpoint C: parità completa, revisione con l'utente
 - [x] T9: Via Electron
 - [x] T10: Installer
-- [ ] T11: Misure
+- [x] T11: Misure
 - [ ] Checkpoint finale: pronto per la release

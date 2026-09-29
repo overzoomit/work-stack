@@ -149,7 +149,7 @@ fuori schermo non vengono impaginati.
 Nell'interfaccia non ci sono animazioni in loop, e la sfocatura (`backdrop-filter`) è usata solo per menu e
 popover temporanei; le liste vengono ridisegnate solo quando il contenuto cambia.
 
-Misure su Ubuntu 20.04 (Intel UHD 630), un progetto e un terminale aperti:
+Misure della versione Electron su Ubuntu 20.04 (Intel UHD 630), un progetto e un terminale aperti:
 
 | | CPU a riposo | Memoria reale (PSS) |
 |---|---|---|
@@ -167,3 +167,20 @@ Dopo l'audit delle prestazioni (stessa macchina):
 | Aggiornamento lista agenti (22 sessioni) | 98 KB | 5,5 KB |
 | Diff di un file nuovo da 20.000 righe: primo disegno / task più lungo | 1.335 / 1.305 ms | 167 / <50 ms |
 | Anteprima sorgente da 38.000 righe: task più lungo | 897 ms | <50 ms |
+
+### Tauri al posto di Electron
+
+MacBook Air M4 (16 GB, macOS 26.6), stessa macchina e stesso codice dell'interfaccia; profilo nuovo, un progetto e un
+terminale aperti, 25 s dopo l'avvio. Memoria: `footprint` di tutti i processi dell'app (per Tauri: Work e i processi
+WebKit che avvia); mediana di 3 avvii. CPU: `top`, somma dei processi, media di 4 campioni da 2 s.
+
+| | Electron 44 | Tauri 2 |
+|---|---|---|
+| Memoria (footprint) | ~295 MB (201–299) | ~175 MB (111–203) |
+| CPU a riposo | 0,25–5,75% | 0–3,5% |
+| App installata | 288 MB (Electron.app) | 7,4 MB (Work.app), .dmg da 3,5 MB |
+| `seq 1 1000000`: frame più lungo | 33 ms | 32–36 ms |
+| Dipendenze a runtime | Node, `python3`, `git` | `git` |
+
+La CPU a riposo oscilla con il resto della macchina (misure fatte con altre app aperte). Su Linux WebKitGTK
+va misurato a parte.
