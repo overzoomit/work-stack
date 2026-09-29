@@ -1,6 +1,8 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
 mod app;
 mod fsops;
+mod git;
+mod gitwatch;
 mod pty;
 mod runconfigs;
 mod store;
@@ -9,7 +11,7 @@ mod sysstats;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 struct AppState {
     state: Mutex<Value>,
@@ -63,6 +65,10 @@ fn main() {
             allow_projects(app.handle(), &state);
             app.manage(AppState { state: Mutex::new(state), file });
             app.manage(pty::PtyState::new());
+            let handle = app.handle().clone();
+            app.manage(gitwatch::GitWatcher::new(move |repo, kind| {
+                let _ = handle.emit("git:changed", (repo, kind));
+            }));
             #[cfg(target_os = "macos")]
             app.set_menu(app::mac_menu(app.handle())?)?;
             app::create_window(app.handle())?;
@@ -85,6 +91,16 @@ fn main() {
             pty::pty_resize,
             pty::pty_kill,
             pty::pty_cwd,
+            git::git_root,
+            git::git_status,
+            git::git_log,
+            git::git_branches,
+            git::git_commit,
+            git::git_containing,
+            git::git_file_diff,
+            git::git_action,
+            gitwatch::git_watch,
+            gitwatch::git_unwatch,
             fsops::fs_list,
             fsops::fs_read,
             fsops::fs_create,

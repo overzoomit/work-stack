@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "macros"] }
+notify = "8"
 portable-pty = "0.9.0"
 libc = "0.2.189"
 trash = "5.2.9"
@@ -20,6 +22,7 @@ tauri-plugin-clipboard-manager = "2"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [profile.release]
 lto = true
