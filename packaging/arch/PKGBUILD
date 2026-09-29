@@ -1,7 +1,7 @@
 # Maintainer: Overzoom <info@overzoom.it>
 # Repackages the .deb from the GitHub release: same binary, system WebKitGTK.
 pkgname=work-stack-bin
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Terminali, git e agenti AI in un'unica dashboard desktop"
 arch=('x86_64')
