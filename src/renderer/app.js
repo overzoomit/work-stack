@@ -1,4 +1,4 @@
-import { $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu, clip } from './ui.js';
+import { $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu, clip, tooltip, refreshTip } from './ui.js';
 import { ProjectTree } from './tree.js';
 import { previewFile } from './preview.js';
 import { closeReview } from './review.js';
@@ -552,6 +552,74 @@ addEventListener('keydown', (e) => {
   }
 }, true);
 
+// ── Status bar: shortcuts, machine load, version ────────────
+// The bar shows the glanceable part (two gauges, the version); the details
+// are one level deeper, in tooltips that grow out of each item.
+
+const GB = 1024 ** 3;
+const pct = (x) => `${Math.round(x * 100)}%`;
+let stats = null;
+
+const SHORTCUTS = [
+  ['Nuovo terminale', 'Ctrl+Shift+T'],
+  ['Nuovo agente', 'Ctrl+Shift+A'],
+  ['Apri progetto', 'Ctrl+Shift+O'],
+  ['Chiudi terminale', 'Ctrl+Shift+W'],
+  ['Ingrandisci terminale', 'Ctrl+Shift+M'],
+  ['Pannello sinistro / destro', 'Ctrl+Shift+B', 'Ctrl+Alt+B'],
+  ['Avvia / ferma', 'Shift+F10', 'Ctrl+F2'],
+  ['Aggiorna', 'F5'],
+];
+const kbd = (k) => `<span class="tip-combo">${k.split('+').map((x) => `<kbd>${esc(x)}</kbd>`).join('')}</span>`;
+const OS_NAMES = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
+
+const row = (label, value) => `<dt>${label}</dt><dd>${value}</dd>`;
+const bar = (v) => `<i class="tip-bar${v > 0.85 ? ' high' : ''}"><b style="--v:${v.toFixed(3)}"></b></i>`;
+
+function statsTip() {
+  if (!stats) return '<div class="tip-note">Lettura in corso…</div>';
+  const s = stats;
+  const mb = (b) => `${Math.round(b / 1024 ** 2)} MB`;
+  return `<h4>Sistema</h4><dl>
+      ${row('CPU', `${pct(s.cpu)} ${bar(s.cpu)}`)}
+      ${row('Memoria', `${(s.memUsed / GB).toFixed(1)} di ${(s.memTotal / GB).toFixed(0)} GB ${bar(s.memUsed / s.memTotal)}`)}
+      ${row('Carico medio', `${s.load.map((l) => l.toFixed(2)).join(' · ')}`)}
+      ${row('Core', s.cores)}
+    </dl><h4>Work</h4><dl>
+      ${row('Memoria', mb(s.work.mem))}
+      ${row('CPU', pct(s.work.cpu))}
+    </dl><div class="tip-note">Work senza shell e agenti dei terminali · ogni 3 s</div>`;
+}
+
+function initStatusBar() {
+  tooltip($('#status-keys'), () => `<h4>Scorciatoie</h4><dl class="tip-keys">${
+    SHORTCUTS.map(([label, ...keys]) => row(esc(label), keys.map(kbd).join('<span class="tip-or">/</span>'))).join('')}</dl>`);
+  tooltip($('#status-sys'), statsTip);
+  const v = info.versions;
+  $('#status-version').textContent = `v${info.version}`;
+  tooltip($('#status-version'), () => `<div class="tip-title">Work ${esc(info.version)}</div><dl>
+      ${row('Electron', esc(v.electron))}${row('Chromium', esc(v.chrome))}${row('Node', esc(v.node))}
+      ${row('Sistema', `${esc(OS_NAMES[info.platform] || info.platform)} ${esc(info.arch)}`)}</dl>`);
+  refreshStats();
+  setInterval(refreshStats, 3000);
+}
+
+function setGauge(el, v, text) {
+  el.classList.toggle('high', v > 0.85);
+  el.querySelector('b').style.setProperty('--v', v.toFixed(3));
+  el.querySelector('em').textContent = text;
+}
+
+// Every 3 s, and only while the window is visible: numbers that change
+// constantly pull the eye, and a hidden window has no one to show them to.
+async function refreshStats() {
+  if (document.hidden) return;
+  stats = await work.app.stats();
+  setGauge($('#gauge-cpu'), stats.cpu, pct(stats.cpu));
+  setGauge($('#gauge-ram'), stats.memUsed / stats.memTotal, pct(stats.memUsed / stats.memTotal));
+  refreshTip($('#status-sys'));
+}
+
 // ── Boot ────────────────────────────────────────────────────
 
 (async () => {
@@ -639,6 +707,7 @@ addEventListener('keydown', (e) => {
   } else showWelcome();
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();
+  initStatusBar();
   performance.mark('work:ready'); // boot finished: read with performance.getEntriesByName
 
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).

@@ -74,6 +74,7 @@ export function renderAgentList() {
   // Shown on the sidebar toggle while the list is hidden, so nothing urgent is missed.
   const urgent = ['blocked', 'waiting', 'working'].find((st) => agents.some((a) => a.status.state === st)) || '';
   $('#toggle-sidebar').dataset.agents = urgent;
+  $('#status-agents').dataset.state = urgent;
 }
 
 async function renderAgentDetail() {

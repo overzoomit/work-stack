@@ -10,6 +10,7 @@ const listen = (channel) => (cb) => {
 contextBridge.exposeInMainWorld('work', {
   app: {
     info: invoke('app:info'),
+    stats: invoke('app:stats'),
     pickFolder: invoke('app:pickFolder'),
     openExternal: (url) => ipcRenderer.send('app:openExternal', url),
     copy: (text) => ipcRenderer.send('app:copy', text),

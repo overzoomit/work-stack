@@ -138,6 +138,73 @@ export function ask({ text, value = '', placeholder = '', okLabel = 'OK', danger
   });
 }
 
+// ── Tooltips ────────────────────────────────────────────────
+// A small card that grows out of its anchor. As on macOS the first one waits
+// a moment, while moving to a neighbour right after shows it at once. A press
+// or keyboard focus shows it without waiting.
+let tip = null; // { el, card, render }
+let tipTimer = 0;
+let warmUntil = 0;
+let tipClosing = null;
+
+export function tooltip(el, render) {
+  el.tabIndex = 0;
+  el.setAttribute('aria-describedby', 'tip');
+  const open = () => showTip(el, render);
+  el.addEventListener('pointerenter', () => {
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(open, performance.now() < warmUntil ? 0 : 450);
+  });
+  el.addEventListener('pointerleave', hideTip);
+  el.addEventListener('pointerdown', open);
+  el.addEventListener('focus', open);
+  el.addEventListener('blur', hideTip);
+}
+
+function showTip(el, render) {
+  clearTimeout(tipTimer);
+  if (tip?.el === el) return;
+  const warm = !!tip || performance.now() < warmUntil;
+  if (tip) tip.card.remove();
+  // Switching between neighbours: no exit/enter overlap, the new card just appears.
+  if (warm) tipClosing?.remove();
+  const card = document.createElement('div');
+  card.className = warm ? 'tip warm' : 'tip';
+  card.id = 'tip';
+  card.setAttribute('role', 'tooltip');
+  document.body.append(card);
+  tip = { el, card, render };
+  refreshTip();
+}
+
+// Re-renders the open tooltip (all of them, or only the one of `el`), e.g.
+// when the numbers it shows change while it is open.
+export function refreshTip(el) {
+  if (!tip || (el && tip.el !== el)) return;
+  const { card } = tip;
+  card.innerHTML = tip.render();
+  // Above the anchor, centred on it but kept on screen; it grows from the anchor.
+  const a = tip.el.getBoundingClientRect();
+  const w = card.offsetWidth;
+  const left = Math.min(Math.max(8, a.left + a.width / 2 - w / 2), innerWidth - w - 8);
+  card.style.left = `${left}px`;
+  card.style.bottom = `${innerHeight - a.top + 6}px`;
+  card.style.transformOrigin = `${a.left + a.width / 2 - left}px 100%`;
+}
+
+export function hideTip() {
+  clearTimeout(tipTimer);
+  if (!tip) return;
+  const { card } = tip;
+  tip = null;
+  warmUntil = performance.now() + 600;
+  tipClosing = card;
+  leave(card, () => card.remove());
+}
+addEventListener('keydown', (e) => e.key === 'Escape' && hideTip());
+addEventListener('resize', hideTip);
+addEventListener('blur', hideTip);
+
 // ── Context menu ────────────────────────────────────────────
 // Grows out of the pointer position so the link to the click is obvious.
 let menuEl = null;

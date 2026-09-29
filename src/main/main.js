@@ -11,6 +11,7 @@ const claudeProcs = require('./claudeprocs');
 const { GitWatcher } = require('./gitwatch');
 const { macMenuTemplate } = require('./menu');
 const { lockNavigation } = require('./guards');
+const sysstats = require('./sysstats');
 
 // Debug/tests: keep state separate from the real profile.
 if (process.env.WORK_USER_DATA) app.setPath('userData', process.env.WORK_USER_DATA);
@@ -140,7 +141,11 @@ ipcMain.handle('app:info', () => ({
   home: os.homedir(),
   cwd: process.env.WORK_CWD || process.cwd(),
   platform: process.platform,
+  version: app.getVersion(),
+  arch: process.arch,
+  versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
 }));
+ipcMain.handle('app:stats', () => sysstats.sample(app.getAppMetrics()));
 ipcMain.handle('app:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
