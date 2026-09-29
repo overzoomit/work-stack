@@ -557,7 +557,11 @@ mod tests {
     fn killing_a_paused_session_still_ends_it() {
         let (m, rx) = manager();
         let id = m.create(opts("seq 1 5000000"));
-        std::thread::sleep(Duration::from_millis(1000));
+        // Slow machines (CI) need longer than a fixed second to reach the high-water mark.
+        let paused_by = Instant::now() + Duration::from_secs(10);
+        while !m.is_paused(id) && Instant::now() < paused_by {
+            std::thread::sleep(Duration::from_millis(50));
+        }
         assert!(m.is_paused(id), "nobody acked: the shell is paused");
         m.kill(id);
         let deadline = Instant::now() + Duration::from_secs(5);
