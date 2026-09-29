@@ -1,5 +1,7 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
+mod agents;
 mod app;
+mod claudeprocs;
 mod fsops;
 mod git;
 mod gitwatch;
@@ -71,6 +73,12 @@ fn main() {
             }));
             #[cfg(target_os = "macos")]
             app.set_menu(app::mac_menu(app.handle())?)?;
+            let handle = app.handle().clone();
+            let agents = agents::AgentWatcher::new(agents::projects_dir(), claudeprocs::sessions_dir(), move |list| {
+                let _ = handle.emit("agents:update", [list]);
+            });
+            agents.start();
+            app.manage(agents);
             app::create_window(app.handle())?;
             Ok(())
         })
@@ -111,6 +119,11 @@ fn main() {
             fsops::fs_open_path,
             fsops::fs_reveal,
             runconfigs::run_detect,
+            agents::agents_list,
+            agents::agents_events,
+            agents::agents_has_history,
+            agents::agents_stop,
+            agents::agents_available,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Work")
@@ -118,6 +131,7 @@ fn main() {
             // Quitting hangs up every shell, like closing their terminal windows.
             if let tauri::RunEvent::Exit = event {
                 app.state::<pty::PtyState>().mgr.kill_all();
+                app.state::<agents::AgentWatcher>().stop();
             }
         });
 }
