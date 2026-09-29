@@ -179,6 +179,7 @@ h2 {
 .dl details { color: var(--muted); font-size: 0.875rem; }
 .dl details summary { cursor: pointer; color: var(--text); }
 .dl details p { margin: 8px 0 0; }
+.dl details pre { margin-top: 8px; padding: 12px 14px; font-size: 0.8125rem; background: var(--bg-2); outline: 0; }
 .release { margin-top: 20px; font-size: 0.875rem; color: var(--muted); }
 
 pre {
@@ -322,16 +323,25 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
       <article class="card reveal" data-os="linux">
         <div class="os">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M7 9l3 2.5L7 14M12 14h5M8 20h8"/></svg>
-          <h3>Linux <small>x86_64 · Ubuntu 22.04+ o equivalente</small></h3>
+          <h3>Linux <small>x86_64 · Ubuntu 22.04+, Fedora, Arch</small></h3>
         </div>
         <div class="files">
           <a class="file" data-ext=".AppImage" href="https://github.com/overzoomit/work-stack/releases/latest"><b>AppImage</b><span>Qualsiasi distribuzione</span></a>
           <a class="file" data-ext=".deb" href="https://github.com/overzoomit/work-stack/releases/latest"><b>.deb</b><span>Debian, Ubuntu</span></a>
           <a class="file" data-ext=".rpm" href="https://github.com/overzoomit/work-stack/releases/latest"><b>.rpm</b><span>Fedora, openSUSE</span></a>
+          <a class="file" href="https://github.com/overzoomit/work-stack/tree/main/packaging/arch"><b>PKGBUILD</b><span>Arch Linux</span></a>
         </div>
         <details>
           <summary>Dipendenze</summary>
           <p>Serve webkit2gtk-4.1, già presente su Ubuntu 22.04 e successive. I pacchetti .deb e .rpm installano <code>git</code> da soli.</p>
+        </details>
+        <details>
+          <summary>Arch Linux</summary>
+          <p>Il PKGBUILD reimpacchetta il .deb della release e usa la WebKitGTK di sistema:</p>
+          <pre><code>git clone https://github.com/overzoomit/work-stack.git
+cd work-stack/packaging/arch
+makepkg -si</code></pre>
+          <p>Se la finestra resta bianca (NVIDIA, Wayland), avvia con <code>WEBKIT_DISABLE_DMABUF_RENDERER=1 work</code>.</p>
         </details>
       </article>
     </div>
@@ -343,7 +353,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
   <div class="wrap">
     <p class="eyebrow">Dal sorgente</p>
     <h2 class="reveal">Compilalo da te.</h2>
-    <p class="sub reveal">Servono Node 20+, Rust stable e <code>git</code>. Su Linux servono anche le librerie di sviluppo di WebKitGTK.</p>
+    <p class="sub reveal">Servono Node 22+, Rust stable e <code>git</code>. Su Linux servono anche le librerie di sviluppo di WebKitGTK.</p>
     <pre class="reveal"><code>git clone https://github.com/overzoomit/work-stack.git
 cd work-stack
 npm install
