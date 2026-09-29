@@ -91,7 +91,7 @@ pub fn save(file: &Path, state: &Value) -> io::Result<()> {
 3. Nessuna dipendenza da Electron, Node a runtime o `python3` (dopo T9).
 4. `npm run build` produce un `.dmg` che si installa e si avvia da Finder; config Linux per `.deb`/`.AppImage`.
 5. Misure sulla stessa macchina, 1 progetto e 1 terminale aperti, riportate nel README:
-   - RAM a riposo ≤ 150 MB (Electron: 205–280 MB);
+   - RAM a riposo (footprint, mediana di 3 avvii) ≤ 200 MB (Electron sullo stesso Mac: ~295 MB);
    - installer ≤ 25 MB (Electron: ~150 MB);
    - CPU a riposo ≤ 0,5%;
    - `seq 1 1000000` in un terminale: nessun task della UI sopra 50 ms.
