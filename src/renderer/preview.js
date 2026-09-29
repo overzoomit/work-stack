@@ -1,6 +1,6 @@
 // File preview sheet: source with line numbers, plus rendered view for
-// Markdown (sanitized) and HTML (sandboxed iframe loading the real file,
-// so relative CSS/images/scripts resolve).
+// Markdown (sanitized), HTML (sandboxed iframe loading the real file,
+// so relative CSS/images/scripts resolve) and images.
 import { marked } from '../../node_modules/marked/lib/marked.esm.js';
 import DOMPurify from '../../node_modules/dompurify/dist/purify.es.mjs';
 import { $, $$, esc, dirname, leave, toastError } from './ui.js';
@@ -8,7 +8,7 @@ import { insertChunked, resetChunks } from './chunks.js';
 
 const { work } = window;
 
-let current = null; // { path, kind, text, onDiff }
+let current = null; // { path, kind, text (null for binary images), onDiff }
 
 const fileUrl = (p) => `file://${p.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -16,6 +16,7 @@ function kindOf(path) {
   const e = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
   if (['md', 'markdown', 'mdx'].includes(e)) return 'md';
   if (['html', 'htm'].includes(e)) return 'html';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg'].includes(e)) return 'image';
   return 'text';
 }
 
@@ -75,9 +76,10 @@ export function linkTarget(href, base) {
 
 function draw() {
   const { path, kind, text } = current;
-  const view = getView(kind);
+  // Raster images have no source to show; SVG keeps the toggle.
+  const view = text == null ? 'rendered' : getView(kind);
   const body = $('#viewer-body');
-  $('#viewer-mode').hidden = kind === 'text';
+  $('#viewer-mode').hidden = kind === 'text' || text == null;
   $$('#viewer-mode button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   body.scrollTop = 0;
   body.classList.toggle('rendered', view === 'rendered');
@@ -85,7 +87,10 @@ function draw() {
   resetChunks(body);
   if (view === 'source') drawSource(body, text);
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
-  else {
+  else if (kind === 'image') {
+    // Timestamp so an image edited since the last preview isn't served from cache.
+    body.innerHTML = `<div class="pv-image"><img src="${esc(fileUrl(path))}?${Date.now()}" alt="${esc(path)}"></div>`;
+  } else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.
     // No allow-modals: a page's alert() would block Work's whole window.
     body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms" src="${esc(fileUrl(path))}"></iframe>`;
@@ -99,7 +104,9 @@ export async function previewFile(path, { onDiff } = {}) {
   } catch (e) {
     return toastError(e);
   }
-  current = { path, kind: r.text != null ? kindOf(path) : 'text', text: r.text ?? '', onDiff };
+  const kind = kindOf(path);
+  const image = kind === 'image';
+  current = { path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff };
   $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
 
   const actions = $('#viewer-actions');
@@ -114,7 +121,7 @@ export async function previewFile(path, { onDiff } = {}) {
   if (onDiff) add('Mostra differenze', () => closeViewer(onDiff));
   add('Apri con app di sistema', () => work.fs.openPath(path));
 
-  if (r.binary || r.tooBig) {
+  if (!image && (r.binary || r.tooBig)) {
     $('#viewer-mode').hidden = true;
     $('#viewer-body').innerHTML = r.binary ? '<div class="d-empty">File binario.</div>'
       : `<div class="d-empty">File troppo grande per l'anteprima (${Math.round(r.size / 1024)} KB).</div>`;

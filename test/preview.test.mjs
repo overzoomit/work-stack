@@ -42,11 +42,22 @@ test('una pagina HTML gira in un iframe isolato: script sì, accesso a Work no',
 });
 
 test('file binari e troppo grandi non vengono mostrati', async () => {
-  files.set('/p/img.png', { binary: true, size: 10 });
-  await previewFile('/p/img.png');
+  files.set('/p/dati.bin', { binary: true, size: 10 });
+  await previewFile('/p/dati.bin');
   assert.match($('#viewer-body').innerHTML, /File binario/);
   files.set('/p/big.log', { tooBig: true, size: 3 * 1024 * 1024 });
   await previewFile('/p/big.log');
   assert.match($('#viewer-body').innerHTML, /troppo grande per l'anteprima \(3072 KB\)/);
+  closeViewer();
+});
+
+test('le immagini si vedono, anche binarie o grandi; lo SVG tiene anche il sorgente', async () => {
+  files.set('/p/foto.png', { tooBig: true, size: 5 * 1024 * 1024 });
+  await previewFile('/p/foto.png');
+  assert.match($('#viewer-body').innerHTML, /<div class="pv-image"><img src="file:\/\/\/p\/foto\.png\?\d+"/);
+  assert.equal($('#viewer-mode').hidden, true, 'a raster image has no source view');
+  files.set('/p/logo.svg', { text: '<svg/>', size: 6 });
+  await previewFile('/p/logo.svg');
+  assert.equal($('#viewer-mode').hidden, false);
   closeViewer();
 });
