@@ -1,5 +1,6 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
 mod pty;
+mod runconfigs;
 mod store;
 
 use serde_json::{json, Value};
@@ -76,6 +77,7 @@ fn main() {
             pty::pty_resize,
             pty::pty_kill,
             pty::pty_cwd,
+            runconfigs::run_detect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Work")

@@ -49,7 +49,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
   guardia sui percorsi reali (symlink); percorsi dei file trascinati da fuori tramite l'evento drag & drop
   di Tauri (sostituisce `webUtils.getPathForFile`).
   - Accetta: casi di `fsops.test.js` portati, compresi quelli di regressione. Dipende da: T1.
-- [ ] **T6: Run configs.** `run:detect` (npm/pnpm/yarn/bun, Make, Cargo, Django, Go, Compose).
+- [x] **T6: Run configs.** `run:detect` (npm/pnpm/yarn/bun, Make, Cargo, Django, Go, Compose).
   - Accetta: casi di `runconfigs.test.js` portati. Dipende da: T1.
 
 ### Checkpoint B — terminali, git, albero e Run alla pari
