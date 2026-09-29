@@ -8,24 +8,23 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Work",
-        "width": 1600,
-        "height": 980,
-        "minWidth": 1100,
-        "minHeight": 640,
-        "backgroundColor": "#0c0d10",
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
-      }
-    ],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    },
+    "windows": []
   },
   "bundle": {
     "active": true,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ]
   }
 }

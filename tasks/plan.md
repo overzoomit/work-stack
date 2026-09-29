@@ -57,7 +57,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
 - [ ] **T7: Agenti.** Watcher dei `.jsonl` (lettura in coda, modo permessi all'indietro, stati),
   `~/.claude/sessions` (live/stop con SIGTERM → SIGKILL), `hasHistory`, `available`.
   - Accetta: casi di `agents.test.js` e `claudeprocs.test.js` portati. Dipende da: T1.
-- [ ] **T8: Finestra e sistema.** stats (`sysinfo`, RAM corretta su macOS), scelta cartella, appunti,
+- [x] **T8: Finestra e sistema.** stats (`sysinfo`, RAM corretta su macOS), scelta cartella, appunti,
   `openExternal` solo http(s)/mailto, blocco della navigazione, menu macOS senza ⌘W, evento focus,
   versioni nella barra di stato (Tauri/WebView al posto di Electron/Chromium/Node).
   - Accetta: tutte le voci del README funzionano su Tauri. Dipende da: T1.

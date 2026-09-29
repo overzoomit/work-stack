@@ -30,6 +30,15 @@
     return () => set.delete(cb);
   };
 
+  // Errors and warnings go to the terminal that started Work, as in Electron.
+  const log = (level, msg) => invoke('debug_log', { level, msg: String(msg) }).catch(() => {});
+  for (const level of ['error', 'warn']) {
+    const orig = console[level];
+    console[level] = (...args) => { orig(...args); log(level, args.join(' ')); };
+  }
+  window.addEventListener('error', (e) => log('error', e.error?.stack || e.message));
+  window.addEventListener('unhandledrejection', (e) => log('error', e.reason?.stack || e.reason));
+
   // A file dropped from outside carries no path in the page: Tauri reports the
   // paths of a native drop, matched here by name.
   let dropped = [];

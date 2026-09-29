@@ -598,7 +598,7 @@ function initStatusBar() {
   const v = info.versions;
   $('#status-version').textContent = `v${info.version}`;
   tooltip($('#status-version'), () => `<div class="tip-title">Work ${esc(info.version)}</div><dl>
-      ${row('Electron', esc(v.electron))}${row('Chromium', esc(v.chrome))}${row('Node', esc(v.node))}
+      ${row('Tauri', esc(v.tauri))}${row('WebView', esc(v.webview))}
       ${row('Sistema', `${esc(OS_NAMES[info.platform] || info.platform)} ${esc(info.arch)}`)}</dl>`);
   refreshStats();
   setInterval(refreshStats, 3000);

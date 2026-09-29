@@ -11,7 +11,7 @@ Dettagli e criteri di accettazione in `tasks/plan.md`.
 - [x] T6: Run configs
 - [ ] Checkpoint B: terminali, git, albero e Run alla pari
 - [ ] T7: Agenti
-- [ ] T8: Finestra e sistema
+- [x] T8: Finestra e sistema
 - [ ] Checkpoint C: parità completa, revisione con l'utente
 - [ ] T9: Via Electron
 - [ ] T10: Installer

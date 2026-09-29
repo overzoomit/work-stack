@@ -1,10 +1,12 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
+mod app;
 mod fsops;
 mod pty;
 mod runconfigs;
 mod store;
+mod sysstats;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State};
@@ -20,48 +22,35 @@ fn project_paths(state: &Value) -> Vec<String> {
     state["projects"].as_array().into_iter().flatten().filter_map(|p| p["path"].as_str().map(String::from)).collect()
 }
 
+// ponytail: a closed project stays previewable (asset protocol) until restart;
+// forbid_directory is permanent, so a rebuilt scope would be needed to drop it.
+fn allow_projects(app: &tauri::AppHandle, state: &Value) {
+    let paths = project_paths(state);
+    for p in &paths {
+        let _ = app.asset_protocol_scope().allow_directory(p, true);
+    }
+    app.state::<fsops::Roots>().set(&paths);
+}
+
 #[tauri::command]
 fn projects_load(s: State<AppState>) -> Value {
     s.state.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn projects_save(s: State<AppState>, roots: State<fsops::Roots>, next: Value) -> Result<(), String> {
+fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Result<(), String> {
     let mut state = s.state.lock().unwrap();
     store::merge(&mut state, next);
-    roots.set(&project_paths(&state));
+    allow_projects(&app, &state);
     store::save(&s.file, &state).map_err(|e| e.to_string())
-}
-
-// ── App ──────────────────────────────────────────────────────
-// Platform and arch named like Node's process.platform / process.arch,
-// which the renderer already knows.
-#[tauri::command]
-fn app_info(app: tauri::AppHandle) -> Value {
-    let home = app.path().home_dir().unwrap_or_default();
-    let cwd = std::env::var("WORK_CWD").map(PathBuf::from).or_else(|_| std::env::current_dir()).unwrap_or_else(|_| home.clone());
-    let platform = match std::env::consts::OS {
-        "macos" => "darwin",
-        os => os,
-    };
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        "x86_64" => "x64",
-        a => a,
-    };
-    json!({
-        "home": home,
-        "cwd": cwd,
-        "platform": platform,
-        "arch": arch,
-        "version": app.package_info().version.to_string(),
-        "versions": { "tauri": tauri::VERSION, "webview": tauri::webview_version().unwrap_or_default() },
-    })
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(std::sync::Mutex::new(sysinfo::System::new()))
         .manage(fsops::Roots::default())
         .setup(|app| {
             // Debug/tests: WORK_USER_DATA keeps state separate from the real profile.
@@ -71,15 +60,24 @@ fn main() {
             };
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
-            app.state::<fsops::Roots>().set(&project_paths(&state));
+            allow_projects(app.handle(), &state);
             app.manage(AppState { state: Mutex::new(state), file });
             app.manage(pty::PtyState::new());
+            #[cfg(target_os = "macos")]
+            app.set_menu(app::mac_menu(app.handle())?)?;
+            app::create_window(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             projects_load,
             projects_save,
-            app_info,
+            app::app_info,
+            app::app_stats,
+            app::app_pick_folder,
+            app::app_open_external,
+            app::app_copy,
+            app::app_paste,
+            app::debug_log,
             pty::pty_subscribe,
             pty::pty_create,
             pty::pty_write,

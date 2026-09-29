@@ -12,6 +12,10 @@ let current = null; // { path, kind, text (null for binary images), onDiff }
 let zoom = null; // controls of the image on screen, if any
 
 const fileUrl = (p) => `file://${p.split('/').map(encodeURIComponent).join('/')}`;
+// What the page loads a local file from: Tauri serves them through its asset
+// protocol (file: URLs don't load there). The leading "/" is encoded so that
+// relative paths, "../" included, resolve like in a folder.
+const srcUrl = (p) => (globalThis.__TAURI__ ? `asset://localhost/%2F${p.slice(1).split('/').map(encodeURIComponent).join('/')}` : fileUrl(p));
 
 function kindOf(path) {
   const e = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
@@ -107,9 +111,10 @@ function markdownHtml(text, path) {
   box.innerHTML = html;
   // Resolve relative images/links against the file's folder.
   const base = `${fileUrl(dirname(path))}/`;
+  const srcBase = `${srcUrl(dirname(path))}/`;
   for (const img of box.querySelectorAll('img[src]')) {
     const src = img.getAttribute('src');
-    if (!/^(https?:|data:|file:)/.test(src)) img.src = new URL(src, base).href;
+    if (!/^(https?:|data:|file:)/.test(src)) img.src = new URL(src, srcBase).href;
   }
   for (const a of box.querySelectorAll('a[href]')) {
     const target = linkTarget(a.getAttribute('href'), base);
@@ -148,13 +153,13 @@ function draw() {
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
   else if (kind === 'image') {
     // Timestamp so an image edited since the last preview isn't served from cache.
-    body.innerHTML = `<div class="pv-image"><img src="${esc(fileUrl(path))}?${Date.now()}" alt="${esc(path)}" draggable="false"></div>`;
+    body.innerHTML = `<div class="pv-image"><img src="${esc(srcUrl(path))}?${Date.now()}" alt="${esc(path)}" draggable="false"></div>`;
     const box = body.querySelector('.pv-image');
     zoom = zoomable(box, box.querySelector('img'), zoomLabel);
   } else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.
     // No allow-modals: a page's alert() would block Work's whole window.
-    body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms" src="${esc(fileUrl(path))}"></iframe>`;
+    body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms" src="${esc(srcUrl(path))}"></iframe>`;
   }
 }
 
