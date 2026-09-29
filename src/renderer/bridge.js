@@ -1,7 +1,6 @@
-// window.work on Tauri: the API the Electron preload exposes, over Tauri's
-// IPC. Positional arguments become the named ones each Rust command takes.
+// window.work: the backend's API over Tauri's IPC. Positional arguments
+// become the named ones each Rust command takes.
 (() => {
-  if (window.work || !window.__TAURI__) return; // Electron: the preload set it
   const { invoke, Channel } = window.__TAURI__.core;
   const { listen: on } = window.__TAURI__.event;
 
@@ -30,7 +29,7 @@
     return () => set.delete(cb);
   };
 
-  // Errors and warnings go to the terminal that started Work, as in Electron.
+  // Errors and warnings go to the terminal that started Work.
   const log = (level, msg) => invoke('debug_log', { level, msg: String(msg) }).catch(() => {});
   for (const level of ['error', 'warn']) {
     const orig = console[level];

@@ -6,11 +6,15 @@ Terminali, git e agenti AI in un'unica dashboard desktop (Linux e macOS).
 
 ```bash
 npm install
-npm start                                  # apre nella cartella corrente
-WORK_CWD=~/progetti/mio-repo npm start     # apre direttamente su un repository
+npm run dev                                  # apre nella cartella corrente
+WORK_CWD=~/progetti/mio-repo npm run dev     # apre direttamente su un repository
+npm run build                                # installer in src-tauri/target/release/bundle/
 ```
 
-Requisiti: Node 20+, `git`, `python3` (usato per la PTY, presente di serie su Linux e macOS).
+Requisiti per compilare: Node 20+, Rust stable ([rustup](https://rustup.rs)), `git`. Su Linux servono anche
+webkit2gtk-4.1 e le librerie di sviluppo di Tauri (Ubuntu 22.04 o più recente):
+`sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
+L'app installata ha bisogno solo di `git`.
 
 ## Cosa fa
 
@@ -63,9 +67,9 @@ Requisiti: Node 20+, `git`, `python3` (usato per la PTY, presente di serie su Li
 npm test
 ```
 
-Usa il test runner integrato di Node (nessuna dipendenza). Copre la logica senza interfaccia:
-diff e allineamento delle righe, layout del graph, letture git (su repository temporanei reali),
-protezione dei percorsi del Project tree (symlink compresi), watcher delle sessioni agenti, PTY e
+Due parti: il test runner integrato di Node per l'interfaccia (diff e allineamento delle righe, layout del
+graph, albero, pannelli) e `cargo test` per il backend in Rust: letture e azioni git (su repository temporanei
+reali), protezione dei percorsi del Project tree (symlink compresi), watcher delle sessioni agenti, PTY e
 rilevamento dei comandi Run. I test marcati "regressione" falliscono sul codice precedente alle
 rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'app.
 
@@ -94,15 +98,18 @@ rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'ap
 ## Struttura
 
 ```
-src/main/        processo principale (Electron)
-  pty-helper.py  ponte PTY in Python (niente moduli nativi da compilare)
-  pty.js         gestione delle sessioni terminale
-  git.js         operazioni git tramite la CLI
-  agents.js      watcher delle sessioni Claude Code
-  fsops.js       operazioni sui file, limitate alle cartelle dei progetti aperti
-  store.js       progetti salvati tra un avvio e l'altro
-  runconfigs.js  rilevamento dei comandi avviabili
+src-tauri/        backend in Rust (Tauri 2)
+  src/main.rs    avvio e collegamento dei comandi
+  src/app.rs     finestra, menu, comandi di sistema (appunti, cartelle, link)
+  src/pty.rs     sessioni terminale (portable-pty), con controllo di flusso
+  src/git.rs     operazioni git tramite la CLI
+  src/gitwatch.rs  watcher della cartella .git
+  src/agents.rs  watcher delle sessioni Claude Code (claudeprocs.rs: processi aperti)
+  src/fsops.rs   operazioni sui file, limitate alle cartelle dei progetti aperti
+  src/store.rs   progetti salvati tra un avvio e l'altro
+  src/runconfigs.rs  rilevamento dei comandi avviabili
 src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
+  bridge.js      window.work sopra l'IPC di Tauri
   app.js         progetti e collegamento tra i moduli
   terminals.js   pannelli terminale per progetto
   tree.js        albero Project
@@ -118,16 +125,16 @@ src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
 
 ## Debug
 
-- `WORK_DEVTOOLS=1` apre i DevTools.
-- `WORK_SCREENSHOT=/tmp/x.png` salva uno screenshot pochi secondi dopo l'avvio.
-- `WORK_EVAL='…'` esegue uno snippet nella pagina dopo l'avvio (utile per test automatici).
+- `WORK_DEVTOOLS=1 npm run dev` apre i DevTools.
+- `WORK_EVAL='…'` esegue uno snippet nella pagina dopo l'avvio e stampa il risultato come `[eval]` (utile per
+  test automatici). Errori e warning della pagina finiscono comunque sul terminale che ha avviato Work.
 - `WORK_USER_DATA=/tmp/work-test` usa un profilo separato (i progetti salvati non vengono toccati).
 - `performance.getEntriesByName('work:ready')` dà il momento in cui l'avvio è completo.
 
 ## Prestazioni
 
 Tutto il lavoro in background è guidato da eventi, non da polling:
-- sessioni degli agenti: `fs.watch` sui file `.jsonl` (più un controllo completo ogni 60 s);
+- sessioni degli agenti: watcher (FSEvents / inotify) sui file `.jsonl` (più un controllo completo ogni 60 s);
 - stato git: watcher sulla cartella `.git` più un aggiornamento dopo l'output dei terminali (al massimo ogni 2,5 s
   per progetto, uno alla volta); uno stage aggiorna solo lo stato, commit/checkout/fetch anche rami e graph;
   la scansione dei file ignorati e il graph (solo con il suo tab aperto) girano solo negli aggiornamenti completi;
@@ -149,7 +156,6 @@ Misure su Ubuntu 20.04 (Intel UHD 630), un progetto e un terminale aperti:
 | Prima delle ottimizzazioni | ~33% (processo GPU 26%) | ~314 MB |
 | Dopo | ~0,5% | ~205–280 MB |
 
-La memoria di base è quella di Electron; per scendere molto sotto servirebbe passare a Tauri.
 
 Dopo l'audit delle prestazioni (stessa macchina):
 

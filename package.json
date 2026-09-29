@@ -3,11 +3,9 @@
   "productName": "Work",
   "version": "0.1.0",
   "description": "Work — terminali, git e agenti in un'unica dashboard",
-  "main": "src/main/main.js",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "start": "electron .",
     "test": "node --test \"test/*.test.{js,mjs}\" && cargo test --manifest-path src-tauri/Cargo.toml",
     "postinstall": "node scripts/vendor.mjs"
   },
@@ -20,7 +18,6 @@
     "marked": "^18.0.14"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.0",
-    "electron": "^44.4.5"
+    "@tauri-apps/cli": "^2.12.0"
   }
 }

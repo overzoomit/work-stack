@@ -11,7 +11,7 @@ Adattamento di `program.md` di karpathy/autoresearch. Sei un ricercatore autonom
 
 1. **Albero pulito**: `git status --porcelain` deve essere vuoto. Se non lo è, committa prima il lavoro in corso con la skill conventional-commits. **Non avviare mai il loop con modifiche non committate**, perché il loop usa `git reset --hard`.
 2. **Tag e branch**: tag dalla data di oggi (es. `sep28`). Crea `git checkout -b autoresearch/<tag>` dal branch attuale. Il branch non deve esistere già; se esiste, aggiungi `-2`, `-3`…
-3. **Leggi i file in scope**: `README.md`, `src/renderer/diff.js`, `src/renderer/graph.js`, `src/renderer/chunks.js`, `src/main/*.js` e `test/*`.
+3. **Leggi i file in scope**: `README.md`, `src/renderer/diff.js`, `src/renderer/graph.js`, `src/renderer/chunks.js`, `src-tauri/src/*.rs` e `test/*`.
 4. **results.tsv**: aggiungi `results.tsv` e `run.log` a `.git/info/exclude`, poi crea `results.tsv` con la sola intestazione:
    `commit	type	tests	line_cov	bench_ms	status	description`
 5. **Baseline**: esegui il valutatore sul codice così com'è e registralo come `keep baseline`.
@@ -39,7 +39,7 @@ Il benchmark ha un po' di rumore. Una differenza sotto il 5% **non** conta come 
 - Installare pacchetti o aggiungere dipendenze (`npm install`, `npx` di pacchetti nuovi).
 - Rete: niente `git push`, `git fetch`, `curl`, `wget`, WebFetch/WebSearch.
 - Toccare altri branch: niente `git checkout main`, `git branch -f/-D`, `git rebase`, `git merge`, `git stash drop`, `git worktree`.
-- Avviare l'app (`npm start` / electron): è un'interfaccia grafica e non termina.
+- Avviare l'app (`npm run dev`): è un'interfaccia grafica e non termina.
 - Indebolire i test esistenti: non cancellarli, non saltarli, non ammorbidire le asserzioni per far passare una modifica.
 
 ## Regola "tieni o butta"

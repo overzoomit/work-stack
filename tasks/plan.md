@@ -65,7 +65,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
 ### Checkpoint C — parità completa, revisione con l'utente
 
 ### Fase 3 — Prodotto
-- [ ] **T9: Via Electron.** Rimuovi `src/main/`, `electron`, i test JS del main già portati; aggiorna README
+- [x] **T9: Via Electron.** Rimuovi `src/main/`, `electron`, i test JS del main già portati; aggiorna README
   (avvio, requisiti, struttura, debug) e `evaluate.sh` se serve.
   - Accetta: `npm test` e `cargo test` verdi; nessun riferimento a Electron nel codice. Dipende da: T2–T8.
 - [ ] **T10: Installer.** `npm run build` produce `.dmg` (macOS) e `.deb`/`.AppImage` (Linux, da compilare

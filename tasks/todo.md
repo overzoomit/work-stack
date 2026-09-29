@@ -13,7 +13,7 @@ Dettagli e criteri di accettazione in `tasks/plan.md`.
 - [x] T7: Agenti
 - [x] T8: Finestra e sistema
 - [ ] Checkpoint C: parità completa, revisione con l'utente
-- [ ] T9: Via Electron
+- [x] T9: Via Electron
 - [ ] T10: Installer
 - [ ] T11: Misure
 - [ ] Checkpoint finale: pronto per la release
