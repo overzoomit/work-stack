@@ -1,8 +1,8 @@
 // File preview sheet: source with line numbers, plus rendered view for
 // Markdown (sanitized), HTML (sandboxed iframe loading the real file,
 // so relative CSS/images/scripts resolve) and images.
-import { marked } from '../../node_modules/marked/lib/marked.esm.js';
-import DOMPurify from '../../node_modules/dompurify/dist/purify.es.mjs';
+import { marked } from './vendor/marked.esm.js';
+import DOMPurify from './vendor/purify.es.mjs';
 import { $, $$, esc, dirname, leave, toastError } from './ui.js';
 import { insertChunked, resetChunks } from './chunks.js';
 

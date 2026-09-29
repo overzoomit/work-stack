@@ -2,13 +2,13 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' file: data: https:; frame-src file:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' file: data: https:; frame-src file:">
   <title>Work</title>
-  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="vendor/xterm.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar" data-tauri-drag-region>
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
         <defs>
@@ -31,7 +31,7 @@
     </button>
     <nav class="project-tabs" id="project-tabs"></nav>
     <button class="btn btn-ghost" id="new-project" title="Apri un altro progetto (Ctrl+Shift+O)">＋ Nuovo</button>
-    <div class="spacer"></div>
+    <div class="spacer" data-tauri-drag-region></div>
     <div class="run" id="run" hidden>
       <button class="run-config" id="run-config"><span class="dot" id="run-dot"></span><span class="run-name" id="run-name"></span><span class="run-chev">⌄</span></button>
       <button class="run-btn run-start" id="run-start"></button>
@@ -245,6 +245,7 @@
 
   <div class="toasts" id="toasts"></div>
 
+  <script src="bridge.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

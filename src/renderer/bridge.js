@@ -1,0 +1,77 @@
+// window.work on Tauri: the API the Electron preload exposes, over Tauri's
+// IPC. Positional arguments become the named ones each Rust command takes.
+(() => {
+  if (window.work || !window.__TAURI__) return; // Electron: the preload set it
+  const { invoke } = window.__TAURI__.core;
+  const { listen: on } = window.__TAURI__.event;
+
+  const call = (cmd, ...names) => (...args) => invoke(cmd, Object.fromEntries(names.map((n, i) => [n, args[i]])));
+  // Fire and forget, like ipcRenderer.send: a failure has no caller to reach.
+  const send = (cmd, ...names) => (...args) => { call(cmd, ...names)(...args).catch(() => {}); };
+  const listen = (event) => (cb) => {
+    const off = on(event, (e) => cb(...e.payload));
+    return () => off.then((un) => un());
+  };
+
+  window.work = {
+    app: {
+      info: call('app_info'),
+      stats: call('app_stats'),
+      pickFolder: call('app_pick_folder'),
+      openExternal: send('app_open_external', 'url'),
+      copy: send('app_copy', 'text'),
+      paste: call('app_paste'),
+      pathForFile: () => null,
+      onFocus: listen('app:focus'),
+    },
+    projects: {
+      load: call('projects_load'),
+      save: call('projects_save', 'next'),
+    },
+    pty: {
+      create: call('pty_create', 'opts'),
+      write: send('pty_write', 'id', 'data'),
+      ack: send('pty_ack', 'id', 'chars'),
+      resize: send('pty_resize', 'id', 'cols', 'rows'),
+      kill: send('pty_kill', 'id'),
+      cwd: call('pty_cwd', 'id'),
+      onData: listen('pty:data'),
+      onExit: listen('pty:exit'),
+    },
+    git: {
+      root: call('git_root', 'cwd'),
+      status: call('git_status', 'repo', 'opts'),
+      log: call('git_log', 'repo'),
+      branches: call('git_branches', 'repo'),
+      commit: call('git_commit', 'repo', 'hash'),
+      containing: call('git_containing', 'repo', 'hash'),
+      fileDiff: call('git_file_diff', 'repo', 'spec'),
+      action: call('git_action', 'repo', 'name', 'params'),
+      watch: send('git_watch', 'repo'),
+      unwatch: send('git_unwatch', 'repo'),
+      onChanged: listen('git:changed'),
+    },
+    fs: {
+      list: call('fs_list', 'dir'),
+      read: call('fs_read', 'file'),
+      create: call('fs_create', 'parent', 'name', 'dir'),
+      rename: call('fs_rename', 'from', 'name'),
+      move: call('fs_move', 'from', 'toDir'),
+      copyIn: call('fs_copy_in', 'srcs', 'toDir'),
+      trash: call('fs_trash', 'path'),
+      openPath: call('fs_open_path', 'path'),
+      reveal: call('fs_reveal', 'path'),
+    },
+    run: {
+      detect: call('run_detect', 'dir'),
+    },
+    agents: {
+      list: call('agents_list'),
+      events: call('agents_events', 'id'),
+      stop: call('agents_stop', 'id'),
+      hasHistory: call('agents_has_history', 'dir'),
+      available: call('agents_available', 'commands'),
+      onUpdate: listen('agents:update'),
+    },
+  };
+})();

@@ -1,8 +1,8 @@
 // Terminal panes. Each project owns its panes; only the active project's
 // panes are laid out, the others keep running in the background.
-import { Terminal } from '../../node_modules/@xterm/xterm/lib/xterm.mjs';
-import { FitAddon } from '../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs';
-import { WebLinksAddon } from '../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs';
+import { Terminal } from './vendor/xterm.mjs';
+import { FitAddon } from './vendor/addon-fit.mjs';
+import { WebLinksAddon } from './vendor/addon-web-links.mjs';
 import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';

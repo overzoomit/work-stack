@@ -2,3 +2,6 @@ node_modules/
 dist/
 __pycache__/
 *.pyc
+src/renderer/vendor/
+src-tauri/target/
+src-tauri/gen/
