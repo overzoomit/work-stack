@@ -4,7 +4,7 @@ import { previewFile } from './preview.js';
 import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
-  terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject, flipMove,
+  terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';

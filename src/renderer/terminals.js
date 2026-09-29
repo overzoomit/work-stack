@@ -534,7 +534,3 @@ function startPaneDrag(t, e) {
   addEventListener('pointercancel', end);
   addEventListener('keydown', esc, true);
 }
-
-export function flipMove(els, mutate) {
-  flip(els, mutate);
-}
