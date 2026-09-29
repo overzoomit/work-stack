@@ -9,6 +9,7 @@ import { insertChunked, resetChunks } from './chunks.js';
 const { work } = window;
 
 let current = null; // { path, kind, text (null for binary images), onDiff }
+let zoom = null; // controls of the image on screen, if any
 
 const fileUrl = (p) => `file://${p.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -34,6 +35,61 @@ function setView(kind, v) {
   } catch {
     // no storage: remember for this session only
   }
+}
+
+// Image zoom: fits the sheet by default. Click toggles actual size, Ctrl/⌘ +
+// wheel or a trackpad pinch zooms around the pointer, drag pans, + − 0 keys.
+function zoomable(box, img, label) {
+  let z = null; // null: fit the sheet
+  const fit = () => Math.min(1, (box.clientWidth - 48) / img.naturalWidth, (box.clientHeight - 48) / img.naturalHeight);
+  const scale = () => z ?? fit();
+  const show = () => { label.textContent = img.naturalWidth ? `${Math.round(scale() * 100)}%` : ''; };
+  // Zooms to `next` (at most 16×; at or below "fit" it fits again), keeping the
+  // image point under (x, y) still, so the image grows out of the pointer.
+  const set = (next, x, y) => {
+    if (!img.naturalWidth) return;
+    const b = box.getBoundingClientRect();
+    const r = img.getBoundingClientRect();
+    x ??= b.left + box.clientWidth / 2;
+    y ??= b.top + box.clientHeight / 2;
+    const fx = (x - r.left) / r.width;
+    const fy = (y - r.top) / r.height;
+    z = next <= fit() * 1.001 ? null : Math.min(next, 16);
+    box.classList.toggle('zoomed', z != null);
+    img.style.width = z == null ? '' : `${img.naturalWidth * z}px`;
+    box.scrollLeft = img.offsetLeft + fx * img.offsetWidth - (x - b.left);
+    box.scrollTop = img.offsetTop + fy * img.offsetHeight - (y - b.top);
+    show();
+  };
+  // Fit ↔ actual size (2× when the image already fits at 100%).
+  const toggle = (x, y) => set(z == null ? (fit() < 1 ? 1 : 2) : 0, x, y);
+
+  img.onload = show;
+  box.onwheel = (e) => {
+    if (!e.ctrlKey && !e.metaKey) return; // a plain wheel scrolls
+    e.preventDefault();
+    set(scale() * Math.exp(-Math.max(-50, Math.min(50, e.deltaY)) * 0.005), e.clientX, e.clientY);
+  };
+  // ponytail: pan stops dead on release, add momentum if it feels stiff.
+  img.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    const start = { x: e.clientX, y: e.clientY, left: box.scrollLeft, top: box.scrollTop };
+    let panned = false;
+    img.setPointerCapture(e.pointerId);
+    img.onpointermove = (m) => {
+      panned ||= Math.hypot(m.clientX - start.x, m.clientY - start.y) > 4;
+      if (!panned) return;
+      box.classList.add('panning');
+      box.scrollLeft = start.left - (m.clientX - start.x);
+      box.scrollTop = start.top - (m.clientY - start.y);
+    };
+    img.onpointerup = img.onpointercancel = (u) => {
+      img.onpointermove = img.onpointerup = img.onpointercancel = null;
+      box.classList.remove('panning');
+      if (!panned && u.type === 'pointerup') toggle(u.clientX, u.clientY);
+    };
+  };
+  return { by: (k) => set(scale() * k), fit: () => set(0), toggle: () => toggle() };
 }
 
 // Up to 1 MB of text: inserted in blocks so large files open without freezing.
@@ -85,11 +141,16 @@ function draw() {
   body.classList.toggle('rendered', view === 'rendered');
 
   resetChunks(body);
+  zoom = null;
+  const zoomLabel = $('#pv-zoom');
+  if (zoomLabel) zoomLabel.hidden = view !== 'rendered';
   if (view === 'source') drawSource(body, text);
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
   else if (kind === 'image') {
     // Timestamp so an image edited since the last preview isn't served from cache.
-    body.innerHTML = `<div class="pv-image"><img src="${esc(fileUrl(path))}?${Date.now()}" alt="${esc(path)}"></div>`;
+    body.innerHTML = `<div class="pv-image"><img src="${esc(fileUrl(path))}?${Date.now()}" alt="${esc(path)}" draggable="false"></div>`;
+    const box = body.querySelector('.pv-image');
+    zoom = zoomable(box, box.querySelector('img'), zoomLabel);
   } else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.
     // No allow-modals: a page's alert() would block Work's whole window.
@@ -117,7 +178,14 @@ export async function previewFile(path, { onDiff } = {}) {
     b.textContent = label;
     b.onclick = run;
     actions.appendChild(b);
+    return b;
   };
+  if (image) {
+    const b = add('', () => zoom?.toggle());
+    b.id = 'pv-zoom';
+    b.classList.add('pv-zoom');
+    b.title = 'Adatta ↔ 100% · Ctrl/⌘ + rotella o pinch per lo zoom · + − 0';
+  }
   if (onDiff) add('Mostra differenze', () => closeViewer(onDiff));
   add('Apri con app di sistema', () => work.fs.openPath(path));
 
@@ -136,6 +204,7 @@ export function closeViewer(then) {
     v.hidden = true;
     $('#viewer-body').innerHTML = ''; // unload iframes
     current = null;
+    zoom = null;
     if (typeof then === 'function') then();
   });
 }
@@ -156,5 +225,11 @@ $('#viewer-body').addEventListener('click', (e) => {
   else previewFile(a.dataset.local.split('#')[0]);
 });
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#viewer').hidden) closeViewer();
+  if ($('#viewer').hidden) return;
+  if (e.key === 'Escape') return closeViewer();
+  const act = zoom && { '+': () => zoom.by(1.25), '=': () => zoom.by(1.25), '-': () => zoom.by(0.8), 0: () => zoom.fit() }[e.key];
+  if (act) {
+    e.preventDefault();
+    act();
+  }
 });
