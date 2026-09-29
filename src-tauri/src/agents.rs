@@ -540,6 +540,12 @@ impl Shared {
     }
 }
 
+// Reads (inotify's IN_OPEN) are ignored: the worker's own read_dir/read_file
+// would otherwise wake it to read again, in an endless loop at 100% CPU.
+fn wakes_worker(r: &notify::Result<notify::Event>) -> bool {
+    !r.as_ref().is_ok_and(|ev| matches!(ev.kind, notify::EventKind::Access(_)))
+}
+
 enum Msg {
     Fs(notify::Result<notify::Event>),
     Stop,
@@ -714,7 +720,9 @@ impl AgentWatcher {
         let (tx, rx) = channel();
         let events = tx.clone();
         let fsw = notify::recommended_watcher(move |r| {
-            let _ = events.send(Msg::Fs(r));
+            if wakes_worker(&r) {
+                let _ = events.send(Msg::Fs(r));
+            }
         });
         let mut w = Worker {
             root: real(&self.shared.projects),
@@ -1095,6 +1103,26 @@ mod tests {
         fs::write(&s.file, user("nuovo inizio")).unwrap(); // shorter than before: rewritten from scratch
         s.read().unwrap();
         assert_eq!(texts(&s), ["primo", "nuovo inizio"]);
+    }
+
+    #[test]
+    fn reading_a_watched_folder_does_not_wake_the_worker_regression() {
+        let root = tempfile::tempdir().unwrap();
+        let file = project(root.path(), "-proj-read", UUID, &user("inizio"));
+        let (tx, rx) = channel();
+        let mut fsw = notify::recommended_watcher(move |r| {
+            if wakes_worker(&r) {
+                let _ = tx.send(());
+            }
+        })
+        .unwrap();
+        fsw.watch(root.path(), RecursiveMode::NonRecursive).unwrap();
+        fsw.watch(file.parent().unwrap(), RecursiveMode::NonRecursive).unwrap();
+        let _ = fs::read_dir(root.path()).unwrap().count(); // what watch_dirs and scan do
+        let _ = fs::read(&file).unwrap(); // what flush does
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "our own reads must not loop back");
+        append(&file, user("nuova").as_bytes());
+        assert!(rx.recv_timeout(Duration::from_millis(500)).is_ok(), "writes still do");
     }
 
     #[test]
