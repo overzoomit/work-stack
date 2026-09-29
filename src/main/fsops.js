@@ -93,6 +93,7 @@ const MAX_PREVIEW = 1024 * 1024;
 async function read(file) {
   const abs = await guard(file, { follow: true });
   const st = await fs.stat(abs);
+  if (st.isDirectory()) throw new Error(`${path.basename(abs)} è una cartella: aprila dal tab Project.`);
   if (st.size > MAX_PREVIEW) return { tooBig: true, size: st.size };
   const buf = await fs.readFile(abs);
   if (buf.subarray(0, 8000).includes(0)) return { binary: true, size: st.size };

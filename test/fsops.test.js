@@ -158,3 +158,7 @@ test('rifiuta ".git" come nome: sarebbe nascosto nell\'albero e romperebbe git i
   await assert.rejects(fsops.rename(path.join(project, 'src', 'a.txt'), '.git'), /Nome non valido/);
   assert.ok(!fs.existsSync(path.join(project, 'src', '.git')));
 });
+
+test('leggere una cartella (un link [docs](docs/) nell\'anteprima) dà un messaggio chiaro invece di EISDIR (regressione)', async () => {
+  await assert.rejects(fsops.read(path.join(project, 'src')), (e) => /cartella/i.test(e.message) && !/EISDIR/.test(e.message));
+});
