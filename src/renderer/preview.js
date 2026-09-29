@@ -55,14 +55,22 @@ function markdownHtml(text, path) {
     if (!/^(https?:|data:|file:)/.test(src)) img.src = new URL(src, base).href;
   }
   for (const a of box.querySelectorAll('a[href]')) {
-    const href = a.getAttribute('href');
-    if (href.startsWith('#')) continue;
-    if (/^https?:/.test(href)) a.dataset.external = href;
-    else a.dataset.local = decodeURIComponent(new URL(href, base).pathname);
+    const target = linkTarget(a.getAttribute('href'), base);
+    if (target.anchor) continue;
+    if (target.external) a.dataset.external = target.external;
+    else a.dataset.local = target.local;
     a.removeAttribute('href');
     a.tabIndex = 0;
   }
   return box.outerHTML;
+}
+
+// Where a Markdown link goes: web and mail links open outside Work, relative
+// (or file:) links open that file in the preview, anchors stay in the page.
+export function linkTarget(href, base) {
+  if (href.startsWith('#')) return { anchor: true };
+  if (/^[a-z][a-z\d+.-]*:/i.test(href) && !/^file:/i.test(href)) return { external: href };
+  return { local: decodeURIComponent(new URL(href, base).pathname) };
 }
 
 function draw() {

@@ -134,8 +134,9 @@ ipcMain.handle('app:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
+// Web pages and mail links only: other schemes could launch local programs.
 ipcMain.on('app:openExternal', (_e, url) => {
-  if (/^https?:\/\//.test(url)) shell.openExternal(url);
+  if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
 });
 ipcMain.on('app:copy', (_e, text) => clipboard.writeText(String(text)));
 ipcMain.handle('app:paste', () => clipboard.readText());
