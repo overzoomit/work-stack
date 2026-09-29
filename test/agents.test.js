@@ -11,7 +11,7 @@ process.env.WORK_CLAUDE_PROJECTS = PROJECTS; // read at require time
 // No sessions folder: whether a process is open stays unknown, so the real
 // ~/.claude/sessions of whoever runs the tests never leaks in.
 process.env.WORK_CLAUDE_SESSIONS = path.join(PROJECTS, 'no-sessions');
-const { AgentWatcher, Session, SESSION_FILE } = require('../src/main/agents');
+const { AgentWatcher, Session, SESSION_FILE, hasHistory } = require('../src/main/agents');
 
 const UUID = '12345678-1234-1234-1234-123456789abc';
 const line = (o) => `${JSON.stringify({ timestamp: new Date().toISOString(), cwd: '/work/proj', ...o })}\n`;
@@ -342,4 +342,17 @@ test('una sessione il cui processo è chiuso non risulta più al lavoro né in a
   assert.deepEqual(s.toJSON(false).status, { state: 'idle', label: 'Chiusa' });
   assert.equal(s.toJSON(false).live, false);
   assert.equal(s.toJSON(null).status.state, 'waiting', 'unknown (older Claude Code): the transcript decides');
+});
+
+test('una cartella ha conversazioni da continuare solo se Claude Code ne ha salvate per lei', () => {
+  const dir = path.join(PROJECTS, '-home-u-my-app-v1-2');
+  fs.mkdirSync(dir, { recursive: true });
+  assert.equal(hasHistory('/home/u/my.app/v1_2'), false, 'folder without transcripts');
+  fs.writeFileSync(path.join(dir, 'note.txt'), 'x');
+  assert.equal(hasHistory('/home/u/my.app/v1_2'), false, 'only session transcripts count');
+  fs.writeFileSync(path.join(dir, `${UUID}.jsonl`), user('ciao'));
+  assert.equal(hasHistory('/home/u/my.app/v1_2'), true, 'every non-alphanumeric character becomes "-"');
+  assert.equal(hasHistory('/home/u/altro'), false);
+  assert.equal(hasHistory('relativo'), false);
+  assert.equal(hasHistory(null), false);
 });

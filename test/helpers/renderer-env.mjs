@@ -102,6 +102,7 @@ register(`data:text/javascript,${encodeURIComponent(`
 
 // What the tests observe and drive.
 export const env = {
+  history: new Set(['/p']), // folders with a past Claude Code conversation
   created: [], // pty.create options, in order
   killed: [], // pty ids killed
   input: [], // [id, data] written to ptys
@@ -142,7 +143,7 @@ globalThis.window = {
       copy: (text) => env.copied.push(text),
       paste: async () => env.clipboard,
     },
-    agents: { available: () => env.agentsReply },
+    agents: { available: () => env.agentsReply, hasHistory: async (dir) => env.history.has(dir) },
     run: { detect: async () => env.detected || [] },
   },
 };

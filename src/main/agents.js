@@ -395,4 +395,17 @@ class AgentWatcher {
 
 const stateKey = (list) => list.map((a) => `${a.status.state}:${a.status.label}:${a.live}`).join();
 
-module.exports = { AgentWatcher, Session, SESSION_FILE };
+// Whether Claude Code has a past conversation for a folder, i.e. whether
+// "claude --continue" there has something to continue. Claude Code keeps a
+// folder's transcripts in ~/.claude/projects/<path with every character
+// other than a letter or digit turned into "-">.
+function hasHistory(dir) {
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
+  try {
+    return fs.readdirSync(path.join(PROJECTS_DIR, dir.replace(/[^a-zA-Z0-9]/g, '-'))).some((f) => SESSION_FILE.test(f));
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { AgentWatcher, Session, SESSION_FILE, hasHistory };

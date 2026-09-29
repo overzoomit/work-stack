@@ -121,6 +121,18 @@ test('il flag bypass accanto al nome decide come parte ogni agente: Claude acces
   assert.equal((await clickRow('claude')).command, 'claude', 'switched off, Claude asks for confirmations again');
   assert.equal((await clickRow('claude', '[data-continue]')).command, 'claude --continue');
 
+  const html = async (project) => {
+    const q = { ...p, ...project };
+    L.initLauncher({ activeProject: () => q });
+    const pop = await open();
+    const out = pop.innerHTML;
+    press(); // close
+    L.initLauncher({ activeProject: () => p });
+    return out;
+  };
+  assert.match(await html({}), /data-continue/, 'a folder with past conversations offers Continua');
+  assert.doesNotMatch(await html({ path: '/nuovo', name: 'nuovo' }), /data-continue/, 'no past conversation: no Continua (regression: "No conversation found to continue")');
+
   const uuid = '12345678-1234-1234-1234-123456789abc';
   let t = await L.resumeClaude(p, '/p', uuid, 'sessione');
   assert.equal(created.at(-1).command, `claude --resume ${uuid}`, 'Riprendi follows the same flag');

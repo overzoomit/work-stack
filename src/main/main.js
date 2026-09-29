@@ -6,7 +6,7 @@ const git = require('./git');
 const fsops = require('./fsops');
 const store = require('./store');
 const runconfigs = require('./runconfigs');
-const { AgentWatcher } = require('./agents');
+const { AgentWatcher, hasHistory } = require('./agents');
 const claudeProcs = require('./claudeprocs');
 const { GitWatcher } = require('./gitwatch');
 const { macMenuTemplate } = require('./menu');
@@ -115,6 +115,7 @@ ipcMain.handle('run:detect', (_e, dir) => runconfigs.detect(dir));
 // ── Agents ───────────────────────────────────────────────────
 ipcMain.handle('agents:list', () => agents?.list() ?? []);
 ipcMain.handle('agents:events', (_e, id) => agents?.events(id) ?? []);
+ipcMain.handle('agents:hasHistory', (_e, dir) => hasHistory(dir));
 // Only a session id crosses IPC: the pid comes from Claude Code's own record.
 ipcMain.handle('agents:stop', async (_e, id) => {
   if (typeof id !== 'string') throw new Error('ID di sessione non valido');

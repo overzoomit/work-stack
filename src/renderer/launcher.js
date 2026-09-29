@@ -217,7 +217,10 @@ function installIn(a) {
 async function openMenu() {
   const project = getProject();
   if (!project) return;
-  if (!installed) await refreshInstalled();
+  // "Continua" only where there is a conversation to continue: otherwise
+  // claude --continue exits at once with "No conversation found to continue".
+  const [canContinue] = await Promise.all([work.agents.hasHistory(project.path), installed || refreshInstalled()]);
+  if (pop) return; // a second press while waiting: one menu is enough
   const last = lastUsed();
   const avail = AGENTS.filter((a) => installed.has(a.bin));
   const missing = AGENTS.filter((a) => !installed.has(a.bin));
@@ -231,7 +234,7 @@ async function openMenu() {
         <div class="ap-desc">${esc(a.by)} · ${esc(a.desc)}</div>
       </div>
       <div class="ap-side">
-        ${a.continueCommand ? '<button class="ap-sec" data-continue title="Continua l\'ultima sessione in questa cartella">Continua</button>' : ''}
+        ${a.continueCommand && canContinue ? '<button class="ap-sec" data-continue title="Continua l\'ultima sessione in questa cartella">Continua</button>' : ''}
         ${a.id === last ? '<span class="ap-last">Ultimo</span>' : ''}
         ${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}
       </div>
