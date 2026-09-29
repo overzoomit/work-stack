@@ -27,6 +27,7 @@ export class El {
   querySelector(s) { if (!this.parts.has(s)) this.parts.set(s, new El()); return this.parts.get(s); }
   querySelectorAll() { return []; }
   appendChild(c) { c.remove(); c.parent = this; this.children.push(c); return c; }
+  append(c) { return this.appendChild(c); }
   insertBefore(c, ref) {
     if (!ref) return this.appendChild(c);
     c.remove();
