@@ -4,9 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { detect } = require('../src/main/runconfigs');
+const { tempDir } = require('./helpers/tmp');
 
 function folder(files) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-run-'));
+  const dir = tempDir('work-run-');
   for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
   return dir;
 }

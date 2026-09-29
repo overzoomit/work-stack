@@ -13,10 +13,11 @@ Module._load = function (request, ...rest) {
   return load.call(this, request, ...rest);
 };
 const store = require('../src/main/store');
+const { tempDir } = require('./helpers/tmp');
 const file = () => path.join(dir, 'state.json');
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-store-'));
+  dir = tempDir('work-store-');
 });
 
 test('salva e rilegge lo stato', () => {

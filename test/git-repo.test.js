@@ -6,9 +6,10 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const git = require('../src/main/git');
+const { tempDir } = require('./helpers/tmp');
 
 function repo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-git-'));
+  const dir = tempDir('work-git-');
   const run = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString();
   run('init', '-q');
   run('symbolic-ref', 'HEAD', 'refs/heads/main');
@@ -128,7 +129,7 @@ test('branches distingue i rami locali con slash dai remoti (regressione)', asyn
   const origin = repo();
   origin.write('a.txt', '1\n');
   origin.commit('init');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-clone-'));
+  const dir = tempDir('work-clone-');
   execFileSync('git', ['clone', '-q', origin.dir, dir], { stdio: 'pipe' });
   execFileSync('git', ['branch', 'feature/x'], { cwd: dir, stdio: 'pipe' });
   execFileSync('git', ['checkout', '-q', 'feature/x'], { cwd: dir, stdio: 'pipe' });
@@ -200,7 +201,7 @@ test('root trova la cima del repository da una sottocartella e null fuori da un 
   const r = repo();
   r.write('src/deep/a.txt', '1\n');
   assert.equal(await git.root(path.join(r.dir, 'src', 'deep')), fs.realpathSync(r.dir));
-  assert.equal(await git.root(fs.mkdtempSync(path.join(os.tmpdir(), 'work-norepo-'))), null);
+  assert.equal(await git.root(tempDir('work-norepo-')), null);
 });
 
 test('containing elenca solo i rami che contengono il commit', async () => {
@@ -265,7 +266,7 @@ test('togliere un file dallo stage funziona anche in un repository senza commit 
 });
 
 test('push funziona anche se il remote non si chiama origin (regressione)', async () => {
-  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'work-bare-'));
+  const remote = tempDir('work-bare-');
   execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'pipe' });
   const r = repo();
   r.write('a.txt', '1\n');
@@ -332,7 +333,7 @@ test('i diff ignorano un diff esterno configurato dall\'utente, come difftastic 
 const hasGpg = (() => { try { execFileSync('gpg', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
 
 test('log e dettaglio di un commit firmato si leggono anche con log.showSignature attivo (regressione)', { skip: !hasGpg && 'gpg non installato' }, async () => {
-  const gnupg = fs.mkdtempSync(path.join(os.tmpdir(), 'work-gpg-'));
+  const gnupg = tempDir('work-gpg-');
   const saved = process.env.GNUPGHOME;
   process.env.GNUPGHOME = gnupg; // isolated keyring, removed with the temp folder
   try {

@@ -22,12 +22,13 @@ Module._load = function (request, ...rest) {
   return load.call(this, request, ...rest);
 };
 const fsops = require('../src/main/fsops');
+const { tempDir } = require('./helpers/tmp');
 
 let project;
 let outside;
 
 beforeEach(() => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'work-fs-'));
+  const base = tempDir('work-fs-');
   project = path.join(base, 'project');
   outside = path.join(base, 'outside');
   fs.mkdirSync(path.join(project, 'src'), { recursive: true });

@@ -4,8 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { tempDir } = require('./helpers/tmp');
 
-const PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'work-agents-'));
+const PROJECTS = tempDir('work-agents-');
 process.env.WORK_CLAUDE_PROJECTS = PROJECTS; // read at require time
 const { AgentWatcher, Session, SESSION_FILE } = require('../src/main/agents');
 
@@ -16,7 +17,7 @@ const toolUse = (name, input) => line({ type: 'assistant', message: { role: 'ass
 const reply = (text) => line({ type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] } });
 
 function transcript(name, ...lines) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-session-'));
+  const dir = tempDir('work-session-');
   const file = path.join(dir, name);
   fs.writeFileSync(file, lines.join(''));
   return file;

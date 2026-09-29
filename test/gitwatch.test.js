@@ -6,9 +6,10 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { GitWatcher } = require('../src/main/gitwatch');
+const { tempDir } = require('./helpers/tmp');
 
 function repo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-watch-'));
+  const dir = tempDir('work-watch-');
   const run = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
   run('init', '-q');
   run('config', 'user.email', 't@example.com');
@@ -51,7 +52,7 @@ test('un nuovo ramo viene segnalato come "full"', async () => {
 
 test('anche in un git worktree (dove .git è un file) uno stage e un commit vengono segnalati (regressione)', async () => {
   const r = repo();
-  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'work-wt-'));
+  const wt = tempDir('work-wt-');
   fs.rmdirSync(wt);
   r.run('worktree', 'add', '-q', '-b', 'agente', wt);
   const run = (...args) => execFileSync('git', args, { cwd: wt, stdio: 'pipe' });
@@ -61,12 +62,12 @@ test('anche in un git worktree (dove .git è un file) uno stage e un commit veng
 });
 
 test('un file .git illeggibile o anomalo non fa fallire il watcher', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-badgit-'));
+  const dir = tempDir('work-badgit-');
   fs.writeFileSync(path.join(dir, '.git'), 'non è un puntatore gitdir\n');
   const kinds = [];
   const w = new GitWatcher((_repo, kind) => kinds.push(kind));
   assert.doesNotThrow(() => w.watch(dir));
-  assert.doesNotThrow(() => w.watch(fs.mkdtempSync(path.join(os.tmpdir(), 'work-nogit-'))));
+  assert.doesNotThrow(() => w.watch(tempDir('work-nogit-')));
   w.stop();
   assert.deepEqual(kinds, []);
 });
