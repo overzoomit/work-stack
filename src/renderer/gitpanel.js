@@ -61,6 +61,8 @@ export function initGit({ statusChanged }) {
 }
 
 export async function showGit(project) {
+  // Amend is per commit, never carried over to another project.
+  if (project !== active) $('#amend').checked = false;
   active = project;
   $('#commit-msg').value = project?.draft || '';
   const isRepo = !!project?.root;

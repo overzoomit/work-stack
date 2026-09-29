@@ -220,3 +220,17 @@ test('spuntando Amend con il messaggio vuoto si precompila il messaggio dell\'ul
   await $('#amend').onchange();
   assert.equal($('#commit-msg').value, 'già scritto', 'a message being written is never replaced');
 });
+
+test('cambiando progetto la spunta Amend si toglie: non si modifica per sbaglio l\'ultimo commit di un altro progetto (regressione)', async () => {
+  statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [{ file: 'a.js', code: 'M' }], unstaged: [], ignored: [] };
+  const a = { path: '/pa', root: '/pa' };
+  const b = { path: '/pb', root: '/pb' };
+  await showGit(a);
+  $('#amend').checked = true;
+  await showGit(b);
+  assert.equal($('#amend').checked, false);
+  $('#commit-msg').value = 'feat: nuovo';
+  calls.length = 0;
+  await $('#commit-btn').onclick();
+  assert.deepEqual(calls.at(-1), ['commit', { message: 'feat: nuovo', amend: false }]);
+});
