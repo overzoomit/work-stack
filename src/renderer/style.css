@@ -760,10 +760,24 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .ap-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: -0.012em; }
 .ap-desc { margin-top: 2px; font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.003em; }
 .ap-desc.mono { font: 11px var(--mono); color: var(--muted); }
-.ap-chip {
-  font: 600 9.5px var(--sans); letter-spacing: .03em; text-transform: uppercase; color: var(--orange);
-  background: rgba(255, 159, 10, .13); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, .3); padding: 2px 6px; border-radius: 5px;
+.ap-flag {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 6px; border: 0; border-radius: 10px;
+  font: 600 10.5px var(--sans); letter-spacing: .01em; color: var(--muted);
+  background: rgba(255, 255, 255, .05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
+  transition: color var(--t-press) ease-out, background-color var(--t-press) ease-out, box-shadow var(--t-press) ease-out, transform var(--t-press) ease-out;
 }
+/* The knob: an empty ring when off, a filled dot when on. */
+.ap-flag i {
+  width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor;
+  transition: background-color var(--t-press) ease-out, box-shadow var(--t-press) ease-out, transform 200ms var(--ease-out);
+}
+.ap-flag:hover { color: var(--text-2); background: rgba(255, 255, 255, .09); }
+.ap-flag.on { color: var(--orange); background: rgba(255, 159, 10, .14); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, .38); }
+.ap-flag.on i { background: currentColor; box-shadow: 0 0 6px rgba(255, 159, 10, .6); transform: scale(1.1); }
+.ap-flag:active { transform: scale(.92); }
+.ap-flag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Pressing the flag must not look like pressing (and launching) the row. */
+.ap-row:has(.ap-flag:active) { transform: none; background: rgba(255, 255, 255, .075); }
 .ap-side { display: flex; align-items: center; gap: 6px; flex: none; }
 .ap-side kbd, .ap-foot kbd {
   font: 500 10.5px var(--sans); color: var(--text-2); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 5px;
@@ -802,6 +816,8 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
   .agent-pop, .agent-pop.closing { animation: fade-in 120ms linear; }
   .agent-pop.closing { opacity: 0; }
   .ap-row:not(.missing):active { transform: none; }
+  .ap-flag, .ap-flag i { transition: color 120ms linear, background-color 120ms linear; }
+  .ap-flag:active, .ap-flag.on i { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .agent-pop { background: var(--bg-solid-2); backdrop-filter: none; }
@@ -821,7 +837,6 @@ body.sidebar-hidden #toggle-sidebar, body.panel-hidden #toggle-panel { display: 
 .sidebar-toggle .sb-fill { opacity: 0; }
 
 .ap-name { white-space: nowrap; }
-.ap-desc .ap-chip { margin-right: 6px; vertical-align: 1px; }
 
 /* ── Terminal appearance ── */
 .pane { transition: box-shadow var(--t-ui) var(--ease-out), background-color 220ms var(--ease-out); }

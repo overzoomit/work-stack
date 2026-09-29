@@ -6,22 +6,51 @@ const { work } = window;
 
 let installed = null; // Set of available binaries
 
-// Claude Code always starts with permission checks bypassed (user preference).
-export const CLAUDE_BYPASS = '--dangerously-skip-permissions';
-const BYPASS_BADGE = { text: 'bypass permessi', title: `Avviato con ${CLAUDE_BYPASS}: nessuna richiesta di conferma` };
+// Each agent that has a "skip every confirmation" switch can be started with
+// it: a flag next to its name in the menu, remembered per agent. Claude Code
+// starts with it on (user preference); the others start off.
+const BYPASS_DEFAULT = { claude: true };
 
 export const AGENTS = [
-  { id: 'claude', name: 'Claude Code', by: 'Anthropic', desc: 'Agente di coding nel terminale', mono: 'C', tint: ['#e08a67', '#c2573a'], bin: 'claude', command: `claude ${CLAUDE_BYPASS}`, badge: BYPASS_BADGE, install: 'curl -fsSL https://claude.ai/install.sh | bash', continueCommand: `claude --continue ${CLAUDE_BYPASS}` },
-  { id: 'codex', name: 'Codex', by: 'OpenAI', desc: 'Agente CLI di OpenAI', mono: 'Cx', tint: ['#5b6272', '#2b2f38'], bin: 'codex', command: 'codex', install: 'npm i -g @openai/codex' },
-  { id: 'gemini', name: 'Gemini CLI', by: 'Google', desc: 'Agente open source di Google', mono: 'G', tint: ['#5b8cff', '#8a5cf6'], bin: 'gemini', command: 'gemini', install: 'npm i -g @google/gemini-cli' },
-  { id: 'copilot', name: 'Copilot CLI', by: 'GitHub', desc: 'Copilot nel terminale', mono: 'Co', tint: ['#a371f7', '#6e40c9'], bin: 'copilot', command: 'copilot', install: 'npm i -g @github/copilot' },
+  { id: 'claude', name: 'Claude Code', by: 'Anthropic', desc: 'Agente di coding nel terminale', mono: 'C', tint: ['#e08a67', '#c2573a'], bin: 'claude', command: 'claude', bypass: '--dangerously-skip-permissions', install: 'curl -fsSL https://claude.ai/install.sh | bash', continueCommand: 'claude --continue' },
+  { id: 'codex', name: 'Codex', by: 'OpenAI', desc: 'Agente CLI di OpenAI', mono: 'Cx', tint: ['#5b6272', '#2b2f38'], bin: 'codex', command: 'codex', bypass: '--dangerously-bypass-approvals-and-sandbox', install: 'npm i -g @openai/codex' },
+  { id: 'gemini', name: 'Gemini CLI', by: 'Google', desc: 'Agente open source di Google', mono: 'G', tint: ['#5b8cff', '#8a5cf6'], bin: 'gemini', command: 'gemini', bypass: '--yolo', install: 'npm i -g @google/gemini-cli' },
+  { id: 'copilot', name: 'Copilot CLI', by: 'GitHub', desc: 'Copilot nel terminale', mono: 'Co', tint: ['#a371f7', '#6e40c9'], bin: 'copilot', command: 'copilot', bypass: '--allow-all-tools', install: 'npm i -g @github/copilot' },
   { id: 'opencode', name: 'OpenCode', by: 'Open source', desc: 'Agente multi-modello', mono: 'OC', tint: ['#4fb3bf', '#2d6f86'], bin: 'opencode', command: 'opencode', install: 'npm i -g opencode-ai' },
-  { id: 'aider', name: 'Aider', by: 'Open source', desc: 'Pair programming con git', mono: 'Ai', tint: ['#4cc38a', '#23875a'], bin: 'aider', command: 'aider', install: 'pipx install aider-chat' },
-  { id: 'cursor-agent', name: 'Cursor Agent', by: 'Cursor', desc: "L'agente di Cursor da terminale", mono: 'Cu', tint: ['#6f7480', '#1c1e24'], bin: 'cursor-agent', command: 'cursor-agent', install: 'curl https://cursor.com/install -fsS | bash' },
-  { id: 'amp', name: 'Amp', by: 'Sourcegraph', desc: 'Agente di coding di Sourcegraph', mono: 'A', tint: ['#ff6b6b', '#c92a5a'], bin: 'amp', command: 'amp', install: 'npm i -g @sourcegraph/amp' },
-  { id: 'qwen', name: 'Qwen Code', by: 'Alibaba', desc: 'Agente basato su Qwen', mono: 'Q', tint: ['#7c83ff', '#4b3fd6'], bin: 'qwen', command: 'qwen', install: 'npm i -g @qwen-code/qwen-code' },
+  { id: 'aider', name: 'Aider', by: 'Open source', desc: 'Pair programming con git', mono: 'Ai', tint: ['#4cc38a', '#23875a'], bin: 'aider', command: 'aider', bypass: '--yes-always', install: 'pipx install aider-chat' },
+  { id: 'cursor-agent', name: 'Cursor Agent', by: 'Cursor', desc: "L'agente di Cursor da terminale", mono: 'Cu', tint: ['#6f7480', '#1c1e24'], bin: 'cursor-agent', command: 'cursor-agent', bypass: '--force', install: 'curl https://cursor.com/install -fsS | bash' },
+  { id: 'amp', name: 'Amp', by: 'Sourcegraph', desc: 'Agente di coding di Sourcegraph', mono: 'A', tint: ['#ff6b6b', '#c92a5a'], bin: 'amp', command: 'amp', bypass: '--dangerously-allow-all', install: 'npm i -g @sourcegraph/amp' },
+  { id: 'qwen', name: 'Qwen Code', by: 'Alibaba', desc: 'Agente basato su Qwen', mono: 'Q', tint: ['#7c83ff', '#4b3fd6'], bin: 'qwen', command: 'qwen', bypass: '--yolo', install: 'npm i -g @qwen-code/qwen-code' },
   { id: 'goose', name: 'Goose', by: 'Block', desc: 'Agente open source estendibile', mono: 'Go', tint: ['#f5b53d', '#c47a12'], bin: 'goose', command: 'goose session', install: 'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash' },
 ];
+
+let bypassState = {};
+try {
+  bypassState = JSON.parse(localStorage.getItem('work.agent.bypass') || '{}') || {};
+} catch {
+  // no storage: defaults only, kept in memory
+}
+
+export function bypassOn(a) {
+  if (!a.bypass) return false;
+  return bypassState[a.id] ?? !!BYPASS_DEFAULT[a.id];
+}
+
+export function setBypass(a, on) {
+  bypassState[a.id] = on;
+  try {
+    localStorage.setItem('work.agent.bypass', JSON.stringify(bypassState));
+  } catch {
+    // no storage: the choice lasts until Work closes
+  }
+}
+
+// The command an agent starts with, with its bypass flag when switched on.
+export function commandFor(a, base = a.command) {
+  return bypassOn(a) ? `${base} ${a.bypass}` : base;
+}
+
+const badgeFor = (a) => (bypassOn(a) ? { text: 'bypass permessi', title: `Avviato con ${a.bypass}: nessuna richiesta di conferma` } : null);
 
 let getProject = () => null;
 
@@ -77,10 +106,10 @@ export function launch(agent, project = getProject(), extra = {}) {
   if (!project) return;
   remember(agent.id);
   return openTerminal(project, {
-    command: agent.command,
+    command: commandFor(agent),
     title: agent.name,
     kind: 'agent',
-    badge: agent.badge,
+    badge: badgeFor(agent),
     ...extra,
   });
 }
@@ -98,12 +127,13 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // into a shell command, so it must be a plain UUID.
 export function resumeClaude(project, cwd, sessionId, title) {
   if (!SESSION_ID.test(sessionId)) throw new Error(`ID di sessione non valido: ${sessionId}`);
+  const claude = AGENTS[0];
   return openTerminal(project, {
     cwd,
-    command: `claude --resume ${sessionId} ${CLAUDE_BYPASS}`,
+    command: commandFor(claude, `claude --resume ${sessionId}`),
     title,
     kind: 'agent',
-    badge: BYPASS_BADGE,
+    badge: badgeFor(claude),
   });
 }
 
@@ -145,7 +175,8 @@ function onKey(e) {
     ArrowUp: () => highlight(hi - 1),
     Enter: () => list[hi]?.click(),
     Escape: () => closePop(),
-  }[e.key];
+    b: () => list[hi]?.querySelector('[data-bypass]')?.click(),
+  }[e.key.length === 1 ? e.key.toLowerCase() : e.key];
   if (act) {
     act();
   } else if (/^[1-9]$/.test(e.key) && list[Number(e.key) - 1]) {
@@ -157,6 +188,21 @@ function onKey(e) {
 
 function tile(a) {
   return `<span class="ap-tile" style="--t1:${a.tint[0]};--t2:${a.tint[1]}">${esc(a.mono)}</span>`;
+}
+
+// The flag next to an agent's name: a small toggle, orange when on.
+function flag(a) {
+  if (!a.bypass) return '';
+  const on = bypassOn(a);
+  return `<button class="ap-flag${on ? ' on' : ''}" data-bypass aria-pressed="${on}" title="${esc(flagTitle(a, on))}"><i></i>bypass</button>`;
+}
+const flagTitle = (a, on) => `${on ? 'Parte senza chiedere conferme' : 'Chiede conferma prima di agire'} (${a.bypass}) · B`;
+
+function paintFlag(el, a) {
+  const on = bypassOn(a);
+  el.classList.toggle('on', on);
+  el.setAttribute('aria-pressed', String(on));
+  el.title = flagTitle(a, on);
 }
 
 function installIn(a) {
@@ -181,8 +227,8 @@ async function openMenu() {
     <div class="ap-row" role="option" data-id="${a.id}">
       ${tile(a)}
       <div class="ap-text">
-        <div class="ap-name">${esc(a.name)}</div>
-        <div class="ap-desc">${a.badge ? '<span class="ap-chip">bypass</span>' : ''}${esc(a.by)} · ${esc(a.desc)}</div>
+        <div class="ap-name">${esc(a.name)}${flag(a)}</div>
+        <div class="ap-desc">${esc(a.by)} · ${esc(a.desc)}</div>
       </div>
       <div class="ap-side">
         ${a.continueCommand ? '<button class="ap-sec" data-continue title="Continua l\'ultima sessione in questa cartella">Continua</button>' : ''}
@@ -215,7 +261,7 @@ async function openMenu() {
         <div class="ap-missing" hidden>${missing.map(missingRow).join('')}</div>` : ''}
     </div>
     <footer class="ap-foot">
-      <span><kbd>↑</kbd><kbd>↓</kbd> scegli</span><span><kbd>↵</kbd> avvia</span><span><kbd>1</kbd>–<kbd>9</kbd> rapido</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> scegli</span><span><kbd>↵</kbd> avvia</span><span><kbd>1</kbd>–<kbd>9</kbd> rapido</span><span><kbd>B</kbd> bypass</span>
       <div class="spacer"></div>
       <button class="ap-rescan" title="Cerca di nuovo gli agenti installati">↻</button>
     </footer>`;
@@ -248,6 +294,13 @@ async function openMenu() {
     const a = AGENTS.find((x) => x.id === r.dataset.id);
     if (e.target.closest('[data-install]')) return installIn(a);
     if (r.classList.contains('missing')) return;
+    const f = e.target.closest('[data-bypass]');
+    if (f) {
+      // Flip the flag in place: the menu stays open, nothing starts.
+      setBypass(a, !bypassOn(a));
+      paintFlag(f, a);
+      return;
+    }
     closePop();
     if (e.target.closest('[data-continue]')) launch({ ...a, command: a.continueCommand });
     else launch(a);

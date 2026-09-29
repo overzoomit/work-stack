@@ -33,9 +33,12 @@ Requisiti: Node 20+, `git`, `python3` (usato per la PTY, presente di serie su Li
   output è nel tab **Run** del pannello destro ("Mostra output"); se stampa un indirizzo locale compare un chip
   per aprirlo nel browser. Il tab del progetto mostra ▶ mentre qualcosa gira.
 - **✦ Agente**: popover con gli agenti CLI installati (Claude Code, Codex, Gemini CLI, Copilot CLI, OpenCode,
-  Aider, Cursor Agent, Amp, Qwen Code, Goose); tastiera ↑↓ / Invio / 1–9. Claude Code parte sempre con
-  `--dangerously-skip-permissions` (etichetta "bypass" sul pannello) e ha l'azione "Continua". Gli agenti
-  mancanti hanno "Installa", che scrive il comando in un terminale senza eseguirlo.
+  Aider, Cursor Agent, Amp, Qwen Code, Goose); tastiera ↑↓ / Invio / 1–9. Accanto al nome, un flag
+  **bypass** (clic o tasto B) fa partire l'agente senza richieste di conferma, con l'opzione di quel CLI
+  (`--dangerously-skip-permissions` per Claude Code, `--yolo` per Gemini/Qwen, ecc.; etichetta "bypass
+  permessi" sul pannello). È ricordato per agente: acceso di default solo per Claude Code. Claude Code ha
+  anche "Continua"; "Riprendi sessione" segue lo stesso flag. Gli agenti mancanti hanno "Installa", che
+  scrive il comando in un terminale senza eseguirlo.
 - **Aspetto del terminale** (pulsante "Aa" su ogni terminale): profili nello stile di Terminal.app (Basic
   chiaro/scuro, Pro, Homebrew, Ocean, Grass, Red Sands, Silver Aerogel, Clear Dark) oltre a Work; passando
   sopra un tema lo si prova dal vivo. Dimensione del testo (anche Ctrl + / − / 0), forma e lampeggio del cursore.

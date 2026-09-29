@@ -69,30 +69,64 @@ test('"cerca di nuovo gli agenti" non riapre il menu se nel frattempo è stato c
   assert.equal(pops().length, 0, 'the menu stays closed');
 });
 
-test('Claude Code parte sempre in bypass permessi: dal menu, con Continua e con Riprendi', async () => {
+test('il flag bypass accanto al nome decide come parte ogni agente: Claude acceso di default, gli altri spenti', async () => {
   const L = await import('../src/renderer/launcher.js');
   const p = { path: '/p', name: 'p', focusedId: null, maximizedId: null };
   T.showProject(p);
   L.initLauncher({ activeProject: () => p });
   const press = () => document.querySelector('#new-agent').onpointerdown({ button: 0, stopPropagation() {} });
   const menu = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing')).at(-1);
-  const clickRow = async (id, extra = null) => {
-    env.agentsReply = Promise.resolve(['claude', 'codex']);
+  const open = async () => {
+    env.agentsReply = Promise.resolve(['claude', 'codex', 'opencode']);
     press();
     await new Promise((r) => setTimeout(r, 10));
+    return menu();
+  };
+  const click = (pop, id, target = {}) => {
     const row = { dataset: { id }, classList: { contains: () => false } };
-    menu().listeners.click[0]({ target: { closest: (sel) => (sel === '.ap-row' ? row : sel === extra ? {} : null) } });
+    pop.listeners.click[0]({ target: { closest: (sel) => (sel === '.ap-row' ? row : target[sel] ?? null) } });
+  };
+  const clickRow = async (id, extra = null) => {
+    click(await open(), id, extra ? { [extra]: {} } : {});
     await new Promise((r) => setTimeout(r, 10));
     return created.at(-1);
   };
+  // A fake flag button that records how it gets repainted.
+  const flagEl = () => {
+    const el = { cls: new Set(), attrs: {}, classList: { toggle: (c, on) => (on ? el.cls.add(c) : el.cls.delete(c)) }, setAttribute: (k, v) => { el.attrs[k] = v; } };
+    return el;
+  };
+  const toggle = async (id) => {
+    const pop = await open();
+    const before = created.length;
+    const f = flagEl();
+    click(pop, id, { '[data-bypass]': f });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(created.length, before, 'flipping the flag starts nothing');
+    assert.equal(menu(), pop, 'the menu stays open');
+    press(); // close it by hand for the next round
+    return f;
+  };
 
-  const claude = await clickRow('claude');
-  assert.equal(claude.command, 'claude --dangerously-skip-permissions');
+  assert.equal((await clickRow('claude')).command, 'claude --dangerously-skip-permissions');
   assert.equal((await clickRow('claude', '[data-continue]')).command, 'claude --continue --dangerously-skip-permissions');
-  assert.equal((await clickRow('codex')).command, 'codex', 'other agents start as they are');
+  assert.equal((await clickRow('codex')).command, 'codex', 'other agents start without it');
+  assert.equal(L.AGENTS.find((a) => a.id === 'opencode').bypass, undefined, 'no flag for agents without such an option');
+
+  const f = await toggle('codex');
+  assert.ok(f.cls.has('on') && f.attrs['aria-pressed'] === 'true', 'the flag lights up in place');
+  assert.equal((await clickRow('codex')).command, 'codex --dangerously-bypass-approvals-and-sandbox');
+
+  await toggle('claude');
+  assert.equal((await clickRow('claude')).command, 'claude', 'switched off, Claude asks for confirmations again');
+  assert.equal((await clickRow('claude', '[data-continue]')).command, 'claude --continue');
 
   const uuid = '12345678-1234-1234-1234-123456789abc';
-  const t = await L.resumeClaude(p, '/p', uuid, 'sessione');
+  let t = await L.resumeClaude(p, '/p', uuid, 'sessione');
+  assert.equal(created.at(-1).command, `claude --resume ${uuid}`, 'Riprendi follows the same flag');
+  assert.doesNotMatch(t.el.innerHTML, /bypass permessi/);
+  await toggle('claude');
+  t = await L.resumeClaude(p, '/p', uuid, 'sessione');
   assert.equal(created.at(-1).command, `claude --resume ${uuid} --dangerously-skip-permissions`);
   assert.match(t.el.innerHTML, /bypass permessi/, 'the pane shows the bypass badge');
   assert.throws(() => L.resumeClaude(p, '/p', 'x; rm -rf ~', 't'), /ID di sessione non valido/);
