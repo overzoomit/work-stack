@@ -24,6 +24,12 @@ function summarizeInput(input = {}) {
   return s.length > 2 ? s : '';
 }
 
+// First n characters without cutting an emoji (a surrogate pair) in half.
+function clip(s, n) {
+  const c = s.slice(0, n);
+  return /[\uD800-\uDBFF]$/.test(c) ? c.slice(0, -1) : c;
+}
+
 function textOf(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -116,7 +122,7 @@ class Session {
     // Title priority: explicit agent name > AI title > first prompt
     if (e.type === 'agent-name' && e.agentName) this.agentName = e.agentName;
     if (e.type === 'ai-title' && e.aiTitle) this.aiTitle = e.aiTitle;
-    if (e.type === 'last-prompt' && e.lastPrompt && !this.title) this.title = e.lastPrompt.slice(0, 80);
+    if (e.type === 'last-prompt' && e.lastPrompt && !this.title) this.title = clip(e.lastPrompt, 80);
     const ts = e.timestamp ? Date.parse(e.timestamp) : Date.now();
     const msg = e.message;
     if (!msg || e.isSidechain) return;
@@ -131,14 +137,14 @@ class Session {
       if (Array.isArray(content) && content.some((c) => c.type === 'tool_result')) {
         const r = content.find((c) => c.type === 'tool_result');
         this.lastKind = 'tool-result';
-        if (r.is_error) this.push({ ts, kind: 'error', text: textOf(r.content).slice(0, 300) || 'errore tool' });
+        if (r.is_error) this.push({ ts, kind: 'error', text: clip(textOf(r.content), 300) || 'errore tool' });
         return;
       }
       const text = textOf(content).trim();
       if (!text || text.startsWith('<')) return; // system reminders, command wrappers
-      if (!this.title) this.title = text.slice(0, 80);
+      if (!this.title) this.title = clip(text, 80);
       this.lastKind = 'user';
-      this.push({ ts, kind: 'user', text: text.slice(0, 400) });
+      this.push({ ts, kind: 'user', text: clip(text, 400) });
       return;
     }
 
@@ -147,10 +153,10 @@ class Session {
       if (u) this.tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0);
       for (const c of msg.content || []) {
         if (c.type === 'text' && c.text.trim()) {
-          this.push({ ts, kind: 'text', text: c.text.trim().slice(0, 400) });
+          this.push({ ts, kind: 'text', text: clip(c.text.trim(), 400) });
         } else if (c.type === 'tool_use') {
           this.lastTool = c.name;
-          this.push({ ts, kind: 'tool', tool: c.name, text: summarizeInput(c.input).slice(0, 300) });
+          this.push({ ts, kind: 'tool', tool: c.name, text: clip(summarizeInput(c.input), 300) });
         }
       }
       if (msg.stop_reason === 'tool_use') this.lastKind = 'assistant-tool';

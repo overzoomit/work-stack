@@ -320,3 +320,12 @@ test('la modalità bypass si trova anche se è prima degli ultimi 256 KB letti d
   s.mtime = Date.now() - 60000;
   assert.deepEqual(s.status, { state: 'working', label: 'Esegue Bash' });
 });
+
+test('titoli e testi tagliati non spezzano un\'emoji a metà (regressione)', () => {
+  const prompt = `${'a'.repeat(79)}🚀 e poi altro testo`;
+  const s = new Session(transcript(`${UUID}.jsonl`, user(prompt), toolUse('Bash', { command: `${'b'.repeat(299)}✅ fine` })));
+  s.read();
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  assert.ok(!lone.test(s.toJSON().title), 'title');
+  assert.ok(!lone.test(s.events.at(-1).text), 'tool summary');
+});
