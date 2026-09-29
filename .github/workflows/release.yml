@@ -5,8 +5,17 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # Manual run on a branch: builds and tests, publishes nothing.
+  # Manual run: one platform or both; with `tag`, the installers go into
+  # that existing release, otherwise nothing is published.
   workflow_dispatch:
+    inputs:
+      os:
+        type: choice
+        options: [all, macos-latest, ubuntu-22.04]
+        default: all
+      tag:
+        description: Existing release to upload to (empty = build only)
+        default: ""
 
 permissions:
   contents: write
@@ -16,9 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest # arm64
-          - os: ubuntu-22.04
+        # macos-latest is arm64
+        os: ${{ fromJSON((inputs.os == '' || inputs.os == 'all') && '["macos-latest","ubuntu-22.04"]' || format('["{0}"]', inputs.os)) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -49,13 +57,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: npx tauri
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           releaseName: Work ${{ github.ref_name }}
           releaseBody: Installer per macOS (Apple Silicon) e Linux (x86_64). Vedi https://overzoomit.github.io/work-stack/
           releaseDraft: false
           prerelease: false
 
-      - if: github.ref_type != 'tag'
+      - if: github.ref_type != 'tag' && inputs.tag == ''
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.os }}
