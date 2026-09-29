@@ -120,6 +120,9 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
 .btn-ghost:hover { background: var(--bg-3); color: var(--text); }
 .btn-small { padding: 3px 10px; font-size: 12px; }
 .btn-danger { background: var(--red); color: #fff; border-color: transparent; font-weight: 600; }
+/* Destructive but not the main action: red text, filling only on hover/press. */
+.btn-danger-text { color: var(--red); }
+.btn-danger-text:hover { background: rgba(255, 69, 58, .12); border-color: rgba(255, 69, 58, .3); }
 
 .project-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .project-tabs::-webkit-scrollbar { display: none; }

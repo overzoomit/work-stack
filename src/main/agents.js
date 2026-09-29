@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { StringDecoder } = require('string_decoder');
 const os = require('os');
+const procs = require('./claudeprocs');
 
 const PROJECTS_DIR = process.env.WORK_CLAUDE_PROJECTS || path.join(os.homedir(), '.claude', 'projects');
 const WINDOW_MS = 24 * 3600 * 1000; // sessions touched in the last 24h
@@ -179,7 +180,12 @@ class Session {
     return { state: 'working', label: 'Sta ragionando…' };
   }
 
-  toJSON() {
+  // open: true/false when Claude Code says whether the process is running,
+  // null when it can't be known (older versions without ~/.claude/sessions).
+  toJSON(open = null) {
+    let status = this.status;
+    // A closed session is not working nor waiting, whatever its transcript says.
+    if (open === false && status.state !== 'idle') status = { state: 'idle', label: 'Chiusa' };
     return {
       id: this.id,
       cwd: this.cwd,
@@ -187,7 +193,8 @@ class Session {
       title: this.agentName || this.aiTitle || this.title || 'Sessione',
       mtime: this.mtime,
       tokens: this.tokens,
-      status: this.status,
+      status,
+      live: open === true,
       // Events stay out of the list (it goes to the UI several times a second);
       // the detail view asks for them with events(id) when eventSeq moves.
       eventSeq: this.eventSeq,
@@ -214,6 +221,7 @@ class AgentWatcher {
     this.scan();
     this.emit();
     this.watchRoot();
+    this.watchProcs();
     this.started = true;
     this.timers.push(setInterval(() => {
       this.prune();
@@ -226,9 +234,25 @@ class AgentWatcher {
   stop() {
     this.timers.forEach(clearInterval);
     clearTimeout(this.flushTimer); // a burst still being coalesced must not emit after stop
+    clearTimeout(this.procsTimer);
     this.flushTimer = null;
     for (const w of this.watchers.values()) w.close();
     this.watchers.clear();
+  }
+
+  // Claude Code adds/removes ~/.claude/sessions/<pid>.json as sessions open
+  // and close: refresh "Chiusa" and the close button without waiting a tick.
+  watchProcs() {
+    try {
+      const w = fs.watch(procs.SESSIONS_DIR, () => {
+        clearTimeout(this.procsTimer);
+        this.procsTimer = setTimeout(() => this.emitIfStatesChanged(), 300);
+      });
+      w.on('error', () => {});
+      this.watchers.set(procs.SESSIONS_DIR, w);
+    } catch {
+      // folder missing: the 10 s tick still notices
+    }
   }
 
   watchRoot() {
@@ -335,12 +359,12 @@ class AgentWatcher {
 
   emit() {
     const list = this.list();
-    this.lastStates = list.map((a) => a.status.state).join();
+    this.lastStates = stateKey(list);
     this.onUpdate(list);
   }
 
   emitIfStatesChanged() {
-    const states = this.list().map((a) => a.status.state).join();
+    const states = stateKey(this.list());
     if (states !== this.lastStates) this.emit();
   }
 
@@ -361,11 +385,14 @@ class AgentWatcher {
 
   list() {
     const cutoff = Date.now() - WINDOW_MS;
+    const open = procs.tracked() ? procs.live() : null;
     return [...this.sessions.values()]
       .filter((s) => s.events.length && s.mtime >= cutoff)
       .sort((a, b) => b.mtime - a.mtime)
-      .map((s) => s.toJSON());
+      .map((s) => s.toJSON(open ? open.has(s.id) : null));
   }
 }
+
+const stateKey = (list) => list.map((a) => `${a.status.state}:${a.status.label}:${a.live}`).join();
 
 module.exports = { AgentWatcher, Session, SESSION_FILE };

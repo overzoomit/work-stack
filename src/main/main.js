@@ -7,6 +7,7 @@ const fsops = require('./fsops');
 const store = require('./store');
 const runconfigs = require('./runconfigs');
 const { AgentWatcher } = require('./agents');
+const claudeProcs = require('./claudeprocs');
 const { GitWatcher } = require('./gitwatch');
 const { macMenuTemplate } = require('./menu');
 const { lockNavigation } = require('./guards');
@@ -114,6 +115,12 @@ ipcMain.handle('run:detect', (_e, dir) => runconfigs.detect(dir));
 // ── Agents ───────────────────────────────────────────────────
 ipcMain.handle('agents:list', () => agents?.list() ?? []);
 ipcMain.handle('agents:events', (_e, id) => agents?.events(id) ?? []);
+// Only a session id crosses IPC: the pid comes from Claude Code's own record.
+ipcMain.handle('agents:stop', async (_e, id) => {
+  if (typeof id !== 'string') throw new Error('ID di sessione non valido');
+  await claudeProcs.stop(id);
+  agents?.emit();
+});
 
 // Which agent CLIs are installed, resolved through a login shell so
 // nvm / ~/.local/bin paths are found like in a normal terminal.

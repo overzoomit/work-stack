@@ -8,6 +8,9 @@ const { tempDir } = require('./helpers/tmp');
 
 const PROJECTS = tempDir('work-agents-');
 process.env.WORK_CLAUDE_PROJECTS = PROJECTS; // read at require time
+// No sessions folder: whether a process is open stays unknown, so the real
+// ~/.claude/sessions of whoever runs the tests never leaks in.
+process.env.WORK_CLAUDE_SESSIONS = path.join(PROJECTS, 'no-sessions');
 const { AgentWatcher, Session, SESSION_FILE } = require('../src/main/agents');
 
 const UUID = '12345678-1234-1234-1234-123456789abc';
@@ -329,4 +332,14 @@ test('titoli e testi tagliati non spezzano un\'emoji a metà (regressione)', () 
   const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
   assert.ok(!lone.test(s.toJSON().title), 'title');
   assert.ok(!lone.test(s.events.at(-1).text), 'tool summary');
+});
+
+test('una sessione il cui processo è chiuso non risulta più al lavoro né in attesa', () => {
+  const s = new Session(transcript(`${UUID}.jsonl`, user('ciao'), reply('Fatto.')));
+  s.read();
+  assert.equal(s.toJSON(true).status.state, 'waiting');
+  assert.equal(s.toJSON(true).live, true);
+  assert.deepEqual(s.toJSON(false).status, { state: 'idle', label: 'Chiusa' });
+  assert.equal(s.toJSON(false).live, false);
+  assert.equal(s.toJSON(null).status.state, 'waiting', 'unknown (older Claude Code): the transcript decides');
 });

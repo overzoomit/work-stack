@@ -2,7 +2,7 @@
 // renderer environment; list rows are read back from the rendered HTML.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { El, $, tick, openMenuItems, env } from './helpers/renderer-env.mjs';
+import { El, $, tick, openMenuItems, env, answer } from './helpers/renderer-env.mjs';
 
 class ListBox extends El {
   querySelectorAll(sel) {
@@ -21,12 +21,14 @@ const baseQuery = document.querySelector;
 document.querySelector = (s) => (s === '#agent-list' ? list : baseQuery(s));
 
 let push = null;
+const stopped = [];
 const events = new Map();
 Object.assign(globalThis.window.work, {
   agents: {
     onUpdate: (fn) => { push = fn; },
     list: async () => [],
     events: async (id) => events.get(id) || [],
+    stop: async (id) => { stopped.push(id); },
   },
 });
 const { initAgents, agentStateFor } = await import('../src/renderer/agentsview.js');
@@ -117,4 +119,31 @@ test('tasto destro su una sessione: mostra attività, riprendi, terminale, copia
   assert.match($('#agent-detail').innerHTML, /Seleziona un agente/);
   assert.equal($('#agent-empty').hidden, false);
   assert.equal($('#status-agents').textContent, '');
+});
+
+test('una sessione aperta si può chiudere dal dettaglio e dal tasto destro, dopo una conferma', async () => {
+  push([agent('e5', '/home/u/app', 'working', { eventSeq: 1, live: true })]);
+  const li = list.lis.at(-1);
+  li.onpointerdown({ button: 0 });
+  await tick();
+  assert.match($('#agent-detail').innerHTML, /data-act="close">Chiudi sessione/, 'the detail offers "Chiudi sessione"');
+  const close = $('#agent-detail').querySelector('[data-act="close"]');
+  close.onclick();
+  await tick(0);
+  $('#modal-cancel').onclick(); // changed their mind
+  await tick();
+  assert.deepEqual(stopped, [], 'nothing is closed without confirming');
+
+  li.oncontextmenu({ preventDefault() {}, clientX: 1, clientY: 1 });
+  openMenuItems()['Chiudi sessione'].onclick();
+  await answer('');
+  await tick();
+  assert.deepEqual(stopped, ['e5']);
+
+  push([agent('e5', '/home/u/app', 'idle', { eventSeq: 1, live: false })]);
+  await tick();
+  assert.doesNotMatch($('#agent-detail').innerHTML, /data-act="close"/, 'a closed session has no close button');
+  assert.match($('#agent-detail').innerHTML, /sessione e5/);
+  list.lis.at(-1).oncontextmenu({ preventDefault() {}, clientX: 1, clientY: 1 });
+  assert.equal(openMenuItems()['Chiudi sessione'], undefined);
 });

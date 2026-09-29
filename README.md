@@ -26,7 +26,10 @@ Requisiti: Node 20+, `git`, `python3` (usato per la PTY, presente di serie su Li
   contengono, l'albero dei file cambiati con +/− e il **diff affiancato** (o unificato) con le
   parole modificate evidenziate. Lo stesso viewer si apre dai file in "Modifiche".
 - **Agenti**: legge in tempo reale le sessioni di Claude Code (`~/.claude/projects/*/*.jsonl`) e mostra
-  cosa sta facendo ogni agente (prima quelli del progetto attivo), con "Riprendi sessione".
+  cosa sta facendo ogni agente (prima quelli del progetto attivo), con "Riprendi sessione". Da
+  `~/.claude/sessions/<pid>.json` sa quali sessioni hanno ancora il processo aperto: quelle chiuse risultano
+  "Chiusa", quelle aperte hanno "Chiudi sessione" (dettaglio e tasto destro), che dopo una conferma termina
+  il processo di Claude Code (SIGTERM, poi SIGKILL dopo 3 s). La conversazione resta riprendibile.
 - **Run** (in alto a destra, come in WebStorm): rileva da solo i comandi del progetto (script npm/pnpm/yarn,
   target Make, Cargo, Django, Go, Docker Compose) e permette di aggiungerne di propri. ▶ avvia, ↻ riavvia,
   ■ ferma (con Ctrl+C, poi forzato dopo 3 s). Il processo gira in background, senza aprire terminali: il suo

@@ -1,5 +1,5 @@
 // Agents: sidebar list (this project first) + detail timeline in the panel.
-import { $, esc, ago, setHtml, contextMenu } from './ui.js';
+import { $, esc, ago, setHtml, contextMenu, ask, toast, toastError } from './ui.js';
 import { tildify } from './paths.js';
 
 const { work } = window;
@@ -85,7 +85,7 @@ async function renderAgentDetail() {
     box.innerHTML = '<p class="empty">Seleziona un agente dalla colonna a sinistra.</p>';
     return;
   }
-  const key = `${a.id}|${a.eventSeq}|${a.status.state}|${a.status.label}|${ago(a.mtime)}|${a.tokens}`;
+  const key = `${a.id}|${a.eventSeq}|${a.status.state}|${a.status.label}|${ago(a.mtime)}|${a.tokens}|${a.live}`;
   if (box._key === key) return; // nothing new to show
   box._key = key;
   // Events are fetched only for the selected session, and only when new ones arrived.
@@ -114,6 +114,7 @@ async function renderAgentDetail() {
       <button class="btn" data-act="resume">Riprendi sessione</button>
       <button class="btn" data-act="shell">Terminale qui</button>
       <button class="btn" data-act="repo">Apri come progetto</button>
+      ${a.live ? '<div class="spacer"></div><button class="btn btn-danger-text" data-act="close">Chiudi sessione</button>' : ''}
     </div>
     <ul class="timeline">
       ${events.slice().reverse().map((ev, i) => `
@@ -126,6 +127,26 @@ async function renderAgentDetail() {
   box.querySelector('[data-act="resume"]').onclick = () => hooks.resume(a);
   box.querySelector('[data-act="shell"]').onclick = () => hooks.shellAt(a.cwd);
   box.querySelector('[data-act="repo"]').onclick = () => hooks.openRepo(a.cwd);
+  const close = box.querySelector('[data-act="close"]');
+  if (close) close.onclick = () => closeSession(a);
+}
+
+// Ends the Claude Code process of a session. It interrupts whatever the agent
+// is doing, so it asks first; the conversation stays resumable.
+export async function closeSession(a) {
+  const ok = await ask({
+    text: `Chiudere «${a.title}»? Claude Code viene terminato; potrai riprendere la conversazione con «Riprendi sessione».`,
+    input: false,
+    danger: true,
+    okLabel: 'Chiudi sessione',
+  });
+  if (!ok) return;
+  try {
+    await work.agents.stop(a.id);
+    toast('Sessione chiusa');
+  } catch (e) {
+    toastError(e);
+  }
 }
 
 function agentMenu(a, x, y) {
@@ -138,5 +159,6 @@ function agentMenu(a, x, y) {
     '-',
     { label: 'Copia percorso', disabled: !a.cwd, run: () => work.app.copy(a.cwd) },
     { label: 'Copia ID sessione', run: () => work.app.copy(a.id) },
+    ...(a.live ? ['-', { label: 'Chiudi sessione', danger: true, run: () => closeSession(a) }] : []),
   ]);
 }

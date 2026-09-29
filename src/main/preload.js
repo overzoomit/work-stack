@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('work', {
   agents: {
     list: invoke('agents:list'),
     events: invoke('agents:events'),
+    stop: invoke('agents:stop'),
     available: invoke('agents:available'),
     onUpdate: listen('agents:update'),
   },
