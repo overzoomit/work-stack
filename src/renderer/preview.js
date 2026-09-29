@@ -1,6 +1,6 @@
 // File preview sheet: source with line numbers, plus rendered view for
-// Markdown (sanitized), HTML (sandboxed iframe loading the real file,
-// so relative CSS/images/scripts resolve) and images.
+// Markdown (sanitized), HTML (sandboxed iframe loading the real file, no scripts,
+// so relative CSS and images resolve) and images.
 import { marked } from './vendor/marked.esm.js';
 import DOMPurify from './vendor/purify.es.mjs';
 import { $, $$, esc, dirname, leave, toastError } from './ui.js';
@@ -159,7 +159,7 @@ function draw() {
   } else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.
     // No allow-modals: a page's alert() would block Work's whole window.
-    body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms" src="${esc(srcUrl(path))}"></iframe>`;
+    body.innerHTML = `<iframe class="html-frame" sandbox="allow-forms" src="${esc(srcUrl(path))}"></iframe>`;
   }
 }
 
