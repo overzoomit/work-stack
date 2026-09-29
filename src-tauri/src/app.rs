@@ -17,18 +17,23 @@ pub fn is_web_link(url: &str) -> bool {
 // The window only ever shows Work's own page (and, in the preview's iframe,
 // project files through the asset protocol). A link followed by mistake would
 // replace the whole UI and leave every terminal without its pane.
-pub fn is_own_page(url: &Url) -> bool {
-    matches!(url.scheme(), "tauri" | "asset") || matches!(url.host_str(), Some("tauri.localhost" | "asset.localhost")) || url.as_str() == "about:blank"
+// `dev` is the CLI's dev server, which serves the page under `npm run dev`.
+pub fn is_own_page(url: &Url, dev: Option<&Url>) -> bool {
+    matches!(url.scheme(), "tauri" | "asset")
+        || matches!(url.host_str(), Some("tauri.localhost" | "asset.localhost"))
+        || url.as_str() == "about:blank"
+        || dev.is_some_and(|d| d.origin() == url.origin())
 }
 
 pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
+    let dev = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Work")
         .inner_size(1600.0, 980.0)
         .min_inner_size(1100.0, 640.0)
         .background_color(tauri::window::Color(12, 13, 16, 255))
-        .on_navigation(is_own_page)
+        .on_navigation(move |url| is_own_page(url, dev.as_ref()))
         // New windows are refused; web links open in the browser instead.
         .on_new_window(move |url, _| {
             if url.scheme() == "http" || url.scheme() == "https" {
@@ -45,8 +50,9 @@ pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
             let webview = webview.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(2));
+                // Injected as-is: the page's CSP forbids eval().
                 let script = format!(
-                    "Promise.resolve().then(() => eval({js:?})).then((r) => r !== undefined && window.__TAURI__.core.invoke('debug_log', {{ level: 'eval', msg: String(r) }}))"
+                    "Promise.resolve().then(() => ({js})).then((r) => r !== undefined && window.__TAURI__.core.invoke('debug_log', {{ level: 'eval', msg: String(r) }}))"
                 );
                 let _ = webview.eval(script);
             });
@@ -180,11 +186,14 @@ mod tests {
 
     #[test]
     fn a_dropped_file_or_a_link_does_not_replace_the_ui_regression() {
-        let page = |u: &str| is_own_page(&Url::parse(u).unwrap());
+        let dev = Url::parse("http://localhost:1430").unwrap();
+        let page = |u: &str| is_own_page(&Url::parse(u).unwrap(), Some(&dev));
         assert!(page("tauri://localhost/index.html"), "reloading Work itself is fine");
         assert!(page("http://tauri.localhost/index.html"), "Linux and Windows serve it over http");
         assert!(page("asset://localhost/%2Fp/pagina.html"), "an HTML preview");
         assert!(!page("file:///home/u/foto.png"), "a dropped file");
         assert!(!page("https://example.com/"));
+        assert!(page("http://localhost:1430/index.html"), "the dev server");
+        assert!(!page("http://localhost:3000/"), "another local server is not Work");
     }
 }
