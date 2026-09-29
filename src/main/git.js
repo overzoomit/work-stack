@@ -277,8 +277,6 @@ const actions = {
   merge: (repo, { branch }) => git(repo, ['merge', '--no-edit', branch]),
   cherryPick: (repo, { hash }) => git(repo, ['cherry-pick', hash]),
   revert: (repo, { hash }) => git(repo, ['revert', '--no-edit', hash]),
-  resetSoft: (repo, { hash }) => git(repo, ['reset', '--soft', hash]),
-  worktreeAdd: (repo, { path, branch }) => git(repo, ['worktree', 'add', '-b', branch, path]),
   init: (repo) => git(repo, ['init']),
 };
 
