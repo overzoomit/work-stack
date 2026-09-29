@@ -31,7 +31,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
     I progetti salvati compaiono dopo T3+T5 (il boot li valida con `fs.list` e `git.root`).
   - File: `package.json`, `src-tauri/*`, `src/renderer/bridge.js`, `src/renderer/index.html`,
     `scripts/vendor.mjs`, import in `terminals.js`/`preview.js`, `.gitignore`.
-- [ ] **T2: PTY in Rust.** create/write/resize/kill/ack/cwd, exit code (128+segnale), ambiente shell
+- [x] **T2: PTY in Rust.** create/write/resize/kill/ack/cwd, exit code (128+segnale), ambiente shell
   ripulito da `npm_*`, `TERM`/`COLORTERM`/`TERM_PROGRAM`, hang up alla chiusura.
   - Accetta: terminali e Run funzionano; `seq 1 1000000` non blocca la UI; casi di `pty.test.js` portati;
     drag & drop HTML5 interno (riordino terminali) funziona con il drag & drop nativo di Tauri attivo.

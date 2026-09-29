@@ -1,4 +1,5 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
+mod pty;
 mod store;
 
 use serde_json::{json, Value};
@@ -61,9 +62,27 @@ fn main() {
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
             app.manage(AppState { state: Mutex::new(state), file });
+            app.manage(pty::PtyState::new());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![projects_load, projects_save, app_info])
-        .run(tauri::generate_context!())
-        .expect("error while running Work");
+        .invoke_handler(tauri::generate_handler![
+            projects_load,
+            projects_save,
+            app_info,
+            pty::pty_subscribe,
+            pty::pty_create,
+            pty::pty_write,
+            pty::pty_ack,
+            pty::pty_resize,
+            pty::pty_kill,
+            pty::pty_cwd,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building Work")
+        .run(|app, event| {
+            // Quitting hangs up every shell, like closing their terminal windows.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<pty::PtyState>().mgr.kill_all();
+            }
+        });
 }

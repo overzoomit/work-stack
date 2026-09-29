@@ -3,7 +3,7 @@
 Dettagli e criteri di accettazione in `tasks/plan.md`.
 
 - [x] T1: Scheletro Tauri + ponte + stato
-- [ ] T2: PTY in Rust
+- [x] T2: PTY in Rust
 - [ ] Checkpoint A: terminali usabili su Tauri
 - [ ] T3: git (letture)
 - [ ] T4: git (azioni) + watcher

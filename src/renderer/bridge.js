@@ -2,7 +2,7 @@
 // IPC. Positional arguments become the named ones each Rust command takes.
 (() => {
   if (window.work || !window.__TAURI__) return; // Electron: the preload set it
-  const { invoke } = window.__TAURI__.core;
+  const { invoke, Channel } = window.__TAURI__.core;
   const { listen: on } = window.__TAURI__.event;
 
   const call = (cmd, ...names) => (...args) => invoke(cmd, Object.fromEntries(names.map((n, i) => [n, args[i]])));
@@ -11,6 +11,23 @@
   const listen = (event) => (cb) => {
     const off = on(event, (e) => cb(...e.payload));
     return () => off.then((un) => un());
+  };
+
+  // Terminal output and exits come through one channel, in order: [id, text] or [id, null, code].
+  const ptyData = new Set();
+  const ptyExit = new Set();
+  let ptyChannel = null;
+  const ptyListen = (set) => (cb) => {
+    if (!ptyChannel) {
+      ptyChannel = new Channel();
+      ptyChannel.onmessage = ([id, text, code]) => {
+        if (text === null) ptyExit.forEach((f) => f(id, code));
+        else ptyData.forEach((f) => f(id, text));
+      };
+      invoke('pty_subscribe', { channel: ptyChannel });
+    }
+    set.add(cb);
+    return () => set.delete(cb);
   };
 
   window.work = {
@@ -35,8 +52,8 @@
       resize: send('pty_resize', 'id', 'cols', 'rows'),
       kill: send('pty_kill', 'id'),
       cwd: call('pty_cwd', 'id'),
-      onData: listen('pty:data'),
-      onExit: listen('pty:exit'),
+      onData: ptyListen(ptyData),
+      onExit: ptyListen(ptyExit),
     },
     git: {
       root: call('git_root', 'cwd'),
