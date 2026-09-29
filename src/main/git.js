@@ -261,6 +261,13 @@ async function stash(repo) {
   if ((await top()) === before) throw new Error('Nessuna modifica da mettere in stash.');
 }
 
+// A merge commit is reverted or cherry-picked relative to its first parent
+// (the branch it was merged into); git refuses without -m.
+async function mainline(repo, hash) {
+  const parents = (await git(repo, ['rev-list', '--parents', '-n1', hash])).trim().split(' ').length - 1;
+  return parents > 1 ? ['-m', '1'] : [];
+}
+
 const actions = {
   stage: (repo, { files }) => git(repo, ['add', '--', ...files]),
   unstage: (repo, { files }) => unstage(repo, files),
@@ -275,8 +282,8 @@ const actions = {
   stash: (repo) => stash(repo),
   stashPop: (repo) => git(repo, ['stash', 'pop']),
   merge: (repo, { branch }) => git(repo, ['merge', '--no-edit', branch]),
-  cherryPick: (repo, { hash }) => git(repo, ['cherry-pick', hash]),
-  revert: (repo, { hash }) => git(repo, ['revert', '--no-edit', hash]),
+  cherryPick: async (repo, { hash }) => git(repo, ['cherry-pick', ...(await mainline(repo, hash)), hash]),
+  revert: async (repo, { hash }) => git(repo, ['revert', '--no-edit', ...(await mainline(repo, hash)), hash]),
   init: (repo) => git(repo, ['init']),
 };
 

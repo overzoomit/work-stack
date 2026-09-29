@@ -421,3 +421,20 @@ test('con HEAD staccato branches non restituisce la voce finta "(HEAD detached a
   assert.deepEqual(list.map((b) => b.name), ['main']);
   assert.equal(list[0].current, false);
 });
+
+test('revert e cherry-pick funzionano anche su un commit di merge, rispetto al primo genitore (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.run('checkout', '-q', '-b', 'feature');
+  r.write('b.txt', 'nuovo\n');
+  r.commit('feature');
+  r.run('checkout', '-q', 'main');
+  r.run('merge', '-q', '--no-ff', '--no-edit', 'feature');
+  const merge = r.run('rev-parse', 'HEAD').trim();
+  await git.action(r.dir, 'revert', { hash: merge });
+  assert.ok(!fs.existsSync(path.join(r.dir, 'b.txt')), 'the merge was undone');
+  r.run('checkout', '-q', '-b', 'altro', `${merge}~1`);
+  await git.action(r.dir, 'cherryPick', { hash: merge });
+  assert.ok(fs.existsSync(path.join(r.dir, 'b.txt')), 'the merge\'s changes applied on another branch');
+});
