@@ -290,11 +290,11 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
   <div class="wrap">
     <p class="eyebrow">Prestazioni</p>
     <h2 class="reveal">Nativa. Leggera. Scritta in Rust.</h2>
-    <p class="sub reveal">Work usa Tauri 2 e la WebView del sistema al posto di Electron. Terminali, git e watcher girano in un backend Rust, e il lavoro in background parte dagli eventi del file system, senza polling.</p>
+    <p class="sub reveal">Work usa Tauri 2 e la WebView del sistema. Terminali, git e watcher girano in un backend Rust, e il lavoro in background parte dagli eventi del file system, senza polling.</p>
     <div class="stats">
-      <div class="stat reveal"><div class="n">7,4 MB</div><div class="l">App installata</div><div class="c">contro i 288 MB della versione Electron</div></div>
+      <div class="stat reveal"><div class="n">7,4 MB</div><div class="l">App installata</div><div class="c">sul disco, senza runtime incluso</div></div>
       <div class="stat reveal"><div class="n">3,5 MB</div><div class="l">Download</div><div class="c">il .dmg per macOS</div></div>
-      <div class="stat reveal"><div class="n">−40%</div><div class="l">Memoria</div><div class="c">~175 MB contro ~295 MB, a riposo</div></div>
+      <div class="stat reveal"><div class="n">~175 MB</div><div class="l">Memoria</div><div class="c">a riposo, con un progetto aperto</div></div>
       <div class="stat reveal"><div class="n">1</div><div class="l">Dipendenza</div><div class="c">serve solo <code>git</code>: niente Node, niente Python</div></div>
     </div>
     <p class="note">Misure su MacBook Air M4 (16 GB, macOS 26.6) con lo stesso codice dell'interfaccia, un progetto e un terminale aperti. La memoria è il footprint di tutti i processi dell'app, mediana di 3 avvii. Anche con <code>seq 1 1000000</code> in un terminale l'interfaccia resta fluida (frame più lungo 32–36 ms), grazie all'output a blocchi con controllo di flusso.</p>
