@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#242832"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <linearGradient id="light" x1="0" y1="100" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="work-brand" gradientUnits="userSpaceOnUse" x1="2" y1="4" x2="30" y2="28">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#BF5AF2"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#surface)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#light)"/>
+  <g transform="translate(192 192) scale(20)">
+    <g fill="none" stroke="url(#work-brand)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 6H10C17 6 17 16 24 16"/>
+      <path d="M4 16H24"/>
+      <path d="M4 26H10C17 26 17 16 24 16"/>
+    </g>
+    <rect x="22" y="12" width="8" height="8" rx="2" fill="url(#work-brand)"/>
+  </g>
+</svg>

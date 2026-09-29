@@ -34,6 +34,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 640,
     title: 'Work',
+    icon: path.join(__dirname, '..', '..', 'assets', 'icon-linux.png'),
     backgroundColor: '#0c0d10',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
@@ -158,7 +159,10 @@ ipcMain.on('app:copy', (_e, text) => clipboard.writeText(String(text)));
 ipcMain.handle('app:paste', () => clipboard.readText());
 
 app.whenReady().then(() => {
-  if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate(macMenuTemplate()));
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(macMenuTemplate()));
+    app.dock.setIcon(path.join(__dirname, '..', '..', 'assets', 'icon-mac.png'));
+  }
   state = store.load();
   fsops.setRoots(state.projects.map((p) => p.path));
   createWindow();
