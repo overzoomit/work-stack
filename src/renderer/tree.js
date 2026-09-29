@@ -88,7 +88,8 @@ export class ProjectTree {
     box.onkeydown = (e) => this.onKey(e);
     box.ondragstart = (e) => this.onDragStart(e);
     box.ondragover = (e) => this.onDragOver(e);
-    box.ondragleave = (e) => e.target.closest?.('.tn')?.classList.remove('drop');
+    // dragover repaints the target on every move: only leaving the tree clears it.
+    box.ondragleave = (e) => !box.contains(e.relatedTarget) && box.querySelectorAll('.drop').forEach((el) => el.classList.remove('drop'));
     box.ondrop = (e) => this.onDrop(e);
     box.ondragend = () => this.clearDrop();
     if (!this.children.has(this.project.path)) this.load(this.project.path).then(() => this.render());
@@ -366,9 +367,11 @@ export class ProjectTree {
     row.classList.add('dragging');
   }
 
+  // The folder a drop lands in: the row's folder, or the project root for
+  // the empty space below the rows.
   dropDirFor(target) {
     const row = target.closest?.('.tn[data-path]');
-    if (!row) return null;
+    if (!row) return this.box.contains(target) ? this.project.path : null;
     const p = row.dataset.path;
     return row.classList.contains('dir') ? p : dirname(p);
   }
@@ -378,14 +381,15 @@ export class ProjectTree {
   }
 
   onDragOver(e) {
-    if (!this.dragging) return;
     const dir = this.dropDirFor(e.target);
     const src = this.dragging;
-    const valid = dir && dir !== dirname(src) && !within(src, dir);
+    // Files from outside Work (file manager, desktop) are copied in.
+    const external = !src && e.dataTransfer.types.includes('Files');
+    const valid = dir && (external || (src && dir !== dirname(src) && !within(src, dir)));
     this.box.querySelectorAll('.drop').forEach((el) => el.classList.remove('drop'));
     if (!valid) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = external ? 'copy' : 'move';
     this.box.querySelector(`.tn[data-path="${CSS.escape(dir)}"]`)?.classList.add('drop');
   }
 
@@ -395,7 +399,36 @@ export class ProjectTree {
     const src = this.dragging;
     this.dragging = null;
     this.clearDrop();
-    if (dir && src) this.move(src, dir);
+    if (!dir) return;
+    if (src) return this.move(src, dir);
+    const paths = [...e.dataTransfer.files].map((f) => work.app.pathForFile(f)).filter(Boolean);
+    if (paths.length) this.copyIn(paths, dir);
+  }
+
+  async copyIn(paths, toDir) {
+    try {
+      const copied = await work.fs.copyIn(paths, toDir);
+      this.expanded.add(toDir);
+      await this.refreshDirs(toDir);
+      this.select(copied.at(-1));
+      const what = copied.length === 1 ? `${basename(copied[0])} copiato` : `${copied.length} elementi copiati`;
+      toast(`${what} in ${basename(toDir)}`, {
+        action: {
+          label: 'Annulla',
+          run: async () => {
+            try {
+              for (const p of copied) await work.fs.trash(p);
+              copied.forEach((p) => this.forget(p));
+              await this.refreshDirs(toDir);
+            } catch (err) {
+              toastError(err);
+            }
+          },
+        },
+      });
+    } catch (err) {
+      toastError(err);
+    }
   }
 }
 

@@ -105,6 +105,7 @@ ipcMain.handle('fs:read', (_e, file) => fsops.read(file));
 ipcMain.handle('fs:create', (_e, parent, name, dir) => fsops.create(parent, name, dir));
 ipcMain.handle('fs:rename', (_e, from, name) => fsops.rename(from, name));
 ipcMain.handle('fs:move', (_e, from, toDir) => fsops.move(from, toDir));
+ipcMain.handle('fs:copyIn', (_e, srcs, toDir) => fsops.copyIn(srcs, toDir));
 ipcMain.handle('fs:trash', (_e, p) => fsops.trash(p));
 ipcMain.handle('fs:openPath', (_e, p) => fsops.openPath(p));
 ipcMain.handle('fs:reveal', (_e, p) => fsops.reveal(p));

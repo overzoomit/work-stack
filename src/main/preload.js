@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('work', {
     create: invoke('fs:create'),
     rename: invoke('fs:rename'),
     move: invoke('fs:move'),
+    copyIn: invoke('fs:copyIn'),
     trash: invoke('fs:trash'),
     openPath: invoke('fs:openPath'),
     reveal: invoke('fs:reveal'),

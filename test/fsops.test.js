@@ -163,3 +163,21 @@ test('rifiuta ".git" come nome: sarebbe nascosto nell\'albero e romperebbe git i
 test('leggere una cartella (un link [docs](docs/) nell\'anteprima) dà un messaggio chiaro invece di EISDIR (regressione)', async () => {
   await assert.rejects(fsops.read(path.join(project, 'src')), (e) => /cartella/i.test(e.message) && !/EISDIR/.test(e.message));
 });
+
+test('copia file e cartelle trascinati da fuori in una cartella del progetto', async () => {
+  fs.mkdirSync(path.join(outside, 'assets', 'img'), { recursive: true });
+  fs.writeFileSync(path.join(outside, 'assets', 'img', 'a.png'), 'png');
+  const copied = await fsops.copyIn([path.join(outside, 'assets'), path.join(outside, 'secret.txt')], path.join(project, 'src'));
+  assert.deepEqual(copied, [path.join(project, 'src', 'assets'), path.join(project, 'src', 'secret.txt')]);
+  assert.equal(fs.readFileSync(path.join(project, 'src', 'assets', 'img', 'a.png'), 'utf8'), 'png');
+  assert.ok(fs.existsSync(path.join(outside, 'secret.txt')), 'the source stays where it was');
+});
+
+test('la copia da fuori non sovrascrive e non esce dai progetti', async () => {
+  fs.writeFileSync(path.join(outside, 'a.txt'), 'fuori\n');
+  fs.writeFileSync(path.join(outside, 'nuovo.txt'), '');
+  await assert.rejects(fsops.copyIn([path.join(outside, 'nuovo.txt'), path.join(outside, 'a.txt')], path.join(project, 'src')), /esiste già a\.txt/);
+  assert.equal(fs.readFileSync(path.join(project, 'src', 'a.txt'), 'utf8'), 'dentro\n');
+  assert.ok(!fs.existsSync(path.join(project, 'src', 'nuovo.txt')), 'a conflict copies nothing');
+  await assert.rejects(fsops.copyIn([path.join(project, 'src', 'a.txt')], path.join(project, 'link-dir')), /fuori dai progetti/);
+});

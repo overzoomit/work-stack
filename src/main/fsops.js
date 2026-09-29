@@ -132,6 +132,20 @@ async function move(from, toDir) {
   return dest;
 }
 
+// Copies files/folders dropped from outside Work into a project folder.
+// Only the destination is guarded: the sources are what the user dragged in.
+// All names are checked first, so a conflict copies nothing.
+async function copyIn(srcs, toDir) {
+  const destDir = await guard(toDir, { follow: true });
+  const pairs = srcs.map((s) => [path.resolve(s), path.join(destDir, path.basename(path.resolve(s)))]);
+  for (const [, dest] of pairs) {
+    checkName(path.basename(dest));
+    if (await exists(dest)) throw new Error(`In ${path.basename(destDir)} esiste già ${path.basename(dest)}`);
+  }
+  for (const [src, dest] of pairs) await fs.cp(src, dest, { recursive: true, errorOnExist: true, force: false });
+  return pairs.map(([, dest]) => dest);
+}
+
 async function trash(p) {
   const abs = await guard(p, { follow: false });
   if (await isRoot(abs)) throw new Error('Non puoi eliminare la cartella del progetto.');
@@ -147,4 +161,4 @@ async function reveal(p) {
   shell.showItemInFolder(await guard(p, { follow: false }));
 }
 
-module.exports = { setRoots, list, read, create, rename, move, trash, openPath, reveal };
+module.exports = { setRoots, list, read, create, rename, move, copyIn, trash, openPath, reveal };
