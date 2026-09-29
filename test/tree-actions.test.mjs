@@ -153,3 +153,14 @@ test('cestinando una cartella aperta si dimenticano anche le sottocartelle e il 
   assert.ok(!tree.children.has('/q/build/assets'), 'its old content is not kept');
   assert.equal(tree.selected, null, 'a selection inside the trashed folder is cleared');
 });
+
+test('nelle finestre di dialogo Invio non viene annullato, così il modulo si invia (regressione: rinomina terminale)', async () => {
+  const { ask } = await import('../src/renderer/ui.js');
+  const done = ask({ text: 'Nome del terminale', value: 'Terminale 1' });
+  // In the DOM a handler set via on<event> that returns false cancels the
+  // event: Enter would never reach the form's implicit submit.
+  assert.notEqual($('#modal').onkeydown({ key: 'Enter' }), false);
+  assert.notEqual($('#modal').onkeydown({ key: 'a' }), false);
+  $('#modal').onkeydown({ key: 'Escape' });
+  assert.equal(await done, null, 'Esc still cancels');
+});

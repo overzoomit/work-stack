@@ -130,7 +130,11 @@ export function ask({ text, value = '', placeholder = '', okLabel = 'OK', danger
       finish(input ? field.value.trim() || null : true);
     };
     $('#modal-cancel').onclick = () => finish(null);
-    modal.onkeydown = (e) => e.key === 'Escape' && finish(null);
+    // Block body: an on<event> handler returning false cancels the event, and
+    // a cancelled Enter never submits the form.
+    modal.onkeydown = (e) => {
+      if (e.key === 'Escape') finish(null);
+    };
   });
 }
 
