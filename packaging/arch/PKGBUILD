@@ -1,0 +1,18 @@
+# Maintainer: Overzoom <info@overzoom.it>
+# Repackages the .deb from the GitHub release: same binary, system WebKitGTK.
+pkgname=work-stack-bin
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="Terminali, git e agenti AI in un'unica dashboard desktop"
+arch=('x86_64')
+url="https://overzoomit.github.io/work-stack/"
+license=('custom')
+depends=('webkit2gtk-4.1' 'gtk3' 'git' 'hicolor-icon-theme')
+provides=('work-stack')
+conflicts=('work-stack')
+source=("Work_${pkgver}_amd64.deb::https://github.com/overzoomit/work-stack/releases/download/v${pkgver}/Work_${pkgver}_amd64.deb")
+sha256sums=('SKIP')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+}
