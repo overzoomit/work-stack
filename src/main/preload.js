@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 const listen = (channel) => (cb) => {
@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('work', {
     openExternal: (url) => ipcRenderer.send('app:openExternal', url),
     copy: (text) => ipcRenderer.send('app:copy', text),
     paste: invoke('app:paste'),
+    // Path of a file dropped on the window (File.path is gone since Electron 32).
+    pathForFile: (file) => webUtils.getPathForFile(file),
     onFocus: listen('app:focus'),
   },
   projects: {

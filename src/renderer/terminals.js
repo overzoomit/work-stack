@@ -238,6 +238,17 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   el.addEventListener('pointerdown', () => focus(id));
   el.querySelector('[data-act="close"]').onclick = () => closeTerminal(id);
   el.querySelector('[data-act="max"]').onclick = () => toggleMax(id);
+  // Files dropped on a terminal type their paths, quoted, as in Terminal.app.
+  el.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  });
+  el.addEventListener('drop', (e) => {
+    const files = [...(e.dataTransfer?.files || [])];
+    if (!files.length) return;
+    e.preventDefault();
+    const paths = files.map((f) => work.app.pathForFile(f)).filter(Boolean);
+    if (paths.length && !t.exited) work.pty.write(id, `${paths.map(shellQuote).join(' ')} `);
+  });
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     focus(id);
@@ -269,6 +280,8 @@ function paintHead(t) {
   t.el.classList.toggle('exited', t.exited);
   onChange();
 }
+
+const shellQuote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 
 const dotClass = (t) => (t.exited ? 'exited' : t.kind === 'agent' ? 'working' : t.kind === 'run' ? 'running' : 'shell');
 

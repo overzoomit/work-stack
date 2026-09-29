@@ -246,3 +246,19 @@ test('su Mac Option resta Option: con la tastiera italiana serve per @ # [ ] (re
   T.closeTerminal(t.id);
   await tick(700);
 });
+
+test('trascinare file su un terminale ne incolla i percorsi, tra virgolette se servono (come Terminal.app)', async () => {
+  globalThis.window.work.app.pathForFile = (f) => f.path;
+  const p = { path: '/d', name: 'd', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p);
+  const files = [{ path: '/tmp/foto.png' }, { path: "/tmp/l'altro file.txt" }];
+  let prevented = 0;
+  const ev = { dataTransfer: { types: ['Files'], files }, preventDefault: () => { prevented++; } };
+  t.el.listeners.dragover[0](ev);
+  t.el.listeners.drop[0](ev);
+  assert.equal(prevented, 2, 'the window never navigates to the file');
+  assert.deepEqual(env.input.at(-1), [t.id, "/tmp/foto.png '/tmp/l'\\''altro file.txt' "]);
+  T.closeTerminal(t.id);
+  await tick(700);
+});
