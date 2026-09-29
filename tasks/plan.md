@@ -72,7 +72,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
   su Linux), icone da `assets/`.
   - Accetta: il `.dmg` si installa e si avvia da Finder (PATH del login shell per git e agenti). Dipende da: T9.
 - [ ] **T11: Misure.** CPU a riposo, memoria (PSS/footprint), dimensione del bundle, `seq 1 1000000`;
-  tabella nel README accanto ai numeri di Electron. Dipende da: T10.
+  tabella nel README accanto ai numeri di Electron. Soglie in `SPEC.md` (criterio 5). Dipende da: T10.
 
 ### Checkpoint finale — pronto per la release
 
@@ -85,6 +85,6 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
 | ⌘C/⌘V e appunti in WKWebView | Medio | T8: menu Modifica nativo + plugin clipboard |
 | Installer non firmati: avviso di Gatekeeper | Basso | Documentato; firma e notarization fuori scope |
 
-## Domande aperte
-- Identificatore dell'app: proposto `it.overzoom.work`.
-- Nome del prodotto: resta "Work" o diventa "Raccordo" (marchio nella barra in alto)?
+## Decisioni prese
+- Nome e identificatore: Work, `it.overzoom.work`. Target e confini in `SPEC.md`.
+- T9 (rimozione di Electron) procede in automatico quando T2–T8 sono verdi.
