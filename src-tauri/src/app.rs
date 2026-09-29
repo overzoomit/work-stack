@@ -65,6 +65,9 @@ pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
         .min_inner_size(1100.0, 640.0)
         .background_color(tauri::window::Color(12, 13, 16, 255))
         .on_navigation(move |url| is_own_page(url, dev.as_ref()))
+        // Tauri's own drop handler takes every drag over the window, those
+        // inside the page too (tree, terminals, tabs): the page handles them.
+        .disable_drag_drop_handler()
         // New windows are refused; web links open in the browser instead.
         .on_new_window(move |url, _| {
             if url.scheme() == "http" || url.scheme() == "https" {
@@ -195,6 +198,32 @@ pub fn app_paste(app: AppHandle) -> String {
     app.clipboard().read_text().unwrap_or_default()
 }
 
+// Paths of the files being dragged in from outside, which the page only
+// knows by name. macOS keeps them on the drag pasteboard for the whole drag;
+// on Linux the page reads them from text/uri-list instead.
+#[tauri::command]
+pub fn app_drop_paths() -> Vec<String> {
+    drag_paths()
+}
+
+// ponytail: NSFilenamesPboardType is deprecated but still filled by Finder (wry
+// reads it too); per-item NSPasteboardTypeFileURL if Apple drops it.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn drag_paths() -> Vec<String> {
+    use objc2_app_kit::{NSFilenamesPboardType, NSPasteboard, NSPasteboardNameDrag};
+    use objc2_foundation::{NSArray, NSString};
+    let pb = unsafe { NSPasteboard::pasteboardWithName(NSPasteboardNameDrag) };
+    let Some(list) = (unsafe { pb.propertyListForType(NSFilenamesPboardType) }) else { return vec![] };
+    let Ok(list) = list.downcast::<NSArray>() else { return vec![] };
+    list.iter().filter_map(|p| p.downcast::<NSString>().ok()).map(|p| p.to_string()).collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn drag_paths() -> Vec<String> {
+    vec![]
+}
+
 // Renderer errors and warnings (and WORK_EVAL results) on the terminal that started Work.
 #[tauri::command]
 pub fn debug_log(level: String, msg: String) {
@@ -204,6 +233,21 @@ pub fn debug_log(level: String, msg: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[allow(deprecated)]
+    fn the_paths_of_a_drag_from_finder_are_read_from_the_drag_pasteboard() {
+        use objc2_app_kit::{NSFilenamesPboardType, NSPasteboard, NSPasteboardNameDrag};
+        use objc2_foundation::{NSArray, NSString};
+        let files = ["/tmp/a b.txt", "/tmp/cartella"].map(NSString::from_str);
+        unsafe {
+            let pb = NSPasteboard::pasteboardWithName(NSPasteboardNameDrag);
+            pb.clearContents();
+            assert!(pb.setPropertyList_forType(&NSArray::from_retained_slice(&files), NSFilenamesPboardType));
+        }
+        assert_eq!(drag_paths(), ["/tmp/a b.txt", "/tmp/cartella"]);
+    }
 
     #[test]
     fn the_login_shell_gives_its_path() {

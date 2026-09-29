@@ -20,6 +20,12 @@ sysinfo = "0.39.6"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 
+# Paths of files dragged in from Finder (the page only sees their names).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros"] }

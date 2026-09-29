@@ -38,10 +38,17 @@
   window.addEventListener('error', (e) => log('error', e.error?.stack || e.message));
   window.addEventListener('unhandledrejection', (e) => log('error', e.reason?.stack || e.reason));
 
-  // A file dropped from outside carries no path in the page: Tauri reports the
-  // paths of a native drop, matched here by name.
+  // Files dragged in from outside carry only their names in the page, matched
+  // here with their paths: macOS keeps them on the drag pasteboard (read as
+  // the drag enters), Linux sends them as text/uri-list with the drop.
   let dropped = [];
-  on('tauri://drag-drop', (e) => { dropped = e.payload.paths || []; });
+  window.addEventListener('dragenter', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) invoke('app_drop_paths').then((p) => { dropped = p; }, () => {});
+  }, true);
+  window.addEventListener('drop', (e) => {
+    const uris = (e.dataTransfer?.getData('text/uri-list') || '').split(/\r?\n/).filter((u) => u.startsWith('file://'));
+    if (uris.length) dropped = uris.map((u) => decodeURIComponent(new URL(u).pathname));
+  }, true);
 
   window.work = {
     app: {

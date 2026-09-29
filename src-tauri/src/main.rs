@@ -92,6 +92,7 @@ fn main() {
             app::app_open_external,
             app::app_copy,
             app::app_paste,
+            app::app_drop_paths,
             app::debug_log,
             pty::pty_subscribe,
             pty::pty_create,
