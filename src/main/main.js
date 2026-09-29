@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
 const os = require('os');
 const { PtyManager } = require('./pty');
@@ -8,6 +8,7 @@ const store = require('./store');
 const runconfigs = require('./runconfigs');
 const { AgentWatcher } = require('./agents');
 const { GitWatcher } = require('./gitwatch');
+const { macMenuTemplate } = require('./menu');
 
 // Debug/tests: keep state separate from the real profile.
 if (process.env.WORK_USER_DATA) app.setPath('userData', process.env.WORK_USER_DATA);
@@ -140,6 +141,7 @@ ipcMain.on('app:copy', (_e, text) => clipboard.writeText(String(text)));
 ipcMain.handle('app:paste', () => clipboard.readText());
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate(macMenuTemplate()));
   state = store.load();
   fsops.setRoots(state.projects.map((p) => p.path));
   createWindow();
