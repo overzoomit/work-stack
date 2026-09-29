@@ -12,7 +12,7 @@ import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runnin
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
 import { tildify } from './paths.js';
-import { isRefreshKey } from './keys.js';
+import { isRefreshKey, isCloseTerminalKey } from './keys.js';
 
 const { work } = window;
 
@@ -516,6 +516,12 @@ addEventListener('keydown', (e) => {
     refreshAll();
     return;
   }
+  if (isCloseTerminalKey(e, info.platform === 'darwin')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (active?.focusedId) closeTerminal(active.focusedId);
+    return;
+  }
   const mod = (e.ctrlKey || e.metaKey) && e.shiftKey;
   if (!mod) return;
   const t = focused();
@@ -536,7 +542,6 @@ addEventListener('keydown', (e) => {
     A: () => active && launchDefault(),
     O: pickProject,
     B: () => togglePanel('left'),
-    W: () => active?.focusedId && closeTerminal(active.focusedId),
     M: () => active?.focusedId && toggleMax(active.focusedId),
   };
   const fn = actions[e.key.toUpperCase()];
