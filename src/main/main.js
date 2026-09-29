@@ -9,6 +9,7 @@ const runconfigs = require('./runconfigs');
 const { AgentWatcher } = require('./agents');
 const { GitWatcher } = require('./gitwatch');
 const { macMenuTemplate } = require('./menu');
+const { lockNavigation } = require('./guards');
 
 // Debug/tests: keep state separate from the real profile.
 if (process.env.WORK_USER_DATA) app.setPath('userData', process.env.WORK_USER_DATA);
@@ -43,6 +44,7 @@ function createWindow() {
     },
   });
   win.removeMenu();
+  lockNavigation(win.webContents, (url) => shell.openExternal(url));
   if (TEST_MODE) win.showInactive();
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('focus', () => send('app:focus'));
