@@ -254,7 +254,9 @@ async function refreshBranches(project) {
   if (project !== active) return;
   const local = list.filter((b) => !b.remote);
   const remote = list.filter((b) => b.remote);
-  sel.innerHTML = `
+  // Detached HEAD is no branch to pick: shown as the current, unselectable state.
+  const detached = project.gitStatus?.branch.name === 'HEAD' ? '<option selected disabled value="HEAD">HEAD staccato</option>' : '';
+  sel.innerHTML = `${detached}
     <optgroup label="Locali">${local.map((b) => `<option ${b.current ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</optgroup>
     ${remote.length ? `<optgroup label="Remoti">${remote.map((b) => `<option>${esc(b.name)}</option>`).join('')}</optgroup>` : ''}`;
 }

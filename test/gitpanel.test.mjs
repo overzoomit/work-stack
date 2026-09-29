@@ -9,6 +9,7 @@ const statusCalls = [];
 let logCalls = 0;
 let statusGate = null;
 let actionGate = null;
+let branchesReply = [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }];
 let statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
 let failCheckout = false;
 Object.assign(globalThis.window.work, {
@@ -23,7 +24,7 @@ Object.assign(globalThis.window.work, {
         await statusGate;
         return structuredClone(statusReply);
       },
-      branches: async () => [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }],
+      branches: async () => branchesReply,
       log: async () => {
         logCalls++;
         return [{ hash: 'c1', parents: [], refs: ['HEAD -> refs/heads/main'], author: 'Anna Rossi', time: Date.now(), subject: 'primo <commit>' }];
@@ -233,4 +234,14 @@ test('cambiando progetto la spunta Amend si toglie: non si modifica per sbaglio 
   calls.length = 0;
   await $('#commit-btn').onclick();
   assert.deepEqual(calls.at(-1), ['commit', { message: 'feat: nuovo', amend: false }]);
+});
+
+test('con HEAD staccato il selettore dei rami lo mostra come stato corrente, non come un ramo da scegliere', async () => {
+  statusReply = { branch: { name: 'HEAD', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
+  branchesReply = [{ name: 'main', current: false, remote: false }];
+  await showGit({ path: '/det', root: '/det' });
+  const html = $('#branch-select').innerHTML;
+  assert.match(html, /<option selected disabled value="HEAD">HEAD staccato<\/option>/);
+  assert.match(html, /<option >main<\/option>/);
+  branchesReply = [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }];
 });

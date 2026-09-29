@@ -128,7 +128,8 @@ async function branches(repo) {
   return out.split('\n').filter(Boolean).map((l) => {
     const [head, ref] = l.split(SEP);
     return { ref, name: ref.replace(/^refs\/(heads|remotes)\//, ''), current: head === '*', remote: ref.startsWith('refs/remotes/') };
-  }).filter((b) => !(b.remote && b.ref.endsWith('/HEAD'))).map(({ ref, ...b }) => b);
+  // Detached HEAD shows up as a pseudo-entry "(HEAD detached at …)": not a branch.
+  }).filter((b) => b.ref.startsWith('refs/') && !(b.remote && b.ref.endsWith('/HEAD'))).map(({ ref, ...b }) => b);
 }
 
 // Parent to diff a commit against: first parent, or the empty tree for a root commit.

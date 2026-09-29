@@ -411,3 +411,13 @@ test('un diff enorme viene rifiutato con un messaggio chiaro invece di un errore
   const small = await git.fileDiff(r.dir, { file: 'a.txt' });
   assert.equal(small, '', 'normal diffs still work');
 });
+
+test('con HEAD staccato branches non restituisce la voce finta "(HEAD detached at …)" (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  r.run('checkout', '-q', '--detach');
+  const list = await git.branches(r.dir);
+  assert.deepEqual(list.map((b) => b.name), ['main']);
+  assert.equal(list[0].current, false);
+});
