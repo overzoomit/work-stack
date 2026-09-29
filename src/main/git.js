@@ -238,7 +238,8 @@ async function push(repo) {
   if (!branch) throw new Error('HEAD staccato: crea un branch da qui prima di fare push.');
   const tracked = (await git(repo, ['config', `branch.${branch}.remote`]).catch(() => '')).trim();
   const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
-  const remote = tracked || (remotes.includes('origin') ? 'origin' : remotes[0] || 'origin');
+  if (!tracked && !remotes.length) throw new Error('Nessun remote: aggiungine uno (git remote add origin <url>) per fare push.');
+  const remote = tracked || (remotes.includes('origin') ? 'origin' : remotes[0]);
   return git(repo, ['push', '-u', remote, 'HEAD']);
 }
 

@@ -438,3 +438,10 @@ test('revert e cherry-pick funzionano anche su un commit di merge, rispetto al p
   await git.action(r.dir, 'cherryPick', { hash: merge });
   assert.ok(fs.existsSync(path.join(r.dir, 'b.txt')), 'the merge\'s changes applied on another branch');
 });
+
+test('push senza nessun remote spiega cosa manca invece dell\'errore su "origin" (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  await assert.rejects(git.action(r.dir, 'push', {}), /Nessun remote/);
+});
