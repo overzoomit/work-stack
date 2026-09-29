@@ -19,7 +19,7 @@ export class El {
     this.style = { setProperty() {} }; this.listeners = {}; this.parts = new Map(); this.html = '';
     this.hidden = false; this.textContent = ''; this.disabled = false;
   }
-  set innerHTML(v) { this.html = v; this.parts.clear(); this.first = null; }
+  set innerHTML(v) { this.html = v; this.parts.clear(); this.first = null; for (const c of this.children) c.parent = null; this.children = []; }
   get firstChild() { return (this.first ??= new El()); }
   get innerHTML() { return this.html; }
   set className(v) { this.cls = v; this.classList = new ClassList(); v.split(/\s+/).filter(Boolean).forEach((c) => this.classList.add(c)); }

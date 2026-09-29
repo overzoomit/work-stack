@@ -43,6 +43,23 @@ test('una pagina HTML si vede in un iframe isolato, senza eseguire i suoi script
   closeViewer();
 });
 
+test('gli script di una pagina HTML girano solo dopo averli attivati, per quel file', async () => {
+  files.set('/p/app.html', { text: '<script>1</script>', size: 20 });
+  await previewFile('/p/app.html');
+  const flag = $('#viewer-actions').children.find((b) => b.textContent === 'Esegui script');
+  assert.ok(flag, 'the HTML preview has the flag');
+  assert.doesNotMatch($('#viewer-body').innerHTML, /allow-scripts/, 'off by default');
+  flag.onclick();
+  assert.match($('#viewer-body').innerHTML, /sandbox="allow-scripts allow-forms"/);
+  assert.ok(flag.classList.contains('active'));
+  await previewFile('/p/app.html');
+  assert.doesNotMatch($('#viewer-body').innerHTML, /allow-scripts/, 'opening the file again starts without scripts');
+  files.set('/p/b.txt', { text: 't', size: 1 });
+  await previewFile('/p/b.txt');
+  assert.ok(!$('#viewer-actions').children.some((b) => b.textContent === 'Esegui script'), 'only for HTML');
+  closeViewer();
+});
+
 test('file binari e troppo grandi non vengono mostrati', async () => {
   files.set('/p/dati.bin', { binary: true, size: 10 });
   await previewFile('/p/dati.bin');

@@ -157,9 +157,11 @@ function draw() {
     const box = body.querySelector('.pv-image');
     zoom = zoomable(box, box.querySelector('img'), zoomLabel);
   } else {
-    // No allow-same-origin: the page's scripts can't reach Work or the file system API.
-    // No allow-modals: a page's alert() would block Work's whole window.
-    body.innerHTML = `<iframe class="html-frame" sandbox="allow-forms" src="${esc(srcUrl(path))}"></iframe>`;
+    // Scripts only when asked for, for this file: one could read the other
+    // files of the open projects. Never allow-same-origin (Work's page and
+    // API) nor allow-modals (a page's alert() would block the whole window).
+    const sandbox = current.scripts ? 'allow-scripts allow-forms' : 'allow-forms';
+    body.innerHTML = `<iframe class="html-frame" sandbox="${sandbox}" src="${esc(srcUrl(path))}"></iframe>`;
   }
 }
 
@@ -190,6 +192,14 @@ export async function previewFile(path, { onDiff } = {}) {
     b.id = 'pv-zoom';
     b.classList.add('pv-zoom');
     b.title = 'Adatta ↔ 100% · Ctrl/⌘ + rotella o pinch per lo zoom · + − 0';
+  }
+  if (kind === 'html' && r.text != null) {
+    const b = add('Esegui script', () => {
+      current.scripts = !current.scripts;
+      b.classList.toggle('active', current.scripts);
+      draw();
+    });
+    b.title = 'Esegue il JavaScript della pagina (può leggere gli altri file dei progetti aperti)';
   }
   if (onDiff) add('Mostra differenze', () => closeViewer(onDiff));
   add('Apri con app di sistema', () => work.fs.openPath(path));

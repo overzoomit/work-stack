@@ -24,7 +24,7 @@ L'app installata ha bisogno solo di `git`.
 - **Project**: albero delle cartelle con colori git stile WebStorm (modificato, nuovo, non tracciato,
   ignorato). Tasto destro per creare, rinominare, spostare nel cestino, aprire un terminale;
   trascina per spostare (con "Annulla"). Anteprima dei file con doppio clic: **Markdown e HTML
-  renderizzati** (Anteprima / Sorgente; l'HTML senza eseguire i suoi script), gli altri con numeri di riga.
+  renderizzati** (Anteprima / Sorgente; l'HTML senza i suoi script, a meno di attivare "Esegui script" per quel file), gli altri con numeri di riga.
 - **Git**: stage/unstage, scarta, commit (anche amend), branch, checkout, fetch/pull/push, stash.
   **Graph** di tutti i branch; il dettaglio di un commit mostra messaggio, autore, branch che lo
   contengono, l'albero dei file cambiati con +/− e il **diff affiancato** (o unificato) con le
