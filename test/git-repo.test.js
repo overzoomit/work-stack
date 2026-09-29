@@ -445,3 +445,11 @@ test('push senza nessun remote spiega cosa manca invece dell\'errore su "origin"
   r.commit('init');
   await assert.rejects(git.action(r.dir, 'push', {}), /Nessun remote/);
 });
+
+test('pull senza ramo remoto collegato e stash pop senza stash danno messaggi chiari (regressione)', async () => {
+  const r = repo();
+  r.write('a.txt', '1\n');
+  r.commit('init');
+  await assert.rejects(git.action(r.dir, 'pull', {}), /non segue nessun ramo remoto/);
+  await assert.rejects(git.action(r.dir, 'stashPop', {}), /Nessuno stash da ripristinare/);
+});

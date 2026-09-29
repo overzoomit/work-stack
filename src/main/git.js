@@ -278,10 +278,16 @@ const actions = {
   checkout: (repo, { branch }) => checkout(repo, branch),
   createBranch: (repo, { name, from }) => git(repo, ['checkout', '-b', name, ...(from ? [from] : [])]),
   fetch: (repo) => git(repo, ['fetch', '--all', '--prune']),
-  pull: (repo) => git(repo, ['pull', '--ff-only']),
+  pull: async (repo) => {
+    if (!(await isRef(repo, '@{upstream}'))) throw new Error('Il branch non segue nessun ramo remoto: fai prima push (lo collega) o fai checkout di un ramo remoto.');
+    return git(repo, ['pull', '--ff-only']);
+  },
   push: (repo) => push(repo),
   stash: (repo) => stash(repo),
-  stashPop: (repo) => git(repo, ['stash', 'pop']),
+  stashPop: async (repo) => {
+    if (!(await isRef(repo, 'refs/stash'))) throw new Error('Nessuno stash da ripristinare.');
+    return git(repo, ['stash', 'pop']);
+  },
   merge: (repo, { branch }) => git(repo, ['merge', '--no-edit', branch]),
   cherryPick: async (repo, { hash }) => git(repo, ['cherry-pick', ...(await mainline(repo, hash)), hash]),
   revert: async (repo, { hash }) => git(repo, ['revert', '--no-edit', ...(await mainline(repo, hash)), hash]),
