@@ -11,7 +11,7 @@ WORK_CWD=~/progetti/mio-repo npm run dev     # apre direttamente su un repositor
 npm run build                                # installer in src-tauri/target/release/bundle/
 ```
 
-Requisiti per compilare: Node 20+, Rust stable ([rustup](https://rustup.rs)), `git`. Su Linux servono anche
+Requisiti per compilare: Node 22+, Rust stable ([rustup](https://rustup.rs)), `git`. Su Linux servono anche
 webkit2gtk-4.1 e le librerie di sviluppo di Tauri (Ubuntu 22.04 o più recente):
 `sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
 L'app installata ha bisogno solo di `git`.

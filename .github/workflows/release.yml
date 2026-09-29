@@ -5,6 +5,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Manual run on a branch: builds and tests, publishes nothing.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -46,8 +48,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: Work ${{ github.ref_name }}
           releaseBody: Installer per macOS (Apple Silicon) e Linux (x86_64). Vedi https://overzoomit.github.io/work-stack/
           releaseDraft: false
           prerelease: false
+
+      - if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/rpm/*.rpm
