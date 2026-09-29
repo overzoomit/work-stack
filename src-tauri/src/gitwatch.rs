@@ -176,7 +176,10 @@ mod tests {
         let k = kinds.clone();
         let w = GitWatcher::new(move |_repo, kind| k.lock().unwrap().push(kind));
         w.watch(dir.to_str().unwrap());
-        sleep(Duration::from_millis(100));
+        // FSEvents can deliver the setup's own writes (e.g. `worktree add`) after
+        // watch(): let their 300 ms batch go out, then forget it.
+        sleep(Duration::from_millis(600));
+        kinds.lock().unwrap().clear();
         action();
         sleep(Duration::from_millis(900));
         drop(w); // like stop(): every watcher closed

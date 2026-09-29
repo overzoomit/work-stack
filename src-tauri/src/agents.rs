@@ -1118,6 +1118,8 @@ mod tests {
         .unwrap();
         fsw.watch(root.path(), RecursiveMode::NonRecursive).unwrap();
         fsw.watch(file.parent().unwrap(), RecursiveMode::NonRecursive).unwrap();
+        // FSEvents can deliver the setup's own writes after watch(): drain them first.
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
         let _ = fs::read_dir(root.path()).unwrap().count(); // what watch_dirs and scan do
         let _ = fs::read(&file).unwrap(); // what flush does
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "our own reads must not loop back");
