@@ -68,7 +68,7 @@ bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer 
 - [x] **T9: Via Electron.** Rimuovi `src/main/`, `electron`, i test JS del main già portati; aggiorna README
   (avvio, requisiti, struttura, debug) e `evaluate.sh` se serve.
   - Accetta: `npm test` e `cargo test` verdi; nessun riferimento a Electron nel codice. Dipende da: T2–T8.
-- [ ] **T10: Installer.** `npm run build` produce `.dmg` (macOS) e `.deb`/`.AppImage` (Linux, da compilare
+- [x] **T10: Installer.** `npm run build` produce `.dmg` (macOS) e `.deb`/`.AppImage` (Linux, da compilare
   su Linux), icone da `assets/`.
   - Accetta: il `.dmg` si installa e si avvia da Finder (PATH del login shell per git e agenti). Dipende da: T9.
 - [ ] **T11: Misure.** CPU a riposo, memoria (PSS/footprint), dimensione del bundle, `seq 1 1000000`;

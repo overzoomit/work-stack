@@ -25,6 +25,37 @@ pub fn is_own_page(url: &Url, dev: Option<&Url>) -> bool {
         || dev.is_some_and(|d| d.origin() == url.origin())
 }
 
+// Started from Finder or a desktop launcher, Work gets the system's bare PATH
+// (no Homebrew, no ~/.local/bin), so git and the agent CLIs may not be found.
+// The login shell's PATH is the one a terminal would have. From a terminal,
+// the PATH is already the user's.
+pub fn adopt_login_path() {
+    if std::env::var_os("TERM").is_some() {
+        return;
+    }
+    if let Some(path) = login_path(&crate::pty::user_shell()) {
+        std::env::set_var("PATH", path); // before any thread starts
+    }
+}
+
+pub fn login_path(shell: &str) -> Option<String> {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let mut child = Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    // A profile waiting for input must not hold the start up.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while child.try_wait().ok()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().ok()?;
+    let path = String::from_utf8(out.stdout).ok()?;
+    (out.status.success() && path.contains('/')).then_some(path)
+}
+
 pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
     let dev = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
@@ -173,6 +204,13 @@ pub fn debug_log(level: String, msg: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_login_shell_gives_its_path() {
+        let path = login_path("/bin/sh").expect("sh prints its PATH");
+        assert!(path.split(':').any(|d| d == "/usr/bin" || d == "/bin"), "{path}");
+        assert_eq!(login_path("/percorso/vuoto/shell"), None);
+    }
 
     #[test]
     fn only_web_and_mail_links_open_outside() {

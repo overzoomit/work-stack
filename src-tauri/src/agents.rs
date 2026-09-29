@@ -801,7 +801,7 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
         return safe;
     }
     let script = safe.iter().map(|c| format!("command -v {c} >/dev/null 2>&1 && echo {c}")).collect::<Vec<_>>().join("; ");
-    let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/bash".into());
+    let shell = crate::pty::user_shell();
     let child = tokio::process::Command::new(shell)
         .arg("-lc")
         .arg(format!("{script}; true"))

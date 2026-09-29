@@ -50,6 +50,7 @@ fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Resu
 }
 
 fn main() {
+    app::adopt_login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

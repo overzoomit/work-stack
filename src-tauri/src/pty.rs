@@ -127,8 +127,20 @@ fn exit_code(status: libc::c_int) -> i32 {
     }
 }
 
-fn default_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.into())
+// The user's shell: $SHELL, else the account's login shell (an app started
+// from Finder or a desktop launcher may have no $SHELL), else the OS default.
+pub fn user_shell() -> String {
+    if let Some(sh) = std::env::var("SHELL").ok().filter(|s| !s.is_empty()) {
+        return sh;
+    }
+    let pw = unsafe { libc::getpwuid(libc::getuid()) };
+    if !pw.is_null() {
+        let sh = unsafe { std::ffi::CStr::from_ptr((*pw).pw_shell) }.to_string_lossy().into_owned();
+        if !sh.is_empty() {
+            return sh;
+        }
+    }
+    if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.into()
 }
 
 fn home() -> PathBuf {
@@ -137,7 +149,7 @@ fn home() -> PathBuf {
 
 impl PtyManager {
     pub fn new(on_data: OnData, on_exit: OnExit) -> Self {
-        Self { shell: default_shell(), sessions: Default::default(), next_id: AtomicU32::new(1), on_data, on_exit }
+        Self { shell: user_shell(), sessions: Default::default(), next_id: AtomicU32::new(1), on_data, on_exit }
     }
 
     pub fn create(&self, opts: CreateOpts) -> u32 {
