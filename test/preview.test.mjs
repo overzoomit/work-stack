@@ -34,8 +34,10 @@ test('una pagina HTML gira in un iframe isolato: script sì, accesso a Work no',
   files.set('/p/pagina.html', { text: '<script>1</script>', size: 20 });
   await previewFile('/p/pagina.html');
   const html = $('#viewer-body').innerHTML;
-  assert.match(html, /<iframe class="html-frame" sandbox="allow-scripts allow-forms allow-modals" src="file:\/\/\/p\/pagina\.html"><\/iframe>/);
+  assert.match(html, /<iframe class="html-frame" sandbox="[^"]*allow-scripts[^"]*" src="file:\/\/\/p\/pagina\.html"><\/iframe>/);
   assert.doesNotMatch(html, /allow-same-origin/);
+  // alert() from the page would block Work's whole window until dismissed (regressione).
+  assert.doesNotMatch(html, /allow-modals/);
   closeViewer();
 });
 

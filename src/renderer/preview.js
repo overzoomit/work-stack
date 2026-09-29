@@ -87,7 +87,8 @@ function draw() {
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
   else {
     // No allow-same-origin: the page's scripts can't reach Work or the file system API.
-    body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms allow-modals" src="${esc(fileUrl(path))}"></iframe>`;
+    // No allow-modals: a page's alert() would block Work's whole window.
+    body.innerHTML = `<iframe class="html-frame" sandbox="allow-scripts allow-forms" src="${esc(fileUrl(path))}"></iframe>`;
   }
 }
 
