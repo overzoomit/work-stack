@@ -30,6 +30,27 @@ function textOf(content) {
   return content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
 }
 
+// The permission mode is written once per turn: a long autonomous run can
+// push it out of the tail read at start. Look for its last value before
+// `end`, reading backwards in blocks.
+const MODE = /"permissionMode":"(\w+)"/g;
+function lastModeBefore(file, end) {
+  const BLOCK = 1024 * 1024;
+  const fd = fs.openSync(file, 'r');
+  try {
+    for (let pos = end; pos > 0; pos -= BLOCK) {
+      const start = Math.max(0, pos - BLOCK);
+      const buf = Buffer.alloc(Math.min(end, pos + 64) - start); // overlap: a match cut at a block edge
+      fs.readSync(fd, buf, 0, buf.length, start);
+      const found = [...buf.toString('latin1').matchAll(MODE)].pop();
+      if (found) return found[1];
+    }
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 class Session {
   constructor(file) {
     this.file = file;
@@ -58,7 +79,8 @@ class Session {
       this.decoder = new StringDecoder('utf8');
     }
     if (st.size === this.offset) return false;
-    if (this.offset === 0 && st.size > TAIL_BYTES) this.offset = st.size - TAIL_BYTES;
+    let skipped = 0;
+    if (this.offset === 0 && st.size > TAIL_BYTES) this.offset = skipped = st.size - TAIL_BYTES;
 
     const fd = fs.openSync(this.file, 'r');
     const buf = Buffer.alloc(st.size - this.offset);
@@ -77,6 +99,7 @@ class Session {
         // first line of a tail read may be cut in half
       }
     }
+    if (skipped && !this.permissionMode) this.permissionMode = lastModeBefore(this.file, skipped);
     return true;
   }
 

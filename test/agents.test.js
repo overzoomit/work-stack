@@ -311,3 +311,12 @@ test('in modalità bypass permessi un tool lungo resta "al lavoro", non "attende
   s.mtime = Date.now() - 20000;
   assert.deepEqual(s.status, { state: 'blocked', label: 'Attende permesso: Edit' });
 });
+
+test('la modalità bypass si trova anche se è prima degli ultimi 256 KB letti di un transcript lungo (regressione)', () => {
+  const mode = line({ type: 'permission-mode', permissionMode: 'bypassPermissions' });
+  const filler = reply('x'.repeat(300)).repeat(1200); // ~400 KB of an autonomous run
+  const s = new Session(transcript(`${UUID}.jsonl`, mode, user('fai tutto'), filler, toolUse('Bash', { command: 'npm run build' })));
+  s.read();
+  s.mtime = Date.now() - 60000;
+  assert.deepEqual(s.status, { state: 'working', label: 'Esegue Bash' });
+});
