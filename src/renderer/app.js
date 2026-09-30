@@ -696,11 +696,13 @@ async function refreshStats() {
     }
   }
   for (const { path, run } of valid) await addProject(path, { activate: false, withTerminal: false, run });
+  // `work <folder>` from a terminal: that folder wins over the last active one.
+  const opened = info.open && await addProject(info.open, { activate: false, withTerminal: false });
   if (!projects.length) {
     const root = await work.git.root(info.cwd);
     if (root) await addProject(root, { activate: false, withTerminal: false });
   }
-  const first = projects.find((p) => p.path === saved.active) || projects[0];
+  const first = opened || projects.find((p) => p.path === saved.active) || projects[0];
   if (first) {
     await activateProject(first);
     if (!terminalsOf(first).length) openTerminal(first);

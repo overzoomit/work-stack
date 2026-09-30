@@ -161,6 +161,7 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
 pub fn app_info(app: AppHandle) -> Value {
     let home = app.path().home_dir().unwrap_or_default();
     let cwd = std::env::var("WORK_CWD").map(PathBuf::from).or_else(|_| std::env::current_dir()).unwrap_or_else(|_| home.clone());
+    let open = std::env::current_dir().ok().and_then(|d| open_arg(std::env::args(), &d).ok().flatten());
     let platform = match std::env::consts::OS {
         "macos" => "darwin",
         os => os,
@@ -173,6 +174,7 @@ pub fn app_info(app: AppHandle) -> Value {
     json!({
         "home": home,
         "cwd": cwd,
+        "open": open,
         "platform": platform,
         "arch": arch,
         "version": app.package_info().version.to_string(),
