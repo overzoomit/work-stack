@@ -27,16 +27,16 @@ Il lavoro è diviso in due branch, ognuno verificato sul proprio sistema operati
 | Branch | Base | Contenuto | Dove si verifica |
 |---|---|---|---|
 | `cli-open-mac` | `main` | Nucleo multipiattaforma (`open_arg`, distacco, single-instance, `app:open` nel renderer) + wrapper macOS e README | macOS, in locale (Apple Silicon) |
-| `install-linux` (PR #2) | `cli-open-mac` | Correzioni all'installer + app_id Wayland | Linux: container Docker arm64 Ubuntu 24.04 con Xvfb (X11) e Weston headless (Wayland) |
+| `install-linux` (PR #2) | `cli-open-mac` | Correzioni all'installer + app_id Wayland | PC Linux con desktop, tramite `tasks/linux-check.sh` |
 
 Il nucleo sta nel branch mac perché è l'unico sistema su cui si prova la GUI in locale. Il branch Linux è
-costruito sopra, quindi l'ordine di merge è: prima `cli-open-mac`, poi la PR #2 (che dopo il rebase mostra
-solo le modifiche Linux).
+costruito sopra (merge, non rebase: niente force-push sul branch di Flavio), quindi l'ordine di merge è:
+prima `cli-open-mac`, poi la PR #2, che a quel punto mostra solo le modifiche Linux.
 
-Nel container le prove si verificano senza guardare lo schermo: lo stato salvato
+`tasks/linux-check.sh` verifica senza guardare lo schermo: lo stato salvato
 (`WORK_USER_DATA/state.json`) dice quali progetti sono aperti e qual è attivo, `pgrep` conta i processi,
-`WAYLAND_DEBUG=1` mostra l'app_id. L'aspetto del menu applicazioni e della dock va controllato a occhio su
-una distro vera (Flavio) prima del merge della PR #2.
+`WAYLAND_DEBUG=1` mostra l'app_id. L'aspetto del menu applicazioni e della dock va controllato a occhio
+prima del merge della PR #2.
 
 ## Stack
 
@@ -133,14 +133,14 @@ pub fn open_arg(args: impl IntoIterator<Item = String>, cwd: &Path) -> Result<Op
 6. `npm run dev` resta attaccato al terminale.
 7. Il wrapper del README, installato come indicato, fa funzionare i punti 2–4 da qualunque shell, con icona e nome di Work nella dock.
 
-**`install-linux` (verificato in container Linux)**
+**`install-linux` (verificato su un PC Linux)**
 
-8. `npm test` verde nel container.
+8. `npm test` verde su Linux.
 9. `npm run install:linux` riesce senza `rustup` e senza root; crea binario, icone e file `.desktop` (valido per `desktop-file-validate`).
-10. Con Xvfb e con Weston headless: i punti 2–5 valgono anche su Linux, verificati tramite `state.json` e `pgrep`.
+10. I punti 2–4 valgono anche su Linux, verificati tramite `state.json` e `pgrep`.
 11. Il nome del file `.desktop` coincide con l'app_id letto da `WAYLAND_DEBUG=1`.
 12. L'installer lanciato su macOS esce con 1 e un messaggio.
-13. Prima del merge: Flavio conferma su una distro vera icona nel menu e nella dock.
+13. Prima del merge: icona corretta nel menu applicazioni e nella dock, controllata a occhio.
 
 ## Domande aperte
 

@@ -27,28 +27,22 @@ Spec: `SPEC-cli-open.md`. Due branch, in quest'ordine.
   - File: `README.md`
 - [ ] **Checkpoint Mac**: criteri 1–7 verificati, revisione con l'utente, push di `cli-open-mac` e PR.
 
-## Branch `install-linux` (PR #2, sopra `cli-open-mac`, verificato in container)
+## Branch `install-linux` (PR #2, sopra `cli-open-mac`, verificato su un PC Linux)
 
-- [ ] **L0: rebase della PR su `cli-open-mac`**
-  - Chiedere prima: serve un force-push sul branch di Flavio.
-- [ ] **L1: ambiente di prova Linux**
-  - Accettazione: immagine Docker arm64 Ubuntu 24.04 con dipendenze Tauri (come `release.yml`), Node 22, Rust, Xvfb, Weston, `desktop-file-utils`. Dockerfile nello scratchpad, fuori dal repo.
-  - Verifica: `npm test` verde nel container (criterio 8).
-- [ ] **L2: correzioni all'installer**
-  - Accettazione: controllo `uname`, via `rustup`, `Exec` tra virgolette; criteri 9 e 12.
-  - Verifica: `npm run install:linux` nel container; `desktop-file-validate`; `bash scripts/install-linux.sh` su macOS esce con 1.
+- [x] **L0: `cli-open-mac` dentro la PR**
+  - Merge invece del rebase: nessuna riscrittura della storia di Flavio, push senza force.
+- [x] **L1: ambiente di prova Linux**
+  - Il container Docker sul Mac è saltato (disco pieno): le prove girano su un PC Linux vero, con `tasks/linux-check.sh`.
+- [x] **L2: correzioni all'installer**
+  - Controllo `uname`, via `rustup`, `Exec` tra virgolette. Su macOS lo script esce con 1 (verificato).
   - File: `scripts/install-linux.sh`
 - [ ] **L3: app_id Wayland**
-  - Accettazione: nome del file `.desktop` uguale all'app_id (criterio 11).
-  - Verifica: Weston headless + `WAYLAND_DEBUG=1`, grep di `set_app_id`.
-  - File: `scripts/install-linux.sh`
+  - Tauri 2 non imposta l'app_id GTK (`enableGTKAppId` è false di default), quindi l'app_id atteso è il nome del binario, `work`, e `work.desktop` dovrebbe già andare bene.
+  - Verifica: `tasks/linux-check.sh`, sezione 11. Se fallisce, rinominare il file `.desktop` come indicato.
 - [ ] **L4: `work .` su Linux**
-  - Accettazione: criterio 10, su Xvfb e su Weston.
-  - Verifica: script di prova nello scratchpad che lancia `work`, controlla `pgrep` e `state.json`.
-- [ ] **Checkpoint Linux**: criteri 8–12, push della PR #2, richiesta a Flavio per il criterio 13.
+  - Verifica: `npm run install:linux && tasks/linux-check.sh` (criteri 8–11).
+- [ ] **Checkpoint Linux**: criteri 8–12 verdi, controllo a occhio di icona nel menu e nella dock (criterio 13).
 
 ## Rischi
 
 - Plugin single-instance su macOS (M3): verificato subito, prima di M4.
-- Il container è arm64: le prove non coprono x86_64, che però è l'architettura della release. Il codice non ha parti specifiche per architettura; la build x86_64 resta coperta da `release.yml`.
-- Nessun desktop vero nel container: menu applicazioni e dock restano a Flavio (criterio 13).
