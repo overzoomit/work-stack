@@ -35,6 +35,29 @@ pub fn open_arg(args: impl IntoIterator<Item = String>, cwd: &Path) -> Result<Op
     }
 }
 
+// `work .` from a terminal gives the prompt back, like `code .`. The folder is
+// checked here, where an error can still be printed; then Work runs again
+// without the terminal (in its own process group) and this process exits.
+#[cfg(not(debug_assertions))]
+pub fn detach_from_terminal() {
+    use std::io::IsTerminal;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    if !std::io::stdin().is_terminal() {
+        return;
+    }
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let open = open_arg(std::env::args(), &cwd).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    });
+    let Ok(exe) = std::env::current_exe() else { return };
+    let child = Command::new(exe).args(open).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn();
+    if child.is_ok() {
+        std::process::exit(0);
+    }
+}
+
 // A second `work <folder>` while Work runs: this window opens it and comes forward.
 #[cfg_attr(debug_assertions, allow(dead_code))]
 pub fn open_again(app: &AppHandle, args: Vec<String>, cwd: String) {

@@ -50,6 +50,8 @@ fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Resu
 }
 
 fn main() {
+    #[cfg(not(debug_assertions))]
+    app::detach_from_terminal();
     app::adopt_login_path();
     let builder = tauri::Builder::default();
     // Release only: `npm run dev` must not hand its launch to the installed Work.
