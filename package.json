@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "install:linux": "scripts/install-linux.sh",
     "test": "node --test \"test/*.test.{js,mjs}\" && cargo test --manifest-path src-tauri/Cargo.toml",
     "postinstall": "node scripts/vendor.mjs"
   },

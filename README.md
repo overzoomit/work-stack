@@ -9,6 +9,7 @@ npm install
 npm run dev                                  # apre nella cartella corrente
 WORK_CWD=~/progetti/mio-repo npm run dev     # apre direttamente su un repository
 npm run build                                # installer in src-tauri/target/release/bundle/
+npm run install:linux                        # Linux: compila e installa in ~/.local (rilanciare dopo ogni aggiornamento)
 ```
 
 Requisiti per compilare: Node 22+, Rust stable ([rustup](https://rustup.rs)), `git`. Su Linux servono anche
