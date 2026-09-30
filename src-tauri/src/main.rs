@@ -51,7 +51,11 @@ fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Resu
 
 fn main() {
     app::adopt_login_path();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Release only: `npm run dev` must not hand its launch to the installed Work.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(app::open_again));
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())

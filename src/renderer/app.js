@@ -716,4 +716,5 @@ async function refreshStats() {
   setInterval(() => refreshGit(active), 20000);
   setInterval(() => projects.filter((p) => p !== active).forEach((p) => refreshGit(p)), 60000);
   work.app.onFocus(() => active?.tree.reload());
+  work.app.onOpen((path) => addProject(path).catch(toastError));
 })().catch(toastError);

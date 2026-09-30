@@ -35,6 +35,18 @@ pub fn open_arg(args: impl IntoIterator<Item = String>, cwd: &Path) -> Result<Op
     }
 }
 
+// A second `work <folder>` while Work runs: this window opens it and comes forward.
+#[cfg_attr(debug_assertions, allow(dead_code))]
+pub fn open_again(app: &AppHandle, args: Vec<String>, cwd: String) {
+    if let Ok(Some(path)) = open_arg(args, Path::new(&cwd)) {
+        let _ = app.emit("app:open", [path]);
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
 // Started from Finder or a desktop launcher, Work gets the system's bare PATH
 // (no Homebrew, no ~/.local/bin), so git and the agent CLIs may not be found.
 // The login shell's PATH is the one a terminal would have. From a terminal,

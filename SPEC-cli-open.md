@@ -48,7 +48,7 @@ Nuova dipendenza: `tauri-plugin-single-instance` v2 (approvata: passa argv e cwd
 **Rust, `main.rs` / `app.rs`**
 - `app::open_arg(args, cwd) -> Result<Option<PathBuf>, String>`: funzione pura. Prende il primo argomento che non è un flag, lo risolve rispetto a `cwd`, lo canonicalizza e controlla `is_dir`. Coperta da unit test.
 - All'inizio di `main()`, solo nelle build release (`cfg!(not(debug_assertions))`, così `npm run dev` non cambia): se stdin è un terminale (`std::io::IsTerminal`), valida l'argomento con `open_arg` (in caso di errore stampa il messaggio ed esce con 1). Poi rilancia se stesso con il percorso assoluto risolto, stdio su null, in un nuovo process group (`CommandExt::process_group(0)`), ed esce con 0. Il figlio non ha un terminale, quindi non si stacca di nuovo.
-- `tauri-plugin-single-instance` registrato per primo. Callback `(app, argv, cwd)`: chiama `open_arg(argv, cwd)`; se ottiene `Some(path)` emette `app:open` con il percorso; in ogni caso toglie la finestra principale dallo stato minimizzato e le dà il focus (`set_focus`).
+- `tauri-plugin-single-instance` registrato per primo, solo nelle build release: altrimenti `npm run dev` passerebbe il lancio al Work installato e uscirebbe. Callback `(app, argv, cwd)`: chiama `open_arg(argv, cwd)`; se ottiene `Some(path)` emette `app:open` con il percorso; in ogni caso toglie la finestra principale dallo stato minimizzato e le dà il focus (`set_focus`).
 - `app_info` aggiunge `"open": <percorso | null>`, calcolato con `open_arg(std::env::args(), current_dir)`.
 
 **Renderer, `app.js` / `bridge.js`**

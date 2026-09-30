@@ -19,6 +19,7 @@ tauri-plugin-opener = "2"
 sysinfo = "0.39.6"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
 
 # Paths of files dragged in from Finder (the page only sees their names).
 [target.'cfg(target_os = "macos")'.dependencies]

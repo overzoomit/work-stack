@@ -60,6 +60,7 @@
       paste: call('app_paste'),
       pathForFile: (file) => dropped.find((p) => p.split('/').pop() === file.name) || null,
       onFocus: listen('app:focus'),
+      onOpen: listen('app:open'),
     },
     projects: {
       load: call('projects_load'),
