@@ -17,6 +17,20 @@ webkit2gtk-4.1 e le librerie di sviluppo di Tauri (Ubuntu 22.04 o più recente):
 `sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
 L'app installata ha bisogno solo di `git`.
 
+### Da terminale: `work .`
+
+`work <cartella>` apre Work su quella cartella come progetto attivo (in una finestra già aperta, se c'è) e
+restituisce subito il prompt; `work` senza argomenti riapre i progetti salvati. Con i pacchetti deb e rpm il
+comando è già installato in `/usr/bin/work`. Su macOS si aggiunge al PATH una volta sola:
+
+```bash
+sudo mkdir -p /usr/local/bin
+printf '#!/bin/sh\nexec /Applications/Work.app/Contents/MacOS/work "$@"\n' | sudo tee /usr/local/bin/work >/dev/null
+sudo chmod +x /usr/local/bin/work
+```
+
+Un wrapper e non un symlink: lanciato dal suo percorso reale, il binario trova il bundle (icona e nome nel Dock).
+
 ## Cosa fa
 
 - **Multi-progetto**: ogni progetto è un tab in alto (`＋ Nuovo` per aprirne un altro) con i propri

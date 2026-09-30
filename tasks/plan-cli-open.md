@@ -4,24 +4,24 @@ Spec: `SPEC-cli-open.md`. Due branch, in quest'ordine.
 
 ## Branch `cli-open-mac` (da `main`, verificato su macOS)
 
-- [ ] **M1: `open_arg` + test**
+- [x] **M1: `open_arg` + test**
   - Accettazione: funzione pura in `app.rs` con i 7 casi della spec coperti da test.
   - Verifica: `cargo test --manifest-path src-tauri/Cargo.toml open_arg`
   - File: `src-tauri/src/app.rs`
-- [ ] **M2: cartella all'avvio**
+- [x] **M2: cartella all'avvio**
   - Accettazione: `app_info` restituisce `open`; al boot il renderer apre `info.open` come tab attivo; senza argomento niente cambia.
   - Verifica: build debug, `src-tauri/target/debug/work /tmp/x` con `WORK_USER_DATA` temporaneo; `state.json` ha `/tmp/x` come `active`.
   - File: `src-tauri/src/app.rs`, `src/renderer/app.js`
-- [ ] **M3: single-instance + `app:open`**
+- [x] **M3: single-instance + `app:open`**
   - Accettazione: seconda istanza passa la cartella alla prima ed esce; la prima apre il tab, esce dallo stato minimizzato e prende il focus.
   - Verifica: due lanci della build debug; `pgrep -x work` = 1; `state.json` contiene entrambe le cartelle.
   - File: `src-tauri/Cargo.toml`, `src-tauri/src/main.rs`, `src/renderer/bridge.js`, `src/renderer/app.js`
   - Rischio: supporto macOS del plugin. Se manca, ripiego della spec (`open -na Work --args`) e si chiede prima di procedere.
-- [ ] **M4: distacco dal terminale (solo release)**
+- [x] **M4: distacco dal terminale (solo release)**
   - Accettazione: da terminale il prompt torna subito; errore su cartella non valida con exit 1; `npm run dev` invariato.
   - Verifica: `npm run build`, poi i criteri 2–6 della spec con il binario in `Work.app`.
   - File: `src-tauri/src/main.rs`
-- [ ] **M5: wrapper macOS + README**
+- [x] **M5: wrapper macOS + README**
   - Accettazione: comando nel README che installa il wrapper; criterio 7.
   - Verifica: installazione del wrapper, `work .` da una nuova shell, icona in dock.
   - File: `README.md`
