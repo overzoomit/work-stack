@@ -1,7 +1,7 @@
 // The window and the app-level commands: info, machine load, folder picker,
 // clipboard, external links, and the renderer's console in debug runs.
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -23,6 +23,16 @@ pub fn is_own_page(url: &Url, dev: Option<&Url>) -> bool {
         || matches!(url.host_str(), Some("tauri.localhost" | "asset.localhost"))
         || url.as_str() == "about:blank"
         || dev.is_some_and(|d| d.origin() == url.origin())
+}
+
+// Like `code .`: the folder given on the command line, resolved against the
+// caller's cwd. Flags are skipped (macOS may still pass -psn_… from Finder).
+pub fn open_arg(args: impl IntoIterator<Item = String>, cwd: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(arg) = args.into_iter().skip(1).find(|a| !a.starts_with('-')) else { return Ok(None) };
+    match cwd.join(&arg).canonicalize() {
+        Ok(path) if path.is_dir() => Ok(Some(path)),
+        _ => Err(format!("work: non è una cartella: {arg}")),
+    }
 }
 
 // Started from Finder or a desktop launcher, Work gets the system's bare PATH
@@ -254,6 +264,24 @@ mod tests {
         let path = login_path("/bin/sh").expect("sh prints its PATH");
         assert!(path.split(':').any(|d| d == "/usr/bin" || d == "/bin"), "{path}");
         assert_eq!(login_path("/percorso/vuoto/shell"), None);
+    }
+
+    #[test]
+    fn work_opens_the_folder_given_on_the_command_line() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("repo/sub")).unwrap();
+        std::fs::write(root.join("file.txt"), "").unwrap();
+        let sub = root.join("repo/sub");
+        let open = |args: &[&str]| open_arg(["work"].iter().chain(args).map(|a| a.to_string()), &sub);
+
+        assert_eq!(open(&[]), Ok(None), "no folder: restore the saved projects");
+        assert_eq!(open(&["."]), Ok(Some(sub.clone())));
+        assert_eq!(open(&["../"]), Ok(Some(root.join("repo"))));
+        assert_eq!(open(&[root.to_str().unwrap()]), Ok(Some(root.clone())));
+        assert_eq!(open(&["-psn_0_12345", "."]), Ok(Some(sub.clone())), "flags are skipped");
+        assert_eq!(open(&["nope"]), Err("work: non è una cartella: nope".into()));
+        assert_eq!(open(&["../../file.txt"]), Err("work: non è una cartella: ../../file.txt".into()));
     }
 
     #[test]
