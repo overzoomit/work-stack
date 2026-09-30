@@ -4,6 +4,11 @@
 # Run it again after every update (git pull) to reinstall.
 set -euo pipefail
 
+if [ "$(uname)" != Linux ]; then
+  echo "install-linux.sh: solo per Linux (su macOS usa il .dmg)" >&2
+  exit 1
+fi
+
 cd "$(dirname "$0")/.."
 
 BIN_DIR="$HOME/.local/bin"
@@ -11,11 +16,6 @@ SHARE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 
 echo "==> Dipendenze npm"
 npm ci
-
-echo "==> Toolchain Rust"
-if command -v rustup >/dev/null; then
-  rustup update stable --no-self-update
-fi
 
 echo "==> Build"
 npx tauri build --no-bundle
@@ -32,7 +32,7 @@ cat > "$SHARE_DIR/applications/work.desktop" <<EOF
 Type=Application
 Name=Work
 Comment=Terminali, git e agenti AI in un'unica dashboard
-Exec=$BIN_DIR/work
+Exec="$BIN_DIR/work"
 Icon=work
 Terminal=false
 Categories=Development;
