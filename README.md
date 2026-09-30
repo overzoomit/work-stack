@@ -21,7 +21,7 @@ L'app installata ha bisogno solo di `git`.
 
 `work <cartella>` apre Work su quella cartella come progetto attivo (in una finestra già aperta, se c'è) e
 restituisce subito il prompt; `work` senza argomenti riapre i progetti salvati. Con i pacchetti deb e rpm il
-comando è già installato in `/usr/bin/work`. Su macOS si aggiunge al PATH una volta sola:
+comando è già installato in `/usr/bin/work`, con `npm run install:linux` in `~/.local/bin/work`. Su macOS si aggiunge al PATH una volta sola:
 
 ```bash
 sudo mkdir -p /usr/local/bin
