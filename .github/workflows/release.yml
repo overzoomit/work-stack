@@ -31,6 +31,8 @@ jobs:
     env:
       # Only whether the macOS signing secrets exist, not their value.
       SIGN_MAC: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
+      # Same for the key that signs the update packages.
+      SIGN_UPDATER: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +57,23 @@ jobs:
 
       - run: npm test
 
+      # The app updates itself from latest.json, which needs packages signed with our
+      # key. Without it (a fork, or before the secret is uploaded) the build skips the
+      # update packages and latest.json: the bundler fails on a public key with no
+      # private one, so the setting is only passed when the key is there.
+      - if: env.SIGN_UPDATER == 'true'
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<UPDATER_KEY_EOF"
+            echo "$UPDATER_KEY"
+            echo "UPDATER_KEY_EOF"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$UPDATER_KEY_PASSWORD"
+            echo "TAURI_ARGS=--config src-tauri/updater.conf.json"
+          } >> "$GITHUB_ENV"
+
       # Signed with the team's certificate, so macOS keeps the permissions
       # granted to Work from one release to the next.
       - if: runner.os == 'macOS' && env.SIGN_MAC == 'true'
@@ -67,6 +86,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         with:
           tauriScript: npx tauri
+          args: ${{ env.TAURI_ARGS }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           releaseName: Work ${{ github.ref_name }}
           releaseBody: Installer per macOS (Apple Silicon) e Linux (x86_64). Vedi https://overzoomit.github.io/work-stack/
@@ -82,6 +102,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: npx tauri
+          args: ${{ env.TAURI_ARGS }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           releaseName: Work ${{ github.ref_name }}
           releaseBody: Installer per macOS (Apple Silicon) e Linux (x86_64). Vedi https://overzoomit.github.io/work-stack/
