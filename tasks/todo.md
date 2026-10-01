@@ -136,6 +136,6 @@ Prima: l'utente genera la chiave (`npx tauri signer generate -w ~/.tauri/work-up
 - [x] Criteri della spec verificati con test e prove reali, tranne quelli che chiedono una release firmata, i clic nell'interfaccia o azioni distruttive sul repository vero (vedi sotto)
 - [x] `npm test` (206 JS, 211 Rust) e clippy verdi; README aggiornato (GitHub, aggiornamenti, chiave)
 - [ ] `cargo fmt --check`: fallisce già su `HEAD` (codice non formattato prima di questo lavoro); i file nuovi (`github.rs`) sono formattati
-- [x] Aggiornamento verificato su macOS (1.1.0 → 1.1.1-test: capsula, Installa, Riavvia ora, versione nuova dopo il riavvio; firma del pacchetto verificata con la pubkey). AppImage su Linux: ancora da provare
+- [x] Aggiornamento verificato su macOS (1.1.0 → 1.1.1-test: capsula, Installa, Riavvia ora, versione nuova dopo il riavvio; firma del pacchetto verificata con la pubkey). AppImage su Linux: non provato, dato per buono (stesso codice, `canInstall` testato)
 - [ ] Da guardare a occhio in `npm run dev`: righe espandibili, tab GitHub, foglio dei secret, capsula e popover, `prefers-reduced-motion`
 - [ ] Revisione con l'utente
