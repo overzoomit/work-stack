@@ -111,6 +111,39 @@ fn now_local() -> String {
     )
 }
 
+// Watchdog of the main thread, where the window and the synchronous commands
+// run: every second a no-op is posted there. Not run within 2 s: one line
+// "main fermo", then one "main ripartito" when it runs (one pair per episode).
+// Past 5 s, `stalled` gets the ms too (the UI offers to export the log).
+// It ends when `post` drops the no-op instead of running it (app exiting).
+pub fn watchdog(post: impl Fn(Box<dyn FnOnce() + Send>), stalled: impl Fn(u128)) {
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+    loop {
+        let (tx, rx) = channel();
+        let sent = Instant::now();
+        post(Box::new(move || {
+            let _ = tx.send(());
+        }));
+        match rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(()) => {}
+            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {
+                log(Level::Warn, "main", "main fermo da 2 s");
+                if rx.recv().is_err() {
+                    return;
+                }
+                let ms = sent.elapsed().as_millis();
+                log(Level::Warn, "main", format!("main ripartito dopo {ms} ms"));
+                if ms > 5000 {
+                    stalled(ms);
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,6 +176,41 @@ mod tests {
         assert!(wanted(Level::Debug, true));
         assert!(wanted(Level::Info, false));
         assert!(wanted(Level::Warn, false));
+    }
+
+    #[test]
+    fn a_stalled_main_thread_logs_one_pair_of_lines() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = AtomicU32::new(0);
+        let stalled = Mutex::new(vec![]);
+        watchdog(
+            |noop| match calls.fetch_add(1, Ordering::SeqCst) {
+                // The first no-op runs 3 s late, as behind a blocked main thread.
+                0 => drop(std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    noop()
+                })),
+                1 => noop(),
+                _ => drop(noop), // the app exits
+            },
+            |ms| stalled.lock().unwrap().push(ms),
+        );
+        let logged = CAPTURED.lock().unwrap().join("");
+        let main: Vec<&str> = logged
+            .lines()
+            .filter(|l| l.contains(" main     "))
+            .collect();
+        assert_eq!(main.len(), 2, "{logged}");
+        assert!(
+            main[0].ends_with("WARN  main     main fermo da 2 s"),
+            "{}",
+            main[0]
+        );
+        assert!(main[1].contains("main ripartito dopo 3"), "{}", main[1]);
+        assert!(
+            stalled.lock().unwrap().is_empty(),
+            "3 s is under the 5 s of the toast"
+        );
     }
 
     #[test]

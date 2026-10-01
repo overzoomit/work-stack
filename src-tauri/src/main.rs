@@ -73,6 +73,18 @@ fn main() {
             let log = if std::env::var_os("WORK_USER_DATA").is_some() { dir.clone() } else { app.path().app_log_dir()? };
             diag::init(&log.join("work.log"));
             app::log_start(app.handle());
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let main = handle.clone();
+                diag::watchdog(
+                    move |noop| {
+                        let _ = main.run_on_main_thread(noop);
+                    },
+                    move |ms| {
+                        let _ = handle.emit("diag:stalled", [ms as u64]);
+                    },
+                )
+            });
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
             allow_projects(app.handle(), &state);

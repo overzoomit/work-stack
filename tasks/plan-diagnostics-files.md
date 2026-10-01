@@ -67,7 +67,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     storia: righe `has_history` coerenti con il pulsante "Continua".
   - File: `src-tauri/src/agents.rs`
   - Dipende da: D1 · Scope: S
-- [ ] **D5: finestra congelata (watchdog, comandi lenti, stallo JS)**
+- [x] **D5: finestra congelata (watchdog, comandi lenti, stallo JS)**
   - Accettazione: thread watchdog con `run_on_main_thread`, una riga `main fermo` e una
     `main ripartito dopo N ms` per episodio, `diag:stalled` oltre 5 s; in `bridge.js` `call` misura le
     `invoke` (>2 s `WARN`, tranne `app_pick_folder`/`app_export_log`) e registra i rifiuti; intervallo

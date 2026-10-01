@@ -4,7 +4,20 @@
   const { invoke, Channel } = window.__TAURI__.core;
   const { listen: on } = window.__TAURI__.event;
 
-  const call = (cmd, ...names) => (...args) => invoke(cmd, Object.fromEntries(names.map((n, i) => [n, args[i]])));
+  // Every command is timed here: a slow one (over 2 s) and a failed one go to
+  // the log. The folder picker and the log export wait for the user.
+  const waitsForUser = new Set(['app_pick_folder', 'app_export_log']);
+  const call = (cmd, ...names) => (...args) => {
+    const start = performance.now();
+    const slow = () => {
+      const ms = Math.round(performance.now() - start);
+      if (ms > 2000 && !waitsForUser.has(cmd)) log('warn', `lento: ${cmd} ${ms} ms`);
+    };
+    return invoke(cmd, Object.fromEntries(names.map((n, i) => [n, args[i]]))).then(
+      (r) => { slow(); return r; },
+      (e) => { slow(); log('warn', `${cmd} fallito: ${e?.message ?? e}`); throw e; },
+    );
+  };
   // Fire and forget, like ipcRenderer.send: a failure has no caller to reach.
   const send = (cmd, ...names) => (...args) => { call(cmd, ...names)(...args).catch(() => {}); };
   const listen = (event) => (cb) => {
@@ -37,6 +50,16 @@
   }
   window.addEventListener('error', (e) => log('error', e.error?.stack || e.message));
   window.addEventListener('unhandledrejection', (e) => log('error', e.reason?.stack || e.reason));
+
+  // A JS stall: the 1 s timer fires late. Only with the page visible, since
+  // WebKit slows the timers of hidden pages on purpose.
+  let tick = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    if (now - tick > 3000 && document.visibilityState === 'visible') log('warn', `renderer fermo ${Math.round(now - tick)} ms`);
+    tick = now;
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { tick = performance.now(); });
 
   // Files dragged in from outside carry only their names in the page, matched
   // here with their paths: macOS keeps them on the drag pasteboard (read as
