@@ -189,3 +189,31 @@ test('un file cambiato su disco mostra la striscia: Sovrascrivi forza, Ricarica 
   assert.ok(actionsByLabel().Modifica, 'saved: back to the preview');
   closeViewer();
 });
+
+test('le righe di un .env: nomi, export, valori vuoti e commenti', async () => {
+  const { envLine, isEnvFile } = await import('../src/renderer/preview.js');
+  assert.deepEqual(envLine('DATABASE_URL=postgres://x'), { key: 'DATABASE_URL', eq: '=', value: 'postgres://x' });
+  assert.deepEqual(envLine('export API_KEY = "abc"'), { key: 'export API_KEY', eq: ' = ', value: '"abc"' });
+  assert.deepEqual(envLine('VUOTO='), { key: 'VUOTO', eq: '=', value: '' });
+  assert.deepEqual(envLine('  # commento'), { comment: '  # commento' });
+  assert.equal(envLine('testo libero'), null);
+  assert.equal(envLine(''), null);
+  assert.ok(isEnvFile('/p/.env.local') && isEnvFile('/p/.env'));
+  assert.ok(!isEnvFile('/p/config.env') && !isEnvFile('/p/env.txt'));
+});
+
+test('un .env si apre con i valori visibili; "Nascondi valori" li copre tutti', async () => {
+  files.set('/p/.env', { text: '# db\nDB=segreto\nVUOTO=\n', size: 22, mtime: 1, utf8: true });
+  await previewFile('/p/.env');
+  const html = () => $('#viewer-body').firstChild.children.map((c) => c.innerHTML).join('');
+  assert.match(html(), /<span class="env-key">DB<\/span>=<span class="env-val">segreto<\/span>/);
+  assert.match(html(), /<span class="env-comment"># db<\/span>/);
+  actionsByLabel()['Nascondi valori'].onclick();
+  await tick();
+  assert.doesNotMatch(html(), /segreto/);
+  assert.match(html(), /••••••••••/);
+  assert.ok(actionsByLabel()['Mostra valori']);
+  assert.match($('#viewer-foot').innerHTML, /4 righe · 22 byte · UTF-8/);
+  assert.match($('#viewer-foot').innerHTML, /<kbd>esc<\/kbd> Chiudi/);
+  closeViewer();
+});

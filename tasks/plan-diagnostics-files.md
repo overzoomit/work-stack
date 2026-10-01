@@ -176,7 +176,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
   - Verifica: a mano, file cambiato da un terminale durante la modifica.
   - File: `src/renderer/preview.js`, `src/renderer/style.css`
   - Dipende da: E2 · Scope: S
-- [ ] **E4: vista `.env` e piè dell'anteprima**
+- [x] **E4: vista `.env` e piè dell'anteprima**
   - Accettazione: righe `NOME=valore` (anche `export`) colorate, commenti attenuati; valori visibili,
     occhio per riga, "Nascondi/Mostra valori" (non ricordato); piè con righe, byte, UTF-8, scorciatoia.
   - Verifica: test sul parsing (`export`, valori vuoti, commenti); a mano su un `.env` con permessi

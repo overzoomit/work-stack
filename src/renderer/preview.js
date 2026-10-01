@@ -98,9 +98,35 @@ function zoomable(box, img, label) {
   return { by: (k) => set(scale() * k), fit: () => set(0), toggle: () => toggle() };
 }
 
+// ── .env files ──────────────────────────────────────────────
+// Values are shown when the file opens; the eye on a line or "Nascondi
+// valori" covers them, for this opening only.
+export const isEnvFile = (path) => basename(path).startsWith('.env');
+const ENV_LINE = /^(\s*(?:export\s+)?[A-Za-z_][\w.-]*)(\s*=\s*)(.*)$/;
+
+// { comment } for a comment, { key, eq, value } for NAME=value, null otherwise.
+export function envLine(line) {
+  if (/^\s*#/.test(line)) return { comment: line };
+  const m = ENV_LINE.exec(line);
+  return m && { key: m[1], eq: m[2], value: m[3] };
+}
+
+const EYE = '<svg width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1 5C2.6 2.2 4.6.8 7 .8s4.4 1.4 6 4.2c-1.6 2.8-3.6 4.2-6 4.2S2.6 7.8 1 5Z"/><circle cx="7" cy="5" r="1.8"/></svg>';
+
+function envHtml(l, i) {
+  const e = envLine(l);
+  if (!e) return esc(l);
+  if (e.comment != null) return `<span class="env-comment">${esc(e.comment)}</span>`;
+  const hidden = current.hideAll || current.hidden.has(i);
+  const value = hidden && e.value ? '<span class="env-masked">••••••••••</span>' : esc(e.value);
+  const eye = e.value ? `<button class="env-eye${hidden ? ' off' : ''}" data-l="${i}" title="${hidden ? 'Mostra' : 'Nascondi'} il valore" aria-label="${hidden ? 'Mostra' : 'Nascondi'} il valore">${EYE}</button>` : '';
+  return `<span class="env-key">${esc(e.key)}</span>${esc(e.eq)}<span class="env-val">${value}</span>${eye}`;
+}
+
 // Up to 1 MB of text: inserted in blocks so large files open without freezing.
 function drawSource(body, text) {
-  const lines = text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span><span class="code">${esc(l) || '&nbsp;'}</span>`);
+  const env = isEnvFile(current.path);
+  const lines = text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span><span class="code">${(env ? envHtml(l, i) : esc(l)) || '&nbsp;'}</span>`);
   body.innerHTML = '<div class="pv-source"></div>';
   const host = body.firstChild;
   return insertChunked(body, lines, { size: 500, className: 'pv', place: (el) => host.append(el) });
@@ -153,7 +179,18 @@ export function linkTarget(href, base) {
   return { local: decodeURIComponent(new URL(href, base).pathname) };
 }
 
+// Lines, bytes, encoding, and what Esc does now.
+function drawFoot() {
+  const { text, size, utf8, edit: editing } = current;
+  const facts = [];
+  if (text != null && size != null) facts.push(`${text.split('\n').length.toLocaleString('it')} righe`);
+  if (size != null) facts.push(`${size.toLocaleString('it')} byte`);
+  if (text != null && utf8 != null) facts.push(utf8 ? 'UTF-8' : 'non UTF-8');
+  $('#viewer-foot').innerHTML = `<span>${facts.join(' · ')}</span><span><kbd>esc</kbd> ${editing ? 'Annulla' : 'Chiudi'}</span>`;
+}
+
 function draw() {
+  drawFoot();
   const { path, kind, text } = current;
   // Raster images have no source to show; SVG keeps the toggle. A line to
   // show (from the search) is in the source.
@@ -213,6 +250,7 @@ function startEdit() {
   const body = $('#viewer-body');
   resetChunks(body);
   body.classList.remove('rendered');
+  drawFoot();
   body.innerHTML = '<div class="pv-edit"><pre class="pv-edit-lines" aria-hidden="true"></pre><textarea class="pv-edit-text" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Testo del file"></textarea></div>';
   const ta = editor();
   ta.value = text;
@@ -245,6 +283,7 @@ async function save(force = false) {
     if (current?.path !== path) return;
     current.mtime = r.mtime;
     current.text = text;
+    current.size = new TextEncoder().encode(text).length;
     stopEdit();
     toast(`${basename(path)} salvato`);
   } catch (e) {
@@ -356,6 +395,14 @@ function drawActions() {
     b.title = 'Esegue il JavaScript della pagina (può leggere gli altri file dei progetti aperti)';
   }
   if (current.editable) add('Modifica', startEdit);
+  if (isEnvFile(path) && text) {
+    add(current.hideAll ? 'Mostra valori' : 'Nascondi valori', () => {
+      current.hideAll = !current.hideAll;
+      current.hidden.clear();
+      drawActions();
+      draw();
+    });
+  }
   if (onDiff) add('Mostra differenze', () => requestClose(onDiff));
   add('Apri con app di sistema', () => work.fs.openPath(path));
 }
@@ -374,6 +421,7 @@ export async function previewFile(path, opts = {}) {
   current = {
     path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff, line,
     mtime: r.mtime, editable: r.utf8 === true && r.text != null && !image, edit: null,
+    size: r.size, utf8: r.utf8, hideAll: false, hidden: new Set(),
   };
   $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
   $('#viewer-dirty').hidden = true;
@@ -381,6 +429,7 @@ export async function previewFile(path, opts = {}) {
   hideConflict();
   drawActions();
 
+  drawFoot();
   if (!image && (r.binary || r.tooBig)) {
     $('#viewer-mode').hidden = true;
     $('#viewer-body').innerHTML = r.binary ? '<div class="d-empty">File binario.</div>'
@@ -427,6 +476,23 @@ $$('#viewer-mode button').forEach((b) => {
 $('#viewer-close').onclick = () => requestClose();
 $('#viewer').addEventListener('pointerdown', (e) => e.target.id === 'viewer' && requestClose());
 $('#viewer-body').addEventListener('click', (e) => {
+  const eye = e.target.closest('.env-eye');
+  if (eye) {
+    // One line: shown again if it was covered by "Nascondi valori" too.
+    const i = Number(eye.dataset.l);
+    const hidden = current.hideAll || current.hidden.has(i);
+    if (current.hideAll) {
+      current.hideAll = false;
+      current.text.split('\n').forEach((l, j) => envLine(l)?.value && current.hidden.add(j));
+      drawActions();
+    }
+    if (hidden) current.hidden.delete(i);
+    else current.hidden.add(i);
+    const top = $('#viewer-body').scrollTop;
+    draw();
+    $('#viewer-body').scrollTop = top;
+    return;
+  }
   const a = e.target.closest('a[data-external], a[data-local]');
   if (!a) return;
   if (a.dataset.external) work.app.openExternal(a.dataset.external);
