@@ -1,19 +1,15 @@
-// Agents: sidebar list (this project first) + detail timeline in the panel.
+// Agents: sidebar list (this project first); a row opens to show its actions.
 import { $, esc, ago, setHtml, contextMenu, ask, toast, toastError } from './ui.js';
-import { tildify } from './paths.js';
 
 const { work } = window;
 
 let agents = [];
 let selected = null;
-let home = '';
-let hooks = {}; // { activeProject(), showTab(name), resume(agent), shellAt(cwd), openRepo(cwd), changed() }
-const seen = new Map();
+let hooks = {}; // { activeProject(), resume(agent), shellAt(cwd), openRepo(cwd), changed() }
 
 export const inside = (cwd, path) => !!cwd && (cwd === path || cwd.startsWith(`${path}/`));
 
 export function initAgents(opts) {
-  home = opts.homeDir;
   hooks = opts;
   work.agents.onUpdate(setAgents);
   work.agents.list().then(setAgents);
@@ -22,8 +18,8 @@ export function initAgents(opts) {
 
 function setAgents(list) {
   agents = list;
+  if (selected && !list.some((a) => a.id === selected)) selected = null;
   renderAgentList();
-  if (selected) renderAgentDetail();
   hooks.changed?.();
 }
 
@@ -35,14 +31,34 @@ export function agentStateFor(path) {
 }
 
 function item(a) {
-  return `<li data-id="${a.id}" class="${a.id === selected ? 'active' : ''}" title="${esc(a.cwd || '')}">
-    <span class="dot ${a.status.state}"></span>
-    <div class="li-main">
-      <div class="li-title">${esc(a.title)}</div>
-      <div class="li-sub">${esc(a.project)} · ${esc(a.status.label)}</div>
-    </div>
-    <span class="li-time">${ago(a.mtime)}</span>
+  const open = a.id === selected;
+  return `<li data-id="${a.id}" class="agent-item${open ? ' open' : ''}" title="${esc(a.cwd || '')}">
+    <button class="agent-row" aria-expanded="${open}">
+      <span class="dot ${a.status.state}"></span>
+      <div class="li-main">
+        <div class="li-title">${esc(a.title)}</div>
+        <div class="li-sub">${esc(a.project)} · ${esc(a.status.label)}</div>
+      </div>
+      <span class="li-time">${ago(a.mtime)}</span>
+      <span class="chev">›</span>
+    </button>
+    <div class="agent-actions"><div><div class="agent-btns">
+      <button class="btn btn-small" data-act="resume">Riprendi</button>
+      <button class="btn btn-small" data-act="shell"${a.cwd ? '' : ' disabled'}>Terminale</button>
+      <button class="btn btn-small" data-act="repo"${a.cwd ? '' : ' disabled'}>Apri progetto</button>
+      ${a.live ? '<button class="btn btn-small btn-danger-text" data-act="close">Chiudi</button>' : ''}
+    </div></div></div>
   </li>`;
+}
+
+// Opens or closes a row on the nodes already there, so the CSS transition runs.
+function toggle(id) {
+  selected = selected === id ? null : id;
+  for (const li of $('#agent-list').querySelectorAll('li[data-id]')) {
+    const open = li.dataset.id === selected;
+    li.classList.toggle('open', open);
+    li.querySelector('.agent-row').setAttribute('aria-expanded', String(open));
+  }
 }
 
 export function renderAgentList() {
@@ -55,18 +71,21 @@ export function renderAgentList() {
   const changed = setHtml(list, (mine.length ? `<li class="list-label">In questo progetto</li>${mine.map(item).join('')}` : '')
     + (others.length ? `<li class="list-label">${mine.length ? 'Altre sessioni' : 'Sessioni recenti'}</li>${others.map(item).join('')}` : ''));
   if (changed) for (const li of list.querySelectorAll('li[data-id]')) {
+    const a = agents.find((x) => x.id === li.dataset.id);
+    if (!a) continue;
     li.oncontextmenu = (e) => {
       e.preventDefault();
-      const a = agents.find((x) => x.id === li.dataset.id);
-      if (a) agentMenu(a, e.clientX, e.clientY);
+      agentMenu(a, e.clientX, e.clientY);
     };
-    li.onpointerdown = (e) => {
-      if (e.button !== 0) return;
-      selected = li.dataset.id;
-      renderAgentList();
-      renderAgentDetail();
-      hooks.showTab('agent');
-    };
+    // Opens on pointerdown, like the other rows; Enter or Space arrive as a click with no pointer.
+    const row = li.querySelector('.agent-row');
+    row.onpointerdown = (e) => e.button === 0 && toggle(a.id);
+    row.onclick = (e) => e.detail === 0 && toggle(a.id);
+    li.querySelector('[data-act="resume"]').onclick = () => hooks.resume(a);
+    li.querySelector('[data-act="shell"]').onclick = () => hooks.shellAt(a.cwd);
+    li.querySelector('[data-act="repo"]').onclick = () => hooks.openRepo(a.cwd);
+    const close = li.querySelector('[data-act="close"]');
+    if (close) close.onclick = () => closeSession(a);
   }
   const working = agents.filter((a) => a.status.state === 'working').length;
   const waiting = agents.filter((a) => a.status.state === 'waiting' || a.status.state === 'blocked').length;
@@ -77,66 +96,11 @@ export function renderAgentList() {
   $('#status-agents').dataset.state = urgent;
 }
 
-async function renderAgentDetail() {
-  const a = agents.find((x) => x.id === selected);
-  const box = $('#agent-detail');
-  if (!a) {
-    box._key = null;
-    box._eventsKey = null;
-    box.innerHTML = '<p class="empty">Seleziona un agente dalla colonna a sinistra.</p>';
-    return;
-  }
-  const key = `${a.id}|${a.eventSeq}|${a.status.state}|${a.status.label}|${ago(a.mtime)}|${a.tokens}|${a.live}`;
-  if (box._key === key) return; // nothing new to show
-  box._key = key;
-  // Events are fetched only for the selected session, and only when new ones arrived.
-  if (box._eventsKey !== `${a.id}|${a.eventSeq}`) {
-    box._events = await work.agents.events(a.id);
-    box._eventsKey = `${a.id}|${a.eventSeq}`;
-    if (box._key !== key) return; // a newer update started rendering meanwhile
-  }
-  const events = box._events;
-  const before = seen.get(a.id) ?? a.eventSeq;
-  const fresh = Math.min(a.eventSeq - before, events.length);
-  seen.set(a.id, a.eventSeq);
-  const time = (ts) => new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const label = { user: 'Tu', text: 'Claude', tool: null, error: 'Errore' };
-
-  box.innerHTML = `
-    <div class="agent-head">
-      <h3>${esc(a.title)}</h3>
-      <div class="li-sub">${esc(tildify(a.cwd, home))}</div>
-    </div>
-    <div class="agent-state">
-      <span class="dot ${a.status.state}"></span>${esc(a.status.label)}
-      <span class="meta">${a.tokens ? `${Math.round(a.tokens / 1000)}k token contesto · ` : ''}${ago(a.mtime)}</span>
-    </div>
-    <div class="agent-buttons">
-      <button class="btn" data-act="resume">Riprendi sessione</button>
-      <button class="btn" data-act="shell">Terminale qui</button>
-      <button class="btn" data-act="repo">Apri come progetto</button>
-      ${a.live ? '<div class="spacer"></div><button class="btn btn-danger-text" data-act="close">Chiudi sessione</button>' : ''}
-    </div>
-    <ul class="timeline">
-      ${events.slice().reverse().map((ev, i) => `
-        <li class="${ev.kind}${i < fresh ? ' new' : ''}">
-          <div class="t-head"><b>${esc(label[ev.kind] ?? ev.tool)}</b><span>${time(ev.ts)}</span></div>
-          <div class="t-body">${esc(ev.text)}</div>
-        </li>`).join('')}
-    </ul>`;
-
-  box.querySelector('[data-act="resume"]').onclick = () => hooks.resume(a);
-  box.querySelector('[data-act="shell"]').onclick = () => hooks.shellAt(a.cwd);
-  box.querySelector('[data-act="repo"]').onclick = () => hooks.openRepo(a.cwd);
-  const close = box.querySelector('[data-act="close"]');
-  if (close) close.onclick = () => closeSession(a);
-}
-
 // Ends the Claude Code process of a session. It interrupts whatever the agent
 // is doing, so it asks first; the conversation stays resumable.
 export async function closeSession(a) {
   const ok = await ask({
-    text: `Chiudere «${a.title}»? Claude Code viene terminato; potrai riprendere la conversazione con «Riprendi sessione».`,
+    text: `Chiudere «${a.title}»? Claude Code viene terminato; potrai riprendere la conversazione con «Riprendi».`,
     input: false,
     danger: true,
     okLabel: 'Chiudi sessione',
@@ -152,7 +116,6 @@ export async function closeSession(a) {
 
 function agentMenu(a, x, y) {
   contextMenu(x, y, [
-    { label: 'Mostra attività', run: () => { selected = a.id; renderAgentList(); renderAgentDetail(); hooks.showTab('agent'); } },
     { label: 'Riprendi sessione', run: () => hooks.resume(a) },
     '-',
     { label: 'Terminale nella cartella', disabled: !a.cwd, run: () => hooks.shellAt(a.cwd) },

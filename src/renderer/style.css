@@ -261,7 +261,7 @@ body.panel-hidden .layout { --right: 0px; }
 .commit-row label { display: flex; gap: 5px; align-items: center; }
 .commit-row input { accent-color: var(--accent); margin: 0; }
 /* Scroll edge effect instead of a hard divider */
-.changes, .graph, .agent-detail {
+.changes, .graph {
   overflow: auto; flex: 1;
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
 }
@@ -300,35 +300,35 @@ body.panel-hidden .layout { --right: 0px; }
 .ref.remote { color: var(--purple); background: rgba(191, 90, 242, .14); }
 .ref.tag { color: var(--yellow); background: rgba(255, 214, 10, .12); }
 
-/* ── Agent detail ── */
-.agent-detail { padding: 6px 16px 16px; }
-.agent-head h3 { margin: 0 0 4px; font-size: 17px; line-height: 1.25; font-weight: 650; letter-spacing: -0.02em; }
-.agent-head .li-sub { color: var(--muted); font: 11px var(--mono); word-break: break-all; }
-.agent-state {
-  display: flex; align-items: center; gap: 10px; margin: 12px 0; padding: 10px 12px;
-  background: var(--bg-3); border-radius: var(--radius-m); box-shadow: inset 0 1px 0 var(--edge); font-weight: 500;
+/* ── Agent rows: click to open the actions ── */
+.list li.agent-item { display: block; padding: 0; }
+.list li.agent-item:active { transform: none; }
+.list li.agent-item.open { background: var(--bg-3-hover); }
+.agent-row {
+  display: flex; gap: 9px; align-items: flex-start; width: 100%; padding: 7px 9px; border-radius: 8px;
+  text-align: left; color: inherit; background: none; border: 0; transition: transform var(--t-press) ease-out;
 }
-.agent-state .dot { margin: 0; }
-.agent-state .meta { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.agent-buttons { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
-.timeline { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); margin-left: 4px; }
-.timeline li { position: relative; padding: 0 0 14px 16px; }
-.timeline li.new { animation: slide-in var(--t-ui) var(--ease-out); }
+.agent-row:active { transform: scale(0.985); }
+.agent-row .chev { flex: none; margin-top: -1px; color: var(--muted); transition: transform var(--t-ui) var(--ease-out); }
+.agent-item.open .chev { transform: rotate(90deg); }
+/* 0fr → 1fr animates the height without measuring it; hidden keeps closed buttons out of the tab order. */
+.agent-actions {
+  display: grid; grid-template-rows: 0fr; visibility: hidden;
+  transition: grid-template-rows var(--t-ui) var(--ease-out), visibility 0s var(--t-ui);
+}
+.agent-item.open .agent-actions { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
+.agent-actions > div { overflow: hidden; min-height: 0; }
+.agent-btns { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 9px 9px 26px; }
+.agent-btns .btn {
+  border-radius: 999px; opacity: 0; transform: translateY(-4px);
+  transition: opacity var(--t-ui) var(--ease-out), transform var(--t-ui) var(--ease-out), background-color var(--t-press) ease-out;
+}
+.agent-item.open .agent-btns .btn { opacity: 1; transform: none; }
+.agent-item.open .agent-btns .btn:active { transform: scale(0.96); transition-duration: var(--t-press); }
 @keyframes slide-in { from { opacity: 0; transform: translateY(-4px); } }
-.timeline li::before {
-  content: ""; position: absolute; left: -4px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--muted);
-}
-.timeline li.user::before { background: var(--accent); }
-.timeline li.tool::before { background: var(--green); }
-.timeline li.error::before { background: var(--red); }
-.timeline .t-head { font-size: 11px; color: var(--muted); display: flex; gap: 6px; }
-.timeline .t-head b { color: var(--text); font-weight: 600; }
-.timeline li.user .t-head b { color: var(--accent); }
-.timeline li.tool .t-head b { color: var(--green); }
-.timeline li.error .t-head b { color: var(--red); }
-.timeline .t-body {
-  margin-top: 3px; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; user-select: text; color: var(--text-2);
-  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+@media (prefers-reduced-motion: reduce) {
+  .agent-row, .agent-row .chev, .agent-actions, .agent-btns .btn { transition: none; }
+  .agent-row:active, .agent-item.open .agent-btns .btn:active { transform: none; }
 }
 .timeline li.tool .t-body { font: 11px/1.5 var(--mono); color: var(--text-2); }
 

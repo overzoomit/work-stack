@@ -710,9 +710,7 @@ more.onclick = (e) => {
   });
   initLauncher({ activeProject: () => active });
   initAgents({
-    homeDir: info.home,
     activeProject: () => active,
-    showTab,
     changed: renderProjectTabs,
     resume: async (a) => {
       const p = projectFor(a.cwd) || await addProject((await work.git.root(a.cwd)) || a.cwd, { withTerminal: false });
