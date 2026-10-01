@@ -10,7 +10,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -834,7 +833,6 @@ fn is_safe_command(c: &str) -> bool {
 // Which agent CLIs are installed, resolved through an interactive login shell
 // (-lic) so nvm / ~/.local/bin paths are found like in a normal terminal.
 pub async fn available(commands: Vec<String>) -> Vec<String> {
-    use tokio::io::AsyncReadExt;
     let safe: Vec<String> = commands.into_iter().filter(|c| is_safe_command(c)).collect();
     if safe.is_empty() {
         return safe;
@@ -842,27 +840,14 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
     let script = safe.iter().map(|c| format!("command -v {c} >/dev/null 2>&1 && echo {c}")).collect::<Vec<_>>().join("; ");
     let shell = crate::pty::user_shell();
     let start = std::time::Instant::now();
-    let child = tokio::process::Command::new(&shell)
-        .arg("-lic")
-        .arg(format!("{script}; printf '\\n{}%s\\n' \"$PATH\"; true", crate::app::PATH_MARK))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn();
-    let Ok(mut child) = child else {
+    let script = format!("{script}; printf '\\n{}%s\\n' \"$PATH\"", crate::app::PATH_MARK);
+    let sh = shell.clone();
+    // What was printed before the timeout still counts.
+    let ran = tokio::task::spawn_blocking(move || crate::app::run_shell(&sh, "-lic", &script, Duration::from_secs(8))).await;
+    let Ok(Ok((out, timed_out))) = ran else {
         log(Level::Warn, "agents", format!("CLI disponibili: {shell} -lic non parte"));
         return vec![];
     };
-    let mut out = Vec::new();
-    let mut timed_out = false;
-    if let Some(mut stdout) = child.stdout.take() {
-        // What was printed before the timeout still counts.
-        timed_out = tokio::time::timeout(Duration::from_secs(8), stdout.read_to_end(&mut out)).await.is_err();
-    }
-    let _ = child.start_kill();
-    let _ = child.wait().await;
-    let out = String::from_utf8_lossy(&out);
     let found: Vec<String> = out.split('\n').filter(|l| safe.iter().any(|c| c == l)).map(String::from).collect();
     let missing: Vec<&str> = safe.iter().filter(|c| !found.contains(c)).map(String::as_str).collect();
     log(

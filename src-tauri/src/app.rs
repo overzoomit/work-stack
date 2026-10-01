@@ -116,23 +116,61 @@ pub fn after_mark(out: &str) -> Option<&str> {
     out.rsplit_once(PATH_MARK).and_then(|(_, rest)| rest.lines().next())
 }
 
-fn shell_path(shell: &str, flags: &str) -> Result<String, &'static str> {
+// Runs `script` (which ends by printing the PATH_MARK line) in the user's
+// shell and returns its output so far, and whether `timeout` cut it short.
+// - In its own session: an interactive shell must not take over the terminal
+//   Work was started from.
+// - The output ends at the marker line, not at EOF: a job the rc leaves in
+//   the background keeps stdout open long after the shell is done.
+// - Then the whole group goes (the shell and what its rc started).
+pub fn run_shell(shell: &str, flags: &str, script: &str, timeout: std::time::Duration) -> Result<(String, bool), &'static str> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-    let print = format!("printf '\\n{PATH_MARK}%s\\n' \"$PATH\"");
-    let mut child = Command::new(shell).args([flags, &print]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| "errore")?;
-    // A profile waiting for input must not hold the start up.
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while child.try_wait().map_err(|_| "errore")?.is_none() {
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            return Err("timeout");
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    use std::sync::{mpsc, Arc};
+    let mut cmd = Command::new(shell);
+    cmd.args([flags, script]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
     }
-    let out = child.wait_with_output().map_err(|_| "errore")?;
-    match after_mark(&String::from_utf8_lossy(&out.stdout)) {
-        Some(path) if out.status.success() && path.contains('/') => Ok(path.to_string()),
+    let mut child = cmd.spawn().map_err(|_| "errore")?;
+    let mut stdout = child.stdout.take().ok_or("errore")?;
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let (done, wait) = mpsc::channel();
+    let shared = buf.clone();
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        while let Ok(n @ 1..) = stdout.read(&mut chunk) {
+            let mut b = shared.lock().unwrap();
+            b.extend_from_slice(&chunk[..n]);
+            if marker_line_done(&b) {
+                break;
+            }
+        }
+        let _ = done.send(());
+    });
+    let timed_out = wait.recv_timeout(timeout).is_err();
+    unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+    let _ = child.wait();
+    let out = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
+    Ok((out, timed_out))
+}
+
+fn marker_line_done(out: &[u8]) -> bool {
+    let mark = PATH_MARK.as_bytes();
+    out.windows(mark.len()).rposition(|w| w == mark).is_some_and(|i| out[i..].contains(&b'\n'))
+}
+
+// A profile waiting for input must not hold the start up: 3 s at most.
+fn shell_path(shell: &str, flags: &str) -> Result<String, &'static str> {
+    let print = format!("printf '\\n{PATH_MARK}%s\\n' \"$PATH\"");
+    let (out, timed_out) = run_shell(shell, flags, &print, std::time::Duration::from_secs(3))?;
+    match after_mark(&out) {
+        Some(path) if path.contains('/') => Ok(path.to_string()),
+        _ if timed_out => Err("timeout"),
         _ => Err("errore"),
     }
 }
@@ -418,6 +456,16 @@ mod tests {
         assert!(path.starts_with("/solo/interattiva:"), "{path}");
         assert!(!path.contains("Benvenuto"), "{path}");
         assert!(outcome.starts_with("-lic ok in "), "{outcome}");
+    }
+
+    #[test]
+    fn a_background_job_of_the_rc_does_not_hold_the_start_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let start = std::time::Instant::now();
+        let (path, outcome) = login_path(&fake_shell(dir.path(), "sleep 30 &"));
+        assert!(path.is_some(), "{outcome}");
+        assert!(outcome.starts_with("-lic ok in "), "{outcome}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
     }
 
     #[test]
