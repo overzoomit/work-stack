@@ -352,7 +352,7 @@ async function reload() {
 
 // Unsaved edits are never dropped silently: a bar asks first. `then` runs
 // once they are discarded.
-function guardEdits(then) {
+export function guardEdits(then) {
   if (!current?.edit?.dirty) return then();
   const bar = $('#viewer-bar');
   bar.innerHTML = `<span class="pv-bar-text">Hai modifiche non salvate in <b>${esc(basename(current.path))}</b>.</span>

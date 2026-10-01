@@ -85,6 +85,8 @@
       setUnsaved: send('app_set_unsaved', 'unsaved'),
       quit: send('app_quit'),
       updateCheck: call('app_update_check'),
+      updateInstall: call('app_update_install'),
+      updateRestart: call('app_update_restart'),
       openExternal: send('app_open_external', 'url'),
       copy: send('app_copy', 'text'),
       paste: call('app_paste'),
@@ -96,6 +98,7 @@
       onStalled: listen('diag:stalled'),
       onQuitRequested: listen('app:quit-requested'),
       onCheckUpdate: listen('app:check-update'),
+      onUpdateProgress: listen('app:update-progress'),
     },
     projects: {
       load: call('projects_load'),

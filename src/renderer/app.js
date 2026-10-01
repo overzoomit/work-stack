@@ -3,7 +3,7 @@ import {
   logExported, stalledToast, moreMenu,
 } from './ui.js';
 import { ProjectTree } from './tree.js';
-import { previewFile } from './preview.js';
+import { previewFile, guardEdits } from './preview.js';
 import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
@@ -767,7 +767,22 @@ more.onclick = (e) => {
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();
   initStatusBar();
-  initUpdate({ version: info.version });
+  initUpdate({
+    version: info.version,
+    guard: guardEdits,
+    // What a restart would end: Work's own terminals, agents and Run processes.
+    liveWork: () => {
+      const n = { terminals: 0, agents: 0, runs: 0 };
+      for (const p of projects) {
+        for (const t of terminalsOf(p).filter((x) => !x.exited)) {
+          if (t.kind === 'agent') n.agents++;
+          else if (t.kind === 'shell') n.terminals++;
+        }
+        n.runs += runningCount(p);
+      }
+      return n;
+    },
+  });
   performance.mark('work:ready'); // boot finished: read with performance.getEntriesByName
 
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).
