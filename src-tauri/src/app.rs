@@ -243,7 +243,28 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         &[&P::undo(app, None)?, &P::redo(app, None)?, &P::separator(app)?, &P::cut(app, None)?, &P::copy(app, None)?, &P::paste(app, None)?, &P::select_all(app, None)?],
     )?;
     let window = Submenu::with_items(app, "Finestra", true, &[&P::minimize(app, None)?, &P::maximize(app, None)?, &P::separator(app)?, &P::bring_all_to_front(app, None)?])?;
-    Menu::with_items(app, &[&app_menu, &edit, &window])
+    let export = tauri::menu::MenuItem::with_id(app, "export-log", "Esporta log…", true, None::<&str>)?;
+    let help = Submenu::with_items(app, "Aiuto", true, &[&export])?;
+    Menu::with_items(app, &[&app_menu, &edit, &window, &help])
+}
+
+// Aiuto › Esporta log… exports from here, without the renderer: it works with
+// the page's JS blocked too. The toast follows through log:exported.
+#[cfg(target_os = "macos")]
+pub fn on_menu(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    if event.id() != "export-log" {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || match crate::diag::export(&app) {
+        Ok(Some(_)) => {
+            let _ = app.emit("log:exported", json!([]));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            let _ = app.emit("log:export-failed", [e]);
+        }
+    });
 }
 
 // ── Commands ─────────────────────────────────────────────────
@@ -283,6 +304,18 @@ pub fn app_stats(stats: tauri::State<Mutex<sysinfo::System>>) -> Value {
 pub async fn app_pick_folder(app: AppHandle) -> Option<String> {
     let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_can_create_directories(true).blocking_pick_folder()).await.ok()??;
     picked.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn app_export_log(app: AppHandle) -> Result<Option<String>, String> {
+    let to = tauri::async_runtime::spawn_blocking(move || crate::diag::export(&app)).await.map_err(|e| e.to_string())??;
+    Ok(to.map(|p| p.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub fn app_reveal_export(app: AppHandle) -> Result<(), String> {
+    let path = crate::diag::last_export().ok_or("Nessun log esportato")?;
+    app.opener().reveal_item_in_dir(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -95,7 +95,10 @@ fn main() {
                 let _ = handle.emit("git:changed", (repo, kind));
             }));
             #[cfg(target_os = "macos")]
-            app.set_menu(app::mac_menu(app.handle())?)?;
+            {
+                app.set_menu(app::mac_menu(app.handle())?)?;
+                app.on_menu_event(app::on_menu);
+            }
             let handle = app.handle().clone();
             let agents = agents::AgentWatcher::new(agents::projects_dir(), claudeprocs::sessions_dir(), move |list| {
                 let _ = handle.emit("agents:update", [list]);
@@ -111,6 +114,8 @@ fn main() {
             app::app_info,
             app::app_stats,
             app::app_pick_folder,
+            app::app_export_log,
+            app::app_reveal_export,
             app::app_open_external,
             app::app_copy,
             app::app_paste,

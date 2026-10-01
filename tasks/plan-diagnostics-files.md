@@ -79,7 +79,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
 - [ ] **Checkpoint A**: build release installata e avviata da Dock; `work.log` ha la riga di avvio con
   `-lic ok`; ✦ pieno; nessun contenuto utente nel log (`grep` su output di terminale, commit,
   transcript). Revisione con l'utente.
-- [ ] **D6: esportazione + menu Aiuto (macOS)**
+- [x] **D6: esportazione + menu Aiuto (macOS)**
   - Accettazione: `app_export_log` (finestra nativa, nome `Work-log-AAAA-MM-GG-HHMM.txt`, intestazione,
     `work.log.1`, `work.log`, `null` se annullato, riga `INFO` prima); `app_reveal_export` senza
     argomenti; menu **Aiuto › Esporta log…** che esporta in Rust ed emette `log:exported`; toast

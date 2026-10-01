@@ -5,7 +5,7 @@
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,6 +32,9 @@ impl fmt::Display for Level {
 const MAX: u64 = 5 * 1024 * 1024;
 
 static FILE: OnceLock<Mutex<File>> = OnceLock::new();
+static PATH: OnceLock<PathBuf> = OnceLock::new();
+// The last exported file: "Mostra nel Finder" reveals it, the renderer passes no path.
+static LAST_EXPORT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 // Tests read back what was logged (lines of parallel tests mix: match on unique text).
 #[cfg(test)]
@@ -39,6 +42,7 @@ pub static CAPTURED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 // Opens the log for the whole run. A log that can't be opened leaves stderr only.
 pub fn init(file: &Path) {
+    let _ = PATH.set(file.to_path_buf());
     rotate(file);
     if let Some(dir) = file.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -92,13 +96,18 @@ fn line(time: &str, level: Level, area: &str, msg: &str) -> String {
     )
 }
 
-fn now_local() -> String {
+fn local_time() -> (libc::tm, u32) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs() as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     unsafe { libc::localtime_r(&secs, &mut tm) };
+    (tm, now.subsec_millis())
+}
+
+fn now_local() -> String {
+    let (tm, ms) = local_time();
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
         tm.tm_year + 1900,
@@ -107,8 +116,69 @@ fn now_local() -> String {
         tm.tm_hour,
         tm.tm_min,
         tm.tm_sec,
-        now.subsec_millis()
+        ms
     )
+}
+
+// Work-log-AAAA-MM-GG-HHMM.txt
+fn export_name() -> String {
+    let (tm, _) = local_time();
+    format!(
+        "Work-log-{:04}-{:02}-{:02}-{:02}{:02}.txt",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min
+    )
+}
+
+// A header line, then work.log.1 (older) and work.log, in this order.
+fn write_export(log: &Path, to: &Path, header: &str) -> std::io::Result<()> {
+    let mut out = File::create(to)?;
+    writeln!(out, "{header}")?;
+    for f in [log.with_extension("log.1"), log.to_path_buf()] {
+        if let Ok(mut src) = File::open(&f) {
+            std::io::copy(&mut src, &mut out)?;
+        }
+    }
+    Ok(())
+}
+
+// Asks where to save the log (the native panel: the user picks the folder, so
+// no permission prompt) and writes it there. None: the user cancelled.
+// Blocks until the panel closes: never call it on the main thread.
+pub fn export(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    log(Level::Info, "app", "esportazione del log");
+    let Some(to) = app
+        .dialog()
+        .file()
+        .set_title("Esporta log di Work")
+        .set_file_name(export_name())
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let to = to.into_path().map_err(|e| e.to_string())?;
+    let log_file = PATH.get().ok_or("Il log non è disponibile")?;
+    let header = format!(
+        "Work {} su {}/{}, esportato il {}",
+        app.package_info().version,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        now_local()
+    );
+    write_export(log_file, &to, &header).map_err(|e| e.to_string())?;
+    *LAST_EXPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(to.clone());
+    Ok(Some(to))
+}
+
+pub fn last_export() -> Option<PathBuf> {
+    LAST_EXPORT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 // Watchdog of the main thread, where the window and the synchronous commands
@@ -211,6 +281,33 @@ mod tests {
             stalled.lock().unwrap().is_empty(),
             "3 s is under the 5 s of the toast"
         );
+    }
+
+    #[test]
+    fn the_export_has_the_header_then_the_old_log_then_the_current_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("work.log");
+        std::fs::write(&log, "nuovo\n").unwrap();
+        let to = dir.path().join("export.txt");
+        write_export(&log, &to, "Work 1.0").unwrap();
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "Work 1.0\nnuovo\n");
+
+        std::fs::write(dir.path().join("work.log.1"), "vecchio\n").unwrap();
+        write_export(&log, &to, "Work 1.0").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&to).unwrap(),
+            "Work 1.0\nvecchio\nnuovo\n"
+        );
+    }
+
+    #[test]
+    fn the_export_is_named_after_the_date_and_minute() {
+        let name = export_name();
+        assert!(
+            name.starts_with("Work-log-20") && name.ends_with(".txt"),
+            "{name}"
+        );
+        assert_eq!(name.len(), "Work-log-2026-09-30-1403.txt".len(), "{name}");
     }
 
     #[test]
