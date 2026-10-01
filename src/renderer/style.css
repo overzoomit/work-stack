@@ -1237,3 +1237,4 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
   .panel > .gh-sheet { animation: fade-in 150ms linear; }
   .panel > .gh-sheet.closing { animation: fade-out 120ms linear forwards; }
 }
+.gh-artifact.expired .row-main { opacity: .5; }

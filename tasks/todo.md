@@ -80,19 +80,21 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `index.html`, `style.css`, `test/github.test.mjs`
 
 ### T7: Artifacts (M)
-- [ ] `gh_artifacts`: nome, run di origine, dimensione, "scade tra 12 g"; scaduti in grigio e non scaricabili
-- [ ] Scarica: dialog per la cartella, `gh run download -n` in `<dir>/<name>`, toast con "Mostra nel Finder" (Linux: "Mostra nella cartella")
-- [ ] Elimina con conferma; `dir` vuoto e `id` non numerico rifiutati
-- [ ] Terzo segmento nel controllo
+- [x] `gh_artifacts`: nome, run di origine, dimensione, "scade tra 12 g"; scaduti in grigio e non scaricabili
+- [x] Scarica: dialog per la cartella, `gh run download -n` in `<dir>/<name>`, toast con "Mostra nel Finder" (Linux: "Mostra nella cartella")
+- [x] Elimina con conferma; `dir` vuoto e `id` non numerico rifiutati
+- [x] Terzo segmento nel controllo
 - Verifica: test Rust (parsing, validazione); a mano: artifact scaricato nella cartella scelta, "Mostra nel Finder" la apre
+- Verifica reale: `real_artifact_download` (`#[ignore]`) ha scaricato un artifact vero di `work-stack` in una cartella temporanea. Non ho eliminato artifact veri (distruttivo): `gh api -X DELETE` è verificato su un `gh` finto.
 - Dipende da: T6 (controllo segmentato)
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `style.css`, `test/github.test.mjs`
 
 ### Checkpoint B: GitHub
-- [ ] `npm test`, clippy, fmt verdi
-- [ ] Su `work-stack`: run reale, riesecuzione, secret di prova, artifact scaricato
-- [ ] Senza `gh` e senza login: il tab spiega cosa fare, il resto funziona
-- [ ] `prefers-reduced-motion`: nessun movimento
+- [x] `npm test`, clippy verdi (fmt: vedi T1)
+- [x] Su `work-stack`: stato, elenco run, secret creato e cancellato, artifact scaricato (test `#[ignore]` contro GitHub vero). Non rieseguite né annullate run, non eliminati artifact veri.
+- [x] Senza `gh` (PATH senza gh), senza login (`GH_CONFIG_DIR` vuoto), remote non GitHub, cartella senza git: stati giusti (`real_status`). Questa prova ha trovato un bug: una cartella senza git dava un errore invece dello stato vuoto, corretto.
+- [x] `npm run dev` parte e gira senza errori né panic nel log; non ho potuto guardare la finestra (nessuno screenshot)
+- [ ] `prefers-reduced-motion` e aspetto: da guardare a occhio
 - [ ] Revisione con l'utente
 
 ## Fase 3: aggiornamenti (indipendente, parallelizzabile)

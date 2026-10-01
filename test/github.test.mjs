@@ -9,6 +9,12 @@ let runs = [];
 let jobs = [];
 let workflows = [];
 let secrets = [];
+let artifacts = [];
+let artifactsCalls = 0;
+let downloadFails = null;
+const downloads = [];
+const revealed = [];
+const artifactsDeleted = [];
 let secretsCalls = 0;
 let setFails = null;
 const saved = [];
@@ -41,6 +47,18 @@ globalThis.window.work.github = {
     saved.push([cwd, name, value]);
   },
   secretDelete: async (cwd, name) => { deleted.push([cwd, name]); },
+  artifacts: async () => {
+    artifactsCalls++;
+    if (artifacts instanceof Error) throw artifacts.message;
+    return artifacts;
+  },
+  artifactDownload: async (cwd, run, name, dir) => {
+    if (downloadFails) throw downloadFails;
+    downloads.push([cwd, run, name, dir]);
+    return `${dir}/${name}`;
+  },
+  artifactReveal: async (path) => { revealed.push(path); },
+  artifactDelete: async (cwd, id) => { artifactsDeleted.push([cwd, id]); },
   runs: async (cwd) => {
     runsCalls++;
     assert.equal(cwd, '/p');
@@ -53,7 +71,7 @@ globalThis.window.work.app.onFocus = (fn) => { onFocus = fn; };
 // The browser's storage, as a Map: the section a project last showed is kept there.
 const stored = new Map();
 globalThis.localStorage = { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v) };
-const { initGithub, setGithubVisible, emptyState, pollDelay, tabDot, duration, githubPushed, secretNameError } = await import('../src/renderer/github.js');
+const { initGithub, setGithubVisible, emptyState, pollDelay, tabDot, duration, githubPushed, secretNameError, bytes, expiry } = await import('../src/renderer/github.js');
 
 const project = { path: '/p', gitStatus: { branch: { name: 'main' } } };
 const logins = [];
@@ -567,5 +585,119 @@ test('Elimina chiede conferma con il nome del secret; senza il sì non parte nul
   await tick();
   assert.deepEqual(deleted, [['/p', 'NPM_TOKEN']]);
   assert.equal(secretsCalls, before + 1);
+  stored.clear();
+});
+
+const DAY = 86400_000;
+const artifact = (id, name, extra = {}) => ({
+  id, name, run: 100 + id, size: 215525, expired: false, branch: 'main',
+  createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 12.5 * DAY).toISOString(), ...extra,
+});
+const tapes = () => $('#toasts').children;
+const revealAction = () => tapes().at(-1).children.find((c) => c.className === 'toast-action');
+const onArtifacts = async () => {
+  stored.set('work.gh.section:/p', 'artifacts');
+  await show(repoStatus);
+  await tick();
+};
+
+test('bytes ed expiry: unità leggibili e "scaduto" dopo la scadenza', () => {
+  assert.equal(bytes(0), '0 B');
+  assert.equal(bytes(1536), '1,5 KB');
+  assert.equal(bytes(5 * 1024 * 1024), '5 MB');
+  const now = Date.parse('2026-10-01T12:00:00Z');
+  assert.equal(expiry('2026-10-13T12:00:00Z', now), 'scade tra 12 g');
+  assert.equal(expiry('2026-10-01T15:30:00Z', now), 'scade tra 3 h');
+  assert.equal(expiry('2026-10-01T12:20:00Z', now), 'scade tra 20 min');
+  assert.equal(expiry('2026-10-01T11:59:00Z', now), 'scaduto');
+  assert.equal(expiry('', now), 'scaduto');
+});
+
+test('Artifacts: nome, run di origine, dimensione e scadenza; gli scaduti in grigio e senza "Scarica"', async () => {
+  artifacts = [
+    artifact(1, 'bundle <mac>'),
+    artifact(2, 'old', { expired: true }),
+    artifact(3, 'late', { expiresAt: new Date(Date.now() - DAY).toISOString() }),
+  ];
+  await onArtifacts();
+  assert.match($('#gh-nav').innerHTML, /data-seg="artifacts"/);
+  const [live, expired, late] = body().split('<li data-id=').slice(1);
+  assert.match(live, /bundle &lt;mac&gt;/);
+  assert.match(live, /run 101 · 210,5 KB · scade tra 12 g/);
+  assert.match(live, /data-gh="downloadArtifact"/);
+  assert.doesNotMatch(live, /expired/);
+  for (const part of [expired, late]) {
+    assert.match(part, /expired/);
+    assert.match(part, /scaduto/);
+    assert.doesNotMatch(part, /downloadArtifact/);
+    assert.match(part, /deleteArtifact/);
+  }
+  stored.clear();
+});
+
+test('Scarica: chiede la cartella, scarica e il toast offre di mostrarla nel Finder', async () => {
+  artifacts = [artifact(1, 'bundle')];
+  downloads.length = 0;
+  revealed.length = 0;
+  globalThis.window.work.app.pickFolder = async () => '/Users/me/Downloads';
+  await onArtifacts();
+  click('downloadArtifact', 1);
+  await tick();
+  assert.deepEqual(downloads, [['/p', 101, 'bundle', '/Users/me/Downloads']]);
+  const action = revealAction();
+  assert.match(action.textContent, /Mostra nel/);
+  action.onclick();
+  await tick();
+  assert.deepEqual(revealed, ['/Users/me/Downloads/bundle']);
+  stored.clear();
+});
+
+test('Scarica senza scegliere la cartella non scarica niente; un errore di gh si vede', async () => {
+  artifacts = [artifact(1, 'bundle')];
+  downloads.length = 0;
+  globalThis.window.work.app.pickFolder = async () => null;
+  await onArtifacts();
+  click('downloadArtifact', 1);
+  await tick();
+  assert.deepEqual(downloads, []);
+
+  globalThis.window.work.app.pickFolder = async () => '/d';
+  downloadFails = 'In questa cartella esiste già «bundle»: scegline un\'altra.';
+  const btn = click('downloadArtifact', 1);
+  await tick();
+  downloadFails = null;
+  assert.equal(downloads.length, 0);
+  assert.equal(btn.textContent, 'downloadArtifact', 'the button reads as before');
+  assert.match(tapes().at(-1).firstChild.textContent, /esiste già/);
+  stored.clear();
+});
+
+test('Elimina un artifact chiede conferma; senza il sì non parte nulla', async () => {
+  artifacts = [artifact(1, 'bundle')];
+  artifactsDeleted.length = 0;
+  await onArtifacts();
+  click('deleteArtifact', 1);
+  await tick(0);
+  assert.match($('#modal-text').textContent, /bundle/);
+  $('#modal-cancel').onclick();
+  await tick();
+  assert.deepEqual(artifactsDeleted, []);
+  const before = artifactsCalls;
+  click('deleteArtifact', 1);
+  await answer('');
+  await tick();
+  assert.deepEqual(artifactsDeleted, [['/p', 1]]);
+  assert.equal(artifactsCalls, before + 1, 'the list is read again');
+  stored.clear();
+});
+
+test('un errore nel leggere gli artifact resta nella sezione, con "Riprova"', async () => {
+  artifacts = new Error('Non hai i permessi per farlo su questo repository.');
+  await onArtifacts();
+  assert.match(body(), /Impossibile leggere gli artifact/);
+  artifacts = [];
+  click('retryArtifacts');
+  await tick();
+  assert.match(body(), /Nessun artifact/);
   stored.clear();
 });

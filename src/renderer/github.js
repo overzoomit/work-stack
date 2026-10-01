@@ -11,7 +11,7 @@ let timer = 0;
 // Before initGithub (the panel state is restored first) there is no project yet.
 const activeProject = () => hooks.activeProject?.();
 
-const SECTIONS = [['actions', 'Actions'], ['secrets', 'Secrets']];
+const SECTIONS = [['actions', 'Actions'], ['secrets', 'Secrets'], ['artifacts', 'Artifacts']];
 const DONE = { rerun: 'Run rimessa in coda', rerunFailed: 'Job falliti rimessi in coda', cancel: 'Run annullata' };
 const STATE_LABEL = { queued: 'In coda', running: 'In corso', success: 'Riuscita', failure: 'Fallita', cancelled: 'Annullata' };
 const live = (runs) => runs.some((r) => r.state === 'running' || r.state === 'queued');
@@ -144,7 +144,54 @@ function secretsPage(g) {
   return `${head}<ul class="list gh-list">${g.secrets.map((x) => secretRow(g, x)).join('')}</ul>`;
 }
 
-const PAGES = { actions: actionsPage, secrets: secretsPage };
+export function bytes(n) {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toLocaleString('it-IT', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+}
+
+// "scade tra 12 g", or "scaduto" once it is past.
+export function expiry(iso, now = Date.now()) {
+  const s = (Date.parse(iso) - now) / 1000;
+  if (!(s > 0)) return 'scaduto';
+  if (s < 3600) return `scade tra ${Math.max(1, Math.floor(s / 60))} min`;
+  if (s < 86400) return `scade tra ${Math.floor(s / 3600)} h`;
+  return `scade tra ${Math.floor(s / 86400)} g`;
+}
+
+function artifactRow(g, a) {
+  const open = String(a.id) === g.open;
+  const gone = a.expired || expiry(a.expiresAt) === 'scaduto';
+  return `<li data-id="${a.id}" class="row-item gh-item gh-artifact${open ? ' open' : ''}${gone ? ' expired' : ''}">
+    <button class="row-main" aria-expanded="${open}">
+      <div class="li-main">
+        <div class="li-title">${esc(a.name)}</div>
+        <div class="li-sub">run ${a.run} · ${bytes(a.size)} · ${gone ? 'scaduto' : expiry(a.expiresAt)}</div>
+      </div>
+      <span class="chev">›</span>
+    </button>
+    <div class="row-actions"><div>
+      <div class="row-btns">
+        ${gone ? '' : '<button class="btn btn-small" data-gh="downloadArtifact">Scarica</button>'}
+        <button class="btn btn-small btn-danger-text" data-gh="deleteArtifact">Elimina</button>
+      </div>
+    </div></div>
+  </li>`;
+}
+
+function artifactsPage(g) {
+  const head = '<div class="gh-head"><b>Artifact del repository</b></div>';
+  if (g.artifactsError) return head + card('Impossibile leggere gli artifact', g.artifactsError, 'retryArtifacts', 'Riprova');
+  if (!g.artifacts) return `${head}<p class="empty">Carico gli artifact…</p>`;
+  if (!g.artifacts.length) return `${head}<p class="empty">Nessun artifact in questo repository.</p>`;
+  return `${head}<ul class="list gh-list">${g.artifacts.map((a) => artifactRow(g, a)).join('')}</ul>`;
+}
+
+const PAGES = { actions: actionsPage, secrets: secretsPage, artifacts: artifactsPage };
 
 // The section a project last showed (kept in the browser, like the panel sizes).
 const sectionKey = (p) => `work.gh.section:${p.path}`;
@@ -244,7 +291,7 @@ function refresh(opts) {
   const p = activeProject();
   if (!p) return;
   load(p, opts);
-  if (opts?.status !== false && shown() && sectionOf(p) === 'secrets') loadSecrets(p);
+  if (opts?.status !== false && shown()) LOADERS[sectionOf(p)]?.(p);
 }
 
 async function loadSecrets(p) {
@@ -258,6 +305,20 @@ async function loadSecrets(p) {
   if (p === activeProject()) render();
 }
 
+async function loadArtifacts(p) {
+  const g = p.gh;
+  try {
+    g.artifacts = await work.github.artifacts(p.path);
+    g.artifactsError = null;
+  } catch (e) {
+    g.artifactsError = message(e);
+  }
+  if (p === activeProject()) render();
+}
+
+// What each section reads when it is shown (Actions has its own poll).
+const LOADERS = { secrets: loadSecrets, artifacts: loadArtifacts };
+
 function setSection(p, id) {
   const g = p.gh;
   if (sectionOf(p) === id) return;
@@ -270,7 +331,7 @@ function setSection(p, id) {
   }
   applyNav(p);
   render();
-  if (id === 'secrets') loadSecrets(p);
+  LOADERS[id]?.(p);
 }
 
 // ── Secrets ──────────────────────────────────────────────────
@@ -353,6 +414,26 @@ function openSecretSheet(p, existing) {
   $('.panel').appendChild(el);
   sheet = el;
   (existing ? value : name).focus();
+}
+
+async function downloadArtifact(p, btn, a) {
+  const dir = await work.app.pickFolder();
+  if (!dir) return;
+  let path = null;
+  const ok = await act(p, btn, async () => {
+    path = await work.github.artifactDownload(p.path, a.run, a.name, dir);
+  });
+  if (!ok) return;
+  const label = document.body.classList.contains('mac') ? 'Mostra nel Finder' : 'Mostra nella cartella';
+  toast('Scaricato', { action: { label, run: () => work.github.artifactReveal(path).catch(toastError) } });
+}
+
+async function deleteArtifact(p, btn, a) {
+  const ok = await ask({ text: `Eliminare l'artifact «${a.name}»? Non si può annullare.`, input: false, danger: true, okLabel: 'Elimina' });
+  if (ok && await act(p, btn, () => work.github.artifactDelete(p.path, a.id), `Artifact «${a.name}» eliminato`)) {
+    p.gh.open = null;
+    loadArtifacts(p);
+  }
 }
 
 async function deleteSecret(p, btn, name) {
@@ -474,6 +555,11 @@ function onClick(e) {
   else if (act === 'updateSecret' && id) openSecretSheet(p, id);
   else if (act === 'deleteSecret' && id) deleteSecret(p, btn, id);
   else if (act === 'retrySecrets') loadSecrets(p);
+  else if (act === 'retryArtifacts') loadArtifacts(p);
+  else if (['downloadArtifact', 'deleteArtifact'].includes(act) && id) {
+    const a = p.gh.artifacts?.find((x) => String(x.id) === id);
+    if (a) (act === 'downloadArtifact' ? downloadArtifact : deleteArtifact)(p, btn, a);
+  }
   else if (act === 'openRun' && run) work.app.openExternal(run.url);
   else if (run && ['rerun', 'rerunFailed', 'cancel'].includes(act)) runAction(p, btn, run, act);
 }

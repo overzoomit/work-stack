@@ -132,6 +132,10 @@
       secrets: call('gh_secrets', 'cwd'),
       secretSet: call('gh_secret_set', 'cwd', 'name', 'value'),
       secretDelete: call('gh_secret_delete', 'cwd', 'name'),
+      artifacts: call('gh_artifacts', 'cwd'),
+      artifactDownload: call('gh_artifact_download', 'cwd', 'run', 'name', 'dir'),
+      artifactReveal: call('gh_artifact_reveal', 'path'),
+      artifactDelete: call('gh_artifact_delete', 'cwd', 'id'),
     },
     fs: {
       list: call('fs_list', 'dir'),
