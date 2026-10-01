@@ -11,6 +11,7 @@ import {
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
+import { initUpdate, check as checkUpdate } from './update.js';
 import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPanelChanged, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
@@ -660,13 +661,14 @@ work.app.onStalled(stalledToast);
 // ⋯ opens on pointerdown, like a native menu; Enter or Space (a click with
 // no pointer) open it with the focus on the first item.
 const more = $('#more');
+const moreItems = [{ label: 'Controlla aggiornamenti…', run: () => checkUpdate({ manual: true }) }];
 more.onpointerdown = (e) => {
   if (e.button !== 0) return;
   if (more.classList.contains('open')) closeMenu();
-  else moreMenu(more);
+  else moreMenu(more, { items: moreItems });
 };
 more.onclick = (e) => {
-  if (e.detail === 0) moreMenu(more, { focus: true });
+  if (e.detail === 0) moreMenu(more, { focus: true, items: moreItems });
 };
 
 // ── Boot ────────────────────────────────────────────────────
@@ -765,6 +767,7 @@ more.onclick = (e) => {
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();
   initStatusBar();
+  initUpdate({ version: info.version });
   performance.mark('work:ready'); // boot finished: read with performance.getEntriesByName
 
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).

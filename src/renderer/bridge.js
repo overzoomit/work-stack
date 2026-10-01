@@ -84,6 +84,7 @@
       revealExport: call('app_reveal_export'),
       setUnsaved: send('app_set_unsaved', 'unsaved'),
       quit: send('app_quit'),
+      updateCheck: call('app_update_check'),
       openExternal: send('app_open_external', 'url'),
       copy: send('app_copy', 'text'),
       paste: call('app_paste'),
@@ -94,6 +95,7 @@
       onLogExportFailed: listen('log:export-failed'),
       onStalled: listen('diag:stalled'),
       onQuitRequested: listen('app:quit-requested'),
+      onCheckUpdate: listen('app:check-update'),
     },
     projects: {
       load: call('projects_load'),

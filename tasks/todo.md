@@ -112,12 +112,13 @@ Prima: l'utente genera la chiave (`npx tauri signer generate -w ~/.tauri/work-up
 - File: `Cargo.toml`, `main.rs`, `tauri.conf.json`, `capabilities/default.json`, `release.yml`, `README.md`
 
 ### T9: Avviso di nuova versione (M)
-- [ ] `app_update_check()` → `null` o `{version, notes, date, canInstall}`; `canInstall` falso su Linux senza `$APPIMAGE`; nessun controllo con `debug_assertions`
-- [ ] `update.js`: controllo dopo 10 s e ogni 6 ore, errori solo nel log
-- [ ] Capsula blu "Aggiorna a X" in `#status-version`; un solo toast per versione e per avvio
-- [ ] Popover dalla capsula: versione, data, note (markdown sanificato), Installa / Più tardi; `canInstall` falso = "Scarica" apre la release
-- [ ] "Controlla aggiornamenti…" (menu Work su macOS, `⋯`); se niente: "Work è aggiornato (1.1.0)"
+- [x] `app_update_check()` → `null` o `{version, notes, date, canInstall}`; `canInstall` falso su Linux senza `$APPIMAGE`; nessun controllo con `debug_assertions`
+- [x] `update.js`: controllo dopo 10 s e ogni 6 ore, errori solo nel log
+- [x] Capsula blu "Aggiorna a X" in `#status-version`; un solo toast per versione e per avvio
+- [x] Popover dalla capsula: versione, data, note (markdown sanificato), Installa / Più tardi; `canInstall` falso = "Scarica" apre la release
+- [x] "Controlla aggiornamenti…" (menu Work su macOS, `⋯`); se niente: "Work è aggiornato (1.1.0)"
 - Verifica: test Rust (`canInstall` con e senza `APPIMAGE`); test JS (un toast per versione); a mano con una release di prova più nuova
+- Non verificato con una release vera: serve una release firmata più nuova (le build di sviluppo non controllano). Il popover ha «Scarica» (apre la release) sia con `canInstall` vero sia falso fino a T10, che aggiunge «Installa». `cargo check --release` compila.
 - Dipende da: T8
 - File: `app.rs`, `main.rs`, `bridge.js`, `update.js`, `app.js`, `index.html`, `style.css`, `test/update.test.mjs`
 

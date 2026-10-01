@@ -326,6 +326,6 @@ export function stalledToast(ms) {
 }
 
 // ⋯ in the top bar (Linux; macOS has Aiuto › Esporta log… in its menu bar).
-export function moreMenu(button, { focus = false } = {}) {
-  contextMenu(0, 0, [{ label: 'Esporta log…', run: exportLog }], { anchor: button, focus });
+export function moreMenu(button, { focus = false, items = [] } = {}) {
+  contextMenu(0, 0, [...items, { label: 'Esporta log…', run: exportLog }], { anchor: button, focus });
 }

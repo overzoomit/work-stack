@@ -91,10 +91,12 @@ export class FakeTerminal {
   focus() { FakeTerminal.focused = this; }
   dispose() { this.disposed = true; }
 }
+// DOMPurify needs a real DOM: tests stand in with a function of their own.
+globalThis.__purify = { sanitize: (html) => html };
 globalThis.__xterm = { Terminal: FakeTerminal, FitAddon: class { fit() {} }, WebLinksAddon: class {} };
 const stub = (name) => `data:text/javascript,export const ${name} = globalThis.__xterm.${name};`;
 register(`data:text/javascript,${encodeURIComponent(`
-  const stubs = { 'xterm.mjs': ${JSON.stringify(stub('Terminal'))}, 'addon-fit.mjs': ${JSON.stringify(stub('FitAddon'))}, 'addon-web-links.mjs': ${JSON.stringify(stub('WebLinksAddon'))} };
+  const stubs = { 'xterm.mjs': ${JSON.stringify(stub('Terminal'))}, 'addon-fit.mjs': ${JSON.stringify(stub('FitAddon'))}, 'addon-web-links.mjs': ${JSON.stringify(stub('WebLinksAddon'))}, 'purify.es.mjs': 'data:text/javascript,export default globalThis.__purify' };
   export async function resolve(spec, ctx, next) {
     const hit = Object.keys(stubs).find((k) => spec.endsWith('/' + k));
     return hit ? { url: stubs[hit], shortCircuit: true } : next(spec, ctx);
