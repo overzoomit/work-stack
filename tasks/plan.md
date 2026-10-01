@@ -1,90 +1,87 @@
-# Piano: Work su Tauri 2 (backend in Rust)
+# Piano: agenti a sinistra, pannello GitHub, aggiornamenti dell'app
+
+Spec: `SPEC-github-update.md` (approvata). Prototipo: variante C. Lista delle task: `tasks/todo.md`.
+Il piano precedente (migrazione Tauri) era chiuso; resta nella storia di git.
 
 ## Obiettivo
-Portare il processo principale da Electron/Node a Rust con Tauri 2. L'interfaccia (`src/renderer/`)
-resta com'è: cambia solo il ponte `window.work`. Risultato atteso: meno memoria (oggi 205–280 MB),
-bundle da ~10 MB invece di ~150 MB, niente più `python3` per la PTY, installer per macOS e Linux.
+Il tab Agente del pannello destro sparisce e le sue azioni passano sulla riga della sessione. Al suo posto
+arriva il tab GitHub (Actions, Secrets, Artifacts, tramite `gh`). Work si aggiorna da solo con avviso e
+installazione al clic.
 
-## Decisioni
-- **Tauri 2, niente bundler.** `withGlobalTauri: true`; `src/renderer/bridge.js` sostituisce
-  `preload.js` ed espone lo stesso `window.work` (stessi nomi, stessi argomenti). Il renderer non cambia.
-- **Librerie del renderer** (xterm, marked, dompurify) copiate in `src/renderer/vendor/` da
-  `scripts/vendor.mjs` (gitignored, lanciato da `predev`/`prebuild`/`pretest`): Tauri incorpora solo
-  `frontendDist`, e `../../node_modules` resterebbe fuori.
-- **git resta la CLI** (config, hook, credenziali, firma dell'utente). Solo il wrapper passa in Rust.
-- **PTY con `portable-pty`**: un thread di lettura per sessione, blocchi da 8 ms / 16 KB,
-  controllo di flusso con `ack` (in unità UTF-16, come `string.length` in JS), UTF-8 spezzato gestito.
-  Output tramite `tauri::ipc::Channel` (più veloce degli eventi per lo streaming).
-- **Watcher con `notify`** (FSEvents / inotify), con la stessa logica di debounce di oggi.
-- **Test**: `cargo test` per il backend (portando i casi di `test/*.test.js`); `npm test` resta per
-  il renderer. I test JS del main vengono rimossi solo quando il loro modulo Rust è coperto.
-- **Linux**: Ubuntu 22.04+ (webkit2gtk-4.1). **Deliverable**: installer non firmati (.dmg, .deb, .AppImage).
-- **Stato**: al primo avvio si importa `state.json` dal profilo Electron (`<appData>/Work/`).
+## Cosa ho trovato nel codice
+- `agentsview.js` (165 righe): la riga è un `<li>` con `onpointerdown`; `selected` esiste già, quindi
+  l'espansione sopravvive a `setAgents` senza altro.
+- `agents_events` è usato solo da `renderAgentDetail`. In Rust `AgentWatcher::events` serve anche ai test
+  (`agents.rs` ~1024, ~1068), e `Session.events` alimenta stato e filtro delle sessioni. Si tolgono comando,
+  ponte e metodo pubblico; i dati interni restano. `eventSeq` resta nel JSON (un test ne fissa le chiavi).
+- `git_with` (`git.rs:68`) è il modello per `gh`: log di comando, durata, esito; `input` via stdin senza log
+  dell'errore. `fsops::Roots` è il controllo "solo progetti aperti".
+- `adopt_login_path` (`app.rs:81`) dà già a `gh` il `PATH` della shell di login.
+- `#more` e `moreMenu` esistono già su tutte le piattaforme. Il menu macOS è `mac_menu` in `app.rs`
+  (aggiungere "Controlla aggiornamenti…" nel menu Work).
+- Le preferenze di pannello stanno in `localStorage` (`work.panel`, `work.*`), **non** in `state.json`.
+  La spec dice `state.json`: vedi domande aperte.
+- `release.yml` ha due step `tauri-action` (con e senza firma macOS): le variabili di firma
+  dell'updater vanno in entrambi.
 
-## Task
+## Grafo delle dipendenze
+```
+T1 righe espandibili ─ T2 via tab Agente ─┐
+                                          ├─ T3 gh + tab GitHub (stati) ─ T4 Actions lista ─ T5 Actions azioni
+                                          │                              └─ T6 Secrets (+ controllo segmentato)
+                                          │                              └─ T7 Artifacts
+T8 rilascio firmato ─ T9 avviso + popover ─ T10 installa + riavvia      (indipendente da T1-T7)
+```
+T6 e T7 dipendono solo da T3 (T6 introduce il controllo segmentato, T7 lo riusa). T8-T10 si possono fare in
+parallelo a tutto il resto, in una sessione o un worktree a parte.
 
-### Fase 1 — Fondamenta (rischio prima)
-- [x] **T1: Scheletro Tauri + ponte + stato.** Rust installato, `src-tauri/` con finestra che carica il
-  renderer, `bridge.js`, `vendor.mjs`; comandi `app:info`, `projects:load/save` (con import dal profilo
-  Electron).
-  - Accetta: `npm run dev` apre Work con la UI; `cargo test` verde (store, import); `npm test` verde.
-    I progetti salvati compaiono dopo T3+T5 (il boot li valida con `fs.list` e `git.root`).
-  - File: `package.json`, `src-tauri/*`, `src/renderer/bridge.js`, `src/renderer/index.html`,
-    `scripts/vendor.mjs`, import in `terminals.js`/`preview.js`, `.gitignore`.
-- [x] **T2: PTY in Rust.** create/write/resize/kill/ack/cwd, exit code (128+segnale), ambiente shell
-  ripulito da `npm_*`, `TERM`/`COLORTERM`/`TERM_PROGRAM`, hang up alla chiusura.
-  - Accetta: terminali e Run funzionano; `seq 1 1000000` non blocca la UI; casi di `pty.test.js` portati;
-    drag & drop HTML5 interno (riordino terminali) funziona con il drag & drop nativo di Tauri attivo.
-  - Dipende da: T1.
+## Decisioni di piano
+- Fette verticali: ogni task lascia l'app funzionante e portabile in un commit (o pochi).
+- Rust: logica pura (parsing, validazione, riga di log) in funzioni testabili, separata dall'esecuzione.
+- Una sola funzione esegue `gh`; nessun comando passa dagli argomenti per il valore di un secret.
+- Prima la parte a rischio: T3 (esecuzione di `gh`, stati vuoti) e T8 (chiave e plugin updater).
+- Commit con `/conventional-commits`, micro commit per task.
 
-### Checkpoint A — terminali usabili su Tauri
+## Fasi
 
-### Fase 2 — Parità funzionale
-- [x] **T3: git (letture).** root, status, log, branches, commit, containing, fileDiff.
-  - Accetta: Modifiche, Graph e diff identici a Electron; casi di `git-repo`/`git-branch` portati. Dipende da: T1.
-- [x] **T4: git (azioni) + watcher.** `action` (stage…revert, push/pull/checkout con le stesse regole),
-  `watch/unwatch` con debounce 300 ms e tipo `index`/`full`, worktree collegati.
-  - Accetta: casi di `git-repo` (azioni) e `gitwatch.test.js` portati. Dipende da: T3.
-- [x] **T5: file system del Project.** list/read/create/rename/move/copyIn/trash/openPath/reveal con la
-  guardia sui percorsi reali (symlink); percorsi dei file trascinati da fuori tramite l'evento drag & drop
-  di Tauri (sostituisce `webUtils.getPathForFile`).
-  - Accetta: casi di `fsops.test.js` portati, compresi quelli di regressione. Dipende da: T1.
-- [x] **T6: Run configs.** `run:detect` (npm/pnpm/yarn/bun, Make, Cargo, Django, Go, Compose).
-  - Accetta: casi di `runconfigs.test.js` portati. Dipende da: T1.
+### Fase 1: agenti a sinistra (T1-T2)
+Fette: T1 comportamento nuovo, T2 rimozione del vecchio. Dopo la fase il pannello destro non ha il tab Agente.
 
-### Checkpoint B — terminali, git, albero e Run alla pari
+### Checkpoint A
+`npm test`, clippy e fmt verdi; clic e tastiera sulle righe verificati con `npm run dev`; revisione con l'utente.
 
-- [x] **T7: Agenti.** Watcher dei `.jsonl` (lettura in coda, modo permessi all'indietro, stati),
-  `~/.claude/sessions` (live/stop con SIGTERM → SIGKILL), `hasHistory`, `available`.
-  - Accetta: casi di `agents.test.js` e `claudeprocs.test.js` portati. Dipende da: T1.
-- [x] **T8: Finestra e sistema.** stats (`sysinfo`, RAM corretta su macOS), scelta cartella, appunti,
-  `openExternal` solo http(s)/mailto, blocco della navigazione, menu macOS senza ⌘W, evento focus,
-  versioni nella barra di stato (Tauri/WebView al posto di Electron/Chromium/Node).
-  - Accetta: tutte le voci del README funzionano su Tauri. Dipende da: T1.
+### Fase 2: pannello GitHub (T3-T7)
+T3 porta `gh` e il tab con gli stati vuoti. T4-T5 Actions, T6 Secrets, T7 Artifacts.
 
-### Checkpoint C — parità completa, revisione con l'utente
+### Checkpoint B
+Su `work-stack` reale: run, riesecuzione, secret di prova, artifact. Senza `gh` e dopo `gh auth logout`.
 
-### Fase 3 — Prodotto
-- [x] **T9: Via Electron.** Rimuovi `src/main/`, `electron`, i test JS del main già portati; aggiorna README
-  (avvio, requisiti, struttura, debug) e `evaluate.sh` se serve.
-  - Accetta: `npm test` e `cargo test` verdi; nessun riferimento a Electron nel codice. Dipende da: T2–T8.
-- [x] **T10: Installer.** `npm run build` produce `.dmg` (macOS) e `.deb`/`.AppImage` (Linux, da compilare
-  su Linux), icone da `assets/`.
-  - Accetta: il `.dmg` si installa e si avvia da Finder (PATH del login shell per git e agenti). Dipende da: T9.
-- [x] **T11: Misure.** CPU a riposo, memoria (PSS/footprint), dimensione del bundle, `seq 1 1000000`;
-  tabella nel README accanto ai numeri di Electron. Soglie in `SPEC.md` (criterio 5). Dipende da: T10.
+### Fase 3: aggiornamenti (T8-T10)
+T8 rilascio firmato, T9 avviso, T10 installazione e riavvio.
 
-### Checkpoint finale — pronto per la release
+### Checkpoint finale
+Tutti i criteri di successo della spec, README aggiornato, aggiornamento 1.1.x → release di prova su
+macOS e AppImage.
 
 ## Rischi
 | Rischio | Impatto | Mitigazione |
 |---|---|---|
-| Il drag & drop nativo di Tauri blocca quello HTML5 interno | Alto | Verifica in T1; se serve `dragDropEnabled: false` e drop esterni solo da evento nativo |
-| xterm più lento su WebKitGTK (Linux) | Medio | Misura in T11; renderer WebGL di xterm se serve |
-| App avviata da Finder senza il PATH dell'utente | Medio | T10: leggere l'ambiente del login shell all'avvio |
-| ⌘C/⌘V e appunti in WKWebView | Medio | T8: menu Modifica nativo + plugin clipboard |
-| Installer non firmati: avviso di Gatekeeper | Basso | Documentato; firma e notarization fuori scope |
+| Forma del JSON di `gh` diversa tra versioni | Media | Parsing tollerante (campi mancanti = default), fixture da `gh` ≥ 2.40, controllo versione in `gh_status` |
+| `gh run download -n` con cartella di destinazione già piena | Bassa | Scaricare in `<dir>/<name>`; errore chiaro se esiste |
+| Secret su più righe (certificato) via stdin | Media | Test di `gh_with_stdin` con valore multi-riga, nessuna interpolazione in shell |
+| Valore del secret in un log o errore | Alta | Riga di log composta da una funzione testata; stderr di `secret set` non loggato (come i commit in `git_with`) |
+| Plugin updater senza chiave pubblica non parte | Alta | T8 si ferma finché l'utente non genera la chiave; la pubkey va in `tauri.conf.json` |
+| Aggiornamento verificabile solo con una release firmata | Alta | Release di prova (prerelease) con una versione maggiore; build di sviluppo non controlla |
+| `.deb`/`.rpm`: `$APPIMAGE` assente | Media | `canInstall` falso, solo avviso e "Scarica" |
+| Togliere `agents_events` rompe test o il watcher | Bassa | Grep prima di cancellare; i dati interni restano |
 
-## Decisioni prese
-- Nome e identificatore: Work, `it.overzoom.work`. Target e confini in `SPEC.md`.
-- T9 (rimozione di Electron) procede in automatico quando T2–T8 sono verdi.
+## Domande aperte
+1. **Preferenza del segmento GitHub per progetto:** la spec dice `state.json`, ma le preferenze di pannello
+   oggi sono in `localStorage`. Proposta: `localStorage` con chiave per percorso del progetto, come il resto.
+   Passare a `state.json` richiede di estendere `store::merge`.
+2. **Chiave dell'updater:** la genera l'utente (`npx tauri signer generate -w ~/.tauri/work-updater.key`)
+   prima di T8; serve la chiave pubblica nel repo e i due secret nel repository.
+3. **Verifica dell'aggiornamento:** una prerelease di prova firmata (es. `v1.1.1-test`) va bene, o serve un
+   endpoint locale?
+4. Le cinque domande aperte della spec restano rinviate: solo tre sezioni, niente log dei job, workflow con i
+   default, solo secret del repository, `.deb`/`.rpm` solo avviso.
