@@ -35,8 +35,17 @@ fn log_line(cwd: &Path, args: &[&str], exit: Option<i32>, ms: u128) -> String {
 
 // The one place that runs `gh`.
 pub async fn run_gh(cwd: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Run, Spawn> {
+    run_with("gh", cwd, args, input).await
+}
+
+async fn run_with(
+    bin: &str,
+    cwd: &Path,
+    args: &[&str],
+    input: Option<&[u8]>,
+) -> Result<Run, Spawn> {
     let start = Instant::now();
-    let res = tokio::time::timeout(TIMEOUT, exec("gh", cwd, args, input)).await;
+    let res = tokio::time::timeout(TIMEOUT, exec(bin, cwd, args, input)).await;
     let ms = start.elapsed().as_millis();
     let res = res.unwrap_or_else(|_| {
         Err(Spawn::Other(
@@ -368,6 +377,94 @@ pub async fn gh_workflow_run(
     .map(|_| ())
 }
 
+// GitHub's rule for a secret's name, plus the prefix it keeps for itself.
+fn check_secret_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let ok_start = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    if !ok_start || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("Nome del secret non valido: usa lettere, cifre e _, senza iniziare con una cifra ({name})."));
+    }
+    if name
+        .get(..7)
+        .is_some_and(|p| p.eq_ignore_ascii_case("GITHUB_"))
+    {
+        return Err("I nomi che iniziano con GITHUB_ sono riservati da GitHub.".into());
+    }
+    Ok(())
+}
+
+const SECRETS_DENIED: &str =
+    "Servono i permessi di amministratore del repository per vedere i secret.";
+
+// `gh secret list --json` → names and update times; GitHub never gives the values.
+fn parse_secrets(text: &str) -> Result<Vec<Value>, String> {
+    let list: Vec<Value> = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let mut out: Vec<Value> = list
+        .iter()
+        .map(|x| json!({ "name": x["name"].as_str().unwrap_or(""), "updatedAt": x["updatedAt"].as_str().unwrap_or("") }))
+        .collect();
+    out.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    Ok(out)
+}
+
+fn secrets_error(e: String) -> String {
+    if e.starts_with("Non hai i permessi") {
+        SECRETS_DENIED.into()
+    } else {
+        e
+    }
+}
+
+#[tauri::command]
+pub async fn gh_secrets(roots: State<'_, Roots>, cwd: String) -> Result<Vec<Value>, String> {
+    let dir = project(&roots, &cwd)?;
+    parse_secrets(
+        &gh_out(&dir, &["secret", "list", "--json", "name,updatedAt"])
+            .await
+            .map_err(secrets_error)?,
+    )
+}
+
+// The value goes through stdin: an argument would show up in `ps` and in the log.
+async fn secret_set(bin: &str, dir: &Path, name: &str, value: &str) -> Result<(), String> {
+    check_secret_name(name)?;
+    if value.is_empty() {
+        return Err("Il valore del secret è vuoto.".into());
+    }
+    match run_with(bin, dir, &["secret", "set", name], Some(value.as_bytes())).await {
+        Ok(r) if r.code == Some(0) => Ok(()),
+        Ok(r) => Err(secrets_error(explain(&r.err))),
+        Err(Spawn::Missing) => Err("GitHub CLI non trovato.".into()),
+        Err(Spawn::Other(e)) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn gh_secret_set(
+    roots: State<'_, Roots>,
+    cwd: String,
+    name: String,
+    value: String,
+) -> Result<(), String> {
+    secret_set("gh", &project(&roots, &cwd)?, &name, &value).await
+}
+
+#[tauri::command]
+pub async fn gh_secret_delete(
+    roots: State<'_, Roots>,
+    cwd: String,
+    name: String,
+) -> Result<(), String> {
+    let dir = project(&roots, &cwd)?;
+    check_secret_name(&name)?;
+    gh_out(&dir, &["secret", "delete", &name])
+        .await
+        .map_err(secrets_error)
+        .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,6 +697,137 @@ mod tests {
         );
         assert!(explain("could not prompt: required input missing").contains("input"));
         assert!(explain("HTTP 422: No ref found for: nope").contains("push"));
+    }
+
+    #[test]
+    fn a_secret_name_follows_githubs_rule() {
+        for ok in [
+            "NPM_TOKEN",
+            "_x",
+            "a1",
+            "TAURI_SIGNING_PRIVATE_KEY",
+            "github",
+            "GITHUB",
+        ] {
+            assert!(check_secret_name(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "",
+            "1ABC",
+            "A B",
+            "A-B",
+            "à",
+            "A\n",
+            "GITHUB_TOKEN",
+            "github_token",
+            "GitHub_X",
+        ] {
+            assert!(check_secret_name(bad).is_err(), "{bad:?}");
+        }
+        assert!(check_secret_name("GITHUB_TOKEN")
+            .unwrap_err()
+            .contains("GITHUB_"));
+    }
+
+    #[test]
+    fn secrets_parse_sorted_by_name() {
+        let text = r#"[{"name":"ZED","updatedAt":"2026-01-02T00:00:00Z"},{"name":"ALPHA","updatedAt":"2026-01-01T00:00:00Z"}]"#;
+        let list = parse_secrets(text).unwrap();
+        assert_eq!(list[0]["name"], "ALPHA");
+        assert_eq!(list[1]["updatedAt"], "2026-01-02T00:00:00Z");
+        assert!(parse_secrets("[]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn missing_admin_rights_get_the_secrets_message() {
+        let e = secrets_error(explain("HTTP 403: Resource not accessible by integration"));
+        assert_eq!(e, SECRETS_DENIED);
+        assert_eq!(secrets_error("boom".into()), "boom");
+    }
+
+    // The value of a secret: whole, multi-line, on stdin, and never in the arguments.
+    #[tokio::test]
+    async fn a_secret_value_reaches_gh_on_stdin_and_never_in_argv() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("gh");
+        std::fs::write(&fake, "#!/bin/sh\necho \"$@\" > argv\ncat > stdin\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let value = "-----BEGIN CERT-----\nMIIB s3cr3t\n-----END CERT-----\n";
+        secret_set(fake.to_str().unwrap(), dir.path(), "TLS_CERT", value)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("stdin")).unwrap(),
+            value
+        );
+        let argv = std::fs::read_to_string(dir.path().join("argv")).unwrap();
+        assert_eq!(argv.trim(), "secret set TLS_CERT");
+        assert!(!argv.contains("s3cr3t"));
+    }
+
+    #[tokio::test]
+    async fn a_bad_name_or_an_empty_value_never_reaches_gh() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("gh");
+        std::fs::write(&fake, "#!/bin/sh\ntouch ran\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let bin = fake.to_str().unwrap();
+        assert!(secret_set(bin, dir.path(), "GITHUB_TOKEN", "x")
+            .await
+            .is_err());
+        assert!(secret_set(bin, dir.path(), "1A", "x").await.is_err());
+        assert!(secret_set(bin, dir.path(), "OK", "").await.is_err());
+        assert!(!dir.path().join("ran").exists());
+    }
+
+    #[tokio::test]
+    async fn a_failing_gh_gives_a_message_without_the_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("gh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\ncat >/dev/null\necho 'HTTP 403: Resource not accessible' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let e = secret_set(fake.to_str().unwrap(), dir.path(), "OK", "hunter2")
+            .await
+            .unwrap_err();
+        assert_eq!(e, SECRETS_DENIED);
+        assert!(!e.contains("hunter2"));
+    }
+
+    // Against the real GitHub, in the repository the tests run from. Run by hand:
+    //   cargo test --manifest-path src-tauri/Cargo.toml real_secret -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn real_secret_roundtrip() {
+        let dir = std::env::current_dir().unwrap();
+        let name = "WORK_TEST_TEMPORARY";
+        let value = "first line of verysecret\nsecond line\n";
+        secret_set("gh", &dir, name, value).await.unwrap();
+        let listed = parse_secrets(
+            &gh_out(&dir, &["secret", "list", "--json", "name,updatedAt"])
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let found = listed.iter().any(|x| x["name"] == name);
+        gh_out(&dir, &["secret", "delete", name]).await.unwrap();
+        let after = parse_secrets(
+            &gh_out(&dir, &["secret", "list", "--json", "name,updatedAt"])
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(found, "the new secret is listed");
+        assert!(
+            !after.iter().any(|x| x["name"] == name),
+            "and gone after deleting it"
+        );
     }
 
     #[test]
