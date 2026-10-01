@@ -489,6 +489,8 @@ struct Shared {
     sessions_dir: PathBuf,
     on_update: Box<dyn Fn(Vec<Value>) + Send + Sync>,
     state: Mutex<State>,
+    // Transcripts that failed to read (for the scan's log line).
+    failed_reads: std::sync::atomic::AtomicUsize,
 }
 
 impl Shared {
@@ -528,7 +530,10 @@ impl Shared {
                 st.sessions.remove(file); // transcript deleted: drop the session
                 true
             }
-            Err(_) => false,
+            Err(_) => {
+                self.failed_reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                false
+            }
         }
     }
 
@@ -635,6 +640,7 @@ impl Worker {
         self.root = real(&self.shared.projects);
         let now = now_ms();
         let (mut dirs, mut sessions, mut recent, mut unreadable) = (0, 0, 0, 0);
+        let failed_before = self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed);
         for d in fs::read_dir(&self.root).into_iter().flatten().flatten() {
             let Ok(files) = fs::read_dir(d.path()) else { continue };
             dirs += 1;
@@ -654,6 +660,7 @@ impl Worker {
                 }
             }
         }
+        unreadable += self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed) - failed_before;
         // The first scan always, the ones every 60 s only with WORK_DEBUG.
         let level = if self.started { Level::Debug } else { Level::Info };
         log(level, "agents", format!("scansione: {dirs} cartelle progetto, {sessions} sessioni ({recent} recenti), {unreadable} illeggibili"));
@@ -729,7 +736,7 @@ pub struct AgentWatcher {
 impl AgentWatcher {
     pub fn new(projects: PathBuf, sessions_dir: PathBuf, on_update: impl Fn(Vec<Value>) + Send + Sync + 'static) -> Self {
         AgentWatcher {
-            shared: Arc::new(Shared { projects, sessions_dir, on_update: Box::new(on_update), state: Mutex::default() }),
+            shared: Arc::new(Shared { projects, sessions_dir, on_update: Box::new(on_update), state: Mutex::default(), failed_reads: Default::default() }),
             worker: Mutex::new(None),
         }
     }
