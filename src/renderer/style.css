@@ -300,35 +300,35 @@ body.panel-hidden .layout { --right: 0px; }
 .ref.remote { color: var(--purple); background: rgba(191, 90, 242, .14); }
 .ref.tag { color: var(--yellow); background: rgba(255, 214, 10, .12); }
 
-/* ── Agent rows: click to open the actions ── */
-.list li.agent-item { display: block; padding: 0; }
-.list li.agent-item:active { transform: none; }
-.list li.agent-item.open { background: var(--bg-3-hover); }
-.agent-row {
+/* ── Rows that open to show their actions (agents, GitHub runs) ── */
+.list li.row-item { display: block; padding: 0; }
+.list li.row-item:active { transform: none; }
+.list li.row-item.open { background: var(--bg-3-hover); }
+.row-main {
   display: flex; gap: 9px; align-items: flex-start; width: 100%; padding: 7px 9px; border-radius: 8px;
   text-align: left; color: inherit; background: none; border: 0; transition: transform var(--t-press) ease-out;
 }
-.agent-row:active { transform: scale(0.985); }
-.agent-row .chev { flex: none; margin-top: -1px; color: var(--muted); transition: transform var(--t-ui) var(--ease-out); }
-.agent-item.open .chev { transform: rotate(90deg); }
+.row-main:active { transform: scale(0.985); }
+.row-main .chev { flex: none; margin-top: -1px; color: var(--muted); transition: transform var(--t-ui) var(--ease-out); }
+.row-item.open .chev { transform: rotate(90deg); }
 /* 0fr → 1fr animates the height without measuring it; hidden keeps closed buttons out of the tab order. */
-.agent-actions {
+.row-actions {
   display: grid; grid-template-rows: 0fr; visibility: hidden;
   transition: grid-template-rows var(--t-ui) var(--ease-out), visibility 0s var(--t-ui);
 }
-.agent-item.open .agent-actions { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
-.agent-actions > div { overflow: hidden; min-height: 0; }
-.agent-btns { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 9px 9px 26px; }
-.agent-btns .btn {
+.row-item.open .row-actions { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
+.row-actions > div { overflow: hidden; min-height: 0; }
+.row-btns { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 9px 9px 26px; }
+.row-btns .btn {
   border-radius: 999px; opacity: 0; transform: translateY(-4px);
   transition: opacity var(--t-ui) var(--ease-out), transform var(--t-ui) var(--ease-out), background-color var(--t-press) ease-out;
 }
-.agent-item.open .agent-btns .btn { opacity: 1; transform: none; }
-.agent-item.open .agent-btns .btn:active { transform: scale(0.96); transition-duration: var(--t-press); }
+.row-item.open .row-btns .btn { opacity: 1; transform: none; }
+.row-item.open .row-btns .btn:active { transform: scale(0.96); transition-duration: var(--t-press); }
 @keyframes slide-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) {
-  .agent-row, .agent-row .chev, .agent-actions, .agent-btns .btn { transition: none; }
-  .agent-row:active, .agent-item.open .agent-btns .btn:active { transform: none; }
+  .row-main, .row-main .chev, .row-actions, .row-btns .btn { transition: none; }
+  .row-main:active, .row-item.open .row-btns .btn:active { transform: none; }
 }
 .timeline li.tool .t-body { font: 11px/1.5 var(--mono); color: var(--text-2); }
 
@@ -1160,7 +1160,6 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 .gh-head { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .gh-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .gh-list { overflow: visible; padding: 0; }
-.gh-item .gh-row { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border-radius: 8px; }
 .gh-time { display: flex; flex-direction: column; align-items: flex-end; flex: none; margin-top: 2px; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .gh-time b { font-weight: 400; }
 .gh-time i { font-style: normal; opacity: .8; }
@@ -1180,3 +1179,11 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 @media (prefers-reduced-motion: reduce) {
   .gh-item .dot.g-running::after { animation: none; transform: rotate(45deg); }
 }
+.gh-head .btn-chev { opacity: .6; }
+.gh-detail { padding: 2px 9px 8px 26px; }
+.gh-note { margin: 0; color: var(--muted); font-size: 11px; }
+.gh-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.gh-jobs li { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.gh-jobs .dot { margin-top: 0; width: 7px; height: 7px; }
+.gh-job-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-jobs i { font-style: normal; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }

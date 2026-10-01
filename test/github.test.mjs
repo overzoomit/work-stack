@@ -1,11 +1,16 @@
 // GitHub tab: the empty states and the repository header, on the shared fake renderer environment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { $, tick, env } from './helpers/renderer-env.mjs';
+import { El, $, tick, env, openMenuItems, answer } from './helpers/renderer-env.mjs';
 
 let status = { installed: true, authed: true, repo: 'overzoomit/work-stack', url: 'https://github.com/overzoomit/work-stack', branch: 'main' };
 let calls = 0;
 let runs = [];
+let jobs = [];
+let workflows = [];
+const jobsCalls = [];
+const actions = [];
+const started = [];
 let runsCalls = 0;
 globalThis.window.work.github = {
   status: async (cwd) => {
@@ -14,6 +19,13 @@ globalThis.window.work.github = {
     if (status instanceof Error) throw status.message;
     return status;
   },
+  jobs: async (cwd, id) => {
+    jobsCalls.push([cwd, id]);
+    return jobs;
+  },
+  runAction: async (cwd, id, action) => { actions.push([cwd, id, action]); },
+  workflows: async () => workflows,
+  runWorkflow: async (cwd, id, branch) => { started.push([cwd, id, branch]); },
   runs: async (cwd) => {
     runsCalls++;
     assert.equal(cwd, '/p');
@@ -29,7 +41,19 @@ const project = { path: '/p', gitStatus: { branch: { name: 'main' } } };
 const logins = [];
 initGithub({ activeProject: () => project, login: (p) => logins.push(p.path) });
 const body = () => $('#gh-body').innerHTML;
-const click = (act) => $('#gh-body').onclick({ target: { closest: () => ({ dataset: { gh: act } }) } });
+// A click on the button `act`, inside the row of run `id` when given.
+const click = (act, id) => {
+  const btn = new El();
+  btn.dataset.gh = act;
+  btn.textContent = act;
+  const closest = (sel) => (sel === '[data-gh]' ? btn : sel === 'li[data-id]' && id ? { dataset: { id: String(id) } } : null);
+  $('#gh-body').onclick({ detail: 1, target: { closest } });
+  return btn;
+};
+// A press (or Enter, with detail 0) on the head of the row of run `id`.
+const row = (id) => ({ target: { closest: (sel) => (sel === '.row-main' ? {} : sel === 'li[data-id]' ? { dataset: { id: String(id) } } : null) } });
+const press = (id, e = {}) => $('#gh-body').onpointerdown({ button: 0, ...row(id), ...e });
+const enter = (id) => $('#gh-body').onclick({ detail: 0, ...row(id) });
 const show = async (s) => {
   status = s;
   setGithubVisible(false);
@@ -206,4 +230,139 @@ test('dopo un push fatto da Work le run si rileggono subito e dopo qualche secon
   retry[1]();
   await tick();
   assert.equal(runsCalls, before + 2);
+});
+
+const job = (name, state, extra = {}) => ({ name, state, startedAt: '2026-10-01T14:36:18Z', completedAt: '2026-10-01T14:36:24Z', ...extra });
+const repoStatus = { installed: true, authed: true, repo: 'a/b', url: 'https://github.com/a/b' };
+
+test('un clic sulla riga la apre e carica i job; una sola alla volta; di nuovo la chiude', async () => {
+  runs = [run(11, 'success'), run(12, 'failure')];
+  jobs = [job('build', 'success'), job('test', 'failure', { completedAt: '2026-10-01T14:38:00Z' })];
+  jobsCalls.length = 0;
+  await show(repoStatus);
+  press(11);
+  await tick();
+  assert.equal(project.gh.open, 11);
+  assert.deepEqual(jobsCalls, [['/p', 11]]);
+  assert.match(body(), /<li data-id="11" class="row-item gh-item open"/);
+  assert.match(body(), /gh-job-name">build</);
+  assert.match(body(), /gh-job-name">test</);
+  assert.match(body(), /<i>1m 42s<\/i>/, 'a job shows how long it took');
+
+  press(12);
+  assert.equal(project.gh.open, 12, 'opening another row closes the previous one');
+  press(12);
+  assert.equal(project.gh.open, null);
+  press(11, { button: 2 });
+  assert.equal(project.gh.open, null, 'only the main button opens a row');
+  enter(11);
+  assert.equal(project.gh.open, 11, 'Enter and Space open it too');
+  $('#gh-body').onclick({ detail: 1, ...row(11) });
+  assert.equal(project.gh.open, 11, 'a pointer click does not toggle twice');
+});
+
+test('le capsule dipendono dallo stato: "Riesegui falliti" solo se fallita, "Annulla" solo se viva', async () => {
+  runs = [run(21, 'failure'), run(22, 'running'), run(23, 'success')];
+  await show(repoStatus);
+  const [failed, live, ok] = body().split('<li data-id=').slice(1);
+  assert.match(failed, /data-gh="rerunFailed"/);
+  assert.doesNotMatch(failed, /data-gh="cancel"/);
+  assert.match(live, /data-gh="cancel"/);
+  assert.doesNotMatch(live, /data-gh="rerunFailed"/);
+  for (const part of [failed, live, ok]) assert.match(part, /data-gh="rerun"[\s\S]*data-gh="openRun"/);
+  assert.doesNotMatch(ok, /rerunFailed|data-gh="cancel"/);
+});
+
+test('Riesegui e Riesegui falliti chiamano gh, rileggono le run e il pulsante torna com\'era', async () => {
+  runs = [run(31, 'failure')];
+  await show(repoStatus);
+  actions.length = 0;
+  const before = runsCalls;
+  const btn = click('rerunFailed', 31);
+  assert.equal(btn.textContent, '…', 'immediate feedback while gh works');
+  await tick();
+  assert.deepEqual(actions, [['/p', 31, 'rerunFailed']]);
+  assert.equal(runsCalls, before + 1, 'the list is read again');
+  assert.equal(btn.textContent, 'rerunFailed');
+  click('rerun', 31);
+  await tick();
+  assert.deepEqual(actions.at(-1), ['/p', 31, 'rerun']);
+});
+
+test('Annulla chiede conferma: senza il sì non parte nulla', async () => {
+  runs = [run(41, 'running', { title: 'build <x>' })];
+  await show(repoStatus);
+  actions.length = 0;
+  click('cancel', 41);
+  await tick(0);
+  $('#modal-cancel').onclick();
+  await tick();
+  assert.deepEqual(actions, []);
+  click('cancel', 41);
+  await answer('');
+  await tick();
+  assert.deepEqual(actions, [['/p', 41, 'cancel']]);
+});
+
+test('Apri su GitHub, su una riga, apre la run', async () => {
+  runs = [run(51, 'success')];
+  await show(repoStatus);
+  click('openRun', 51);
+  assert.equal(env.opened.at(-1), 'u51');
+});
+
+test('"Esegui workflow" elenca i workflow e ne avvia uno sul branch attuale', async () => {
+  runs = [];
+  workflows = [{ id: 7, name: 'release' }, { id: 8, name: 'lint' }];
+  await show(repoStatus);
+  started.length = 0;
+  click('workflow');
+  await tick();
+  const items = openMenuItems();
+  assert.deepEqual(Object.keys(items), ['release', 'lint']);
+  items.release.onclick();
+  await tick();
+  assert.deepEqual(started, [['/p', 7, 'main']]);
+});
+
+test('senza workflow avviabili o senza branch non parte niente', async () => {
+  runs = [];
+  workflows = [];
+  await show(repoStatus);
+  started.length = 0;
+  const menus = () => document.body.children.filter((c) => c.className === 'menu').length;
+  const before = menus();
+  click('workflow');
+  await tick();
+  assert.equal(menus(), before, 'no menu without workflows');
+  const branch = project.gitStatus;
+  project.gitStatus = { branch: { name: null } };
+  workflows = [{ id: 7, name: 'release' }];
+  click('workflow');
+  await tick();
+  assert.equal(menus(), before, 'detached HEAD: nothing to run on');
+  assert.deepEqual(started, []);
+  project.gitStatus = branch;
+});
+
+test('se la run aperta sparisce dall\'elenco non resta aperto niente; i job si rileggono quando lo stato cambia', async () => {
+  runs = [run(61, 'running')];
+  await show(repoStatus);
+  press(61);
+  await tick();
+  jobsCalls.length = 0;
+  runs = [run(61, 'success')];
+  delays.length = 0;
+  await show(repoStatus); // show() resets the project; open it again and let a poll move the state
+  press(61);
+  await tick();
+  jobsCalls.length = 0;
+  runs = [run(61, 'failure')];
+  delays.at(-1)[1]();
+  await tick();
+  assert.deepEqual(jobsCalls, [['/p', 61]], 'state moved: jobs again');
+  runs = [];
+  delays.at(-1)[1]();
+  await tick();
+  assert.equal(project.gh.open, null);
 });

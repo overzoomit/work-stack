@@ -12,10 +12,10 @@ class Row extends El {
     this.row = new El();
     this.row.attrs = { 'aria-expanded': /aria-expanded="true"/.test(segment) ? 'true' : 'false' };
     this.row.setAttribute = (k, v) => { this.row.attrs[k] = v; };
-    if (/class="agent-item open"/.test(segment)) this.classList.add('open');
+    if (/class="row-item open"/.test(segment)) this.classList.add('open');
   }
   querySelector(sel) {
-    if (sel === '.agent-row') return this.row;
+    if (sel === '.row-main') return this.row;
     if (sel === '[data-act="close"]') return this.segment.includes('data-act="close"') ? super.querySelector(sel) : null;
     return super.querySelector(sel);
   }
@@ -116,7 +116,7 @@ test('la riga aperta resta aperta agli aggiornamenti; se la sessione sparisce no
   push([agent('c3', '/home/u/app', 'waiting'), agent('d4', '/home/u/app', 'working')]);
   li('c3').row.onpointerdown({ button: 0 });
   push([agent('c3', '/home/u/app', 'working'), agent('d4', '/home/u/app', 'working')]);
-  assert.match(list.innerHTML, /<li data-id="c3" class="agent-item open"/);
+  assert.match(list.innerHTML, /<li data-id="c3" class="row-item open"/);
   assert.deepEqual(opened(), ['c3']);
 
   push([agent('d4', '/home/u/app', 'working')]); // c3 left the 24 h window

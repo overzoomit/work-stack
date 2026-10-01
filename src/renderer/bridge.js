@@ -125,6 +125,10 @@
     github: {
       status: call('gh_status', 'cwd'),
       runs: call('gh_runs', 'cwd'),
+      jobs: call('gh_run_jobs', 'cwd', 'id'),
+      runAction: call('gh_run_action', 'cwd', 'id', 'action'),
+      workflows: call('gh_workflows', 'cwd'),
+      runWorkflow: call('gh_workflow_run', 'cwd', 'workflow', 'branch'),
     },
     fs: {
       list: call('fs_list', 'dir'),

@@ -58,12 +58,13 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `style.css`, `test/github.test.mjs`
 
 ### T5: Actions, azioni sulle run e "Esegui workflow" (M)
-- [ ] Riga espandibile (come gli agenti) con i job (`gh_run_jobs`: nome, stato, durata)
-- [ ] Capsule Riesegui · Riesegui falliti (solo fallita) · Annulla (solo in corso, con conferma) · Apri su GitHub
-- [ ] `gh_run_action` rifiuta azioni sconosciute e id non numerici
-- [ ] "Esegui workflow ⌄": workflow attivi, branch attuale, default; toast e lista aggiornata
-- [ ] Un push fatto da Work aggiorna subito la lista
+- [x] Riga espandibile (come gli agenti) con i job (`gh_run_jobs`: nome, stato, durata)
+- [x] Capsule Riesegui · Riesegui falliti (solo fallita) · Annulla (solo in corso, con conferma) · Apri su GitHub
+- [x] `gh_run_action` rifiuta azioni sconosciute e id non numerici
+- [x] "Esegui workflow ⌄": workflow attivi, branch attuale, default; toast e lista aggiornata
+- [x] Un push fatto da Work aggiorna subito la lista
 - Verifica: test Rust (validazione, jobs); a mano: riesecuzione di una run fallita la rimette in coda
+- Non ho rieseguito né annullato run sul repository vero (azione con effetti all'esterno): `rerun`/`cancel` sono verificati con test su argomenti e su un `gh` finto. Prova a mano dell'utente al Checkpoint B.
 - Dipende da: T4
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `style.css`, `test/github.test.mjs`
 

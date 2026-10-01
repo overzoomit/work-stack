@@ -23,6 +23,15 @@ export function clip(s, n) {
 export const basename = (p) => p?.split('/').filter(Boolean).pop() || p;
 export const dirname = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
 
+// Opens the row with this id (none when null) on the nodes already there, so the CSS transition runs.
+export function setOpenRow(list, id) {
+  for (const li of list.querySelectorAll('li[data-id]')) {
+    const open = li.dataset.id === String(id);
+    li.classList.toggle('open', open);
+    li.querySelector('.row-main').setAttribute('aria-expanded', String(open));
+  }
+}
+
 export function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 10) return 'ora';

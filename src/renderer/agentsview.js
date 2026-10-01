@@ -1,5 +1,5 @@
 // Agents: sidebar list (this project first); a row opens to show its actions.
-import { $, esc, ago, setHtml, contextMenu, ask, toast, toastError } from './ui.js';
+import { $, esc, ago, setHtml, setOpenRow, contextMenu, ask, toast, toastError } from './ui.js';
 
 const { work } = window;
 
@@ -32,8 +32,8 @@ export function agentStateFor(path) {
 
 function item(a) {
   const open = a.id === selected;
-  return `<li data-id="${a.id}" class="agent-item${open ? ' open' : ''}" title="${esc(a.cwd || '')}">
-    <button class="agent-row" aria-expanded="${open}">
+  return `<li data-id="${a.id}" class="row-item${open ? ' open' : ''}" title="${esc(a.cwd || '')}">
+    <button class="row-main" aria-expanded="${open}">
       <span class="dot ${a.status.state}"></span>
       <div class="li-main">
         <div class="li-title">${esc(a.title)}</div>
@@ -42,7 +42,7 @@ function item(a) {
       <span class="li-time">${ago(a.mtime)}</span>
       <span class="chev">›</span>
     </button>
-    <div class="agent-actions"><div><div class="agent-btns">
+    <div class="row-actions"><div><div class="row-btns">
       <button class="btn btn-small" data-act="resume">Riprendi</button>
       <button class="btn btn-small" data-act="shell"${a.cwd ? '' : ' disabled'}>Terminale</button>
       <button class="btn btn-small" data-act="repo"${a.cwd ? '' : ' disabled'}>Apri progetto</button>
@@ -51,14 +51,9 @@ function item(a) {
   </li>`;
 }
 
-// Opens or closes a row on the nodes already there, so the CSS transition runs.
 function toggle(id) {
   selected = selected === id ? null : id;
-  for (const li of $('#agent-list').querySelectorAll('li[data-id]')) {
-    const open = li.dataset.id === selected;
-    li.classList.toggle('open', open);
-    li.querySelector('.agent-row').setAttribute('aria-expanded', String(open));
-  }
+  setOpenRow($('#agent-list'), selected);
 }
 
 export function renderAgentList() {
@@ -78,7 +73,7 @@ export function renderAgentList() {
       agentMenu(a, e.clientX, e.clientY);
     };
     // Opens on pointerdown, like the other rows; Enter or Space arrive as a click with no pointer.
-    const row = li.querySelector('.agent-row');
+    const row = li.querySelector('.row-main');
     row.onpointerdown = (e) => e.button === 0 && toggle(a.id);
     row.onclick = (e) => e.detail === 0 && toggle(a.id);
     li.querySelector('[data-act="resume"]').onclick = () => hooks.resume(a);
