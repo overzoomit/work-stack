@@ -6,6 +6,13 @@ import { $, tick } from './helpers/renderer-env.mjs';
 
 const files = new Map();
 globalThis.window.work.fs = { read: async (p) => files.get(p), openPath() {} };
+// What the backend sees: unsaved edits, the quit request, the quit.
+const app = { unsaved: [], quits: 0, quitRequested: null };
+Object.assign(globalThis.window.work.app, {
+  setUnsaved: (on) => app.unsaved.push(on),
+  quit: () => { app.quits++; },
+  onQuitRequested: (cb) => { app.quitRequested = cb; },
+});
 
 const { linkTarget, previewFile, closeViewer } = await import('../src/renderer/preview.js');
 const base = 'file:///home/u/app/docs/';
@@ -250,5 +257,23 @@ test('un secondo ⌘S durante il salvataggio non parte, e il testo resta bloccat
   release();
   await first;
   assert.equal($('#viewer-conflict').hidden, true);
+  closeViewer();
+});
+
+test('uscire con modifiche non salvate chiede prima; Scarta esce davvero', async () => {
+  files.set('/p/q.txt', { text: 'a\n', size: 2, mtime: 1, utf8: true });
+  await previewFile('/p/q.txt');
+  actionsByLabel().Modifica.onclick();
+  const ta = $('#viewer-body').querySelector('.pv-edit-text');
+  ta.value = 'b\n';
+  ta.oninput();
+  assert.equal(app.unsaved.at(-1), true, 'the backend knows there is something to lose');
+
+  app.quitRequested();
+  assert.equal($('#viewer-bar').hidden, false);
+  assert.equal(app.quits, 0);
+  $('#viewer-bar').querySelector('.pv-discard').onclick();
+  assert.equal(app.unsaved.at(-1), false);
+  assert.equal(app.quits, 1);
   closeViewer();
 });

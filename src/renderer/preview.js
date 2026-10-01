@@ -239,7 +239,11 @@ function lineNumbers(ta) {
   }
 }
 
+// The backend asks before closing or quitting while this is on.
+const unsaved = (on) => work.app?.setUnsaved?.(on);
+
 function setDirty(dirty) {
+  if (dirty !== current.edit.dirty) unsaved(dirty);
   current.edit.dirty = dirty;
   $('#viewer-dirty').hidden = !dirty;
   current.edit.saveBtn.disabled = !dirty;
@@ -268,6 +272,7 @@ function startEdit() {
 }
 
 function stopEdit() {
+  if (current.edit?.dirty) unsaved(false);
   current.edit = null;
   hideBar();
   hideConflict();
@@ -354,6 +359,7 @@ function guardEdits(then) {
   bar.hidden = false;
   bar.querySelector('.pv-discard').onclick = () => {
     current.edit.dirty = false;
+    unsaved(false);
     hideBar();
     then();
   };
@@ -488,6 +494,8 @@ $$('#viewer-mode button').forEach((b) => {
   };
 });
 $('#viewer-close').onclick = () => requestClose();
+// ⌘Q or the window's close button with unsaved edits: the same question first.
+work.app?.onQuitRequested?.(() => guardEdits(() => work.app.quit()));
 $('#viewer').addEventListener('pointerdown', (e) => e.target.id === 'viewer' && requestClose());
 $('#viewer-body').addEventListener('click', (e) => {
   const eye = e.target.closest('.env-eye');

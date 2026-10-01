@@ -116,6 +116,8 @@ fn main() {
             app::app_pick_folder,
             app::app_export_log,
             app::app_reveal_export,
+            app::app_set_unsaved,
+            app::app_quit,
             app::app_open_external,
             app::app_copy,
             app::app_paste,

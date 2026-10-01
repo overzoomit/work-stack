@@ -2,6 +2,7 @@
 // clipboard, external links, and the renderer's console in debug runs.
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -239,10 +240,12 @@ pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
     let win = builder.build()?;
 
     let emitter = app.clone();
-    win.on_window_event(move |e| {
-        if let WindowEvent::Focused(true) = e {
+    win.on_window_event(move |e| match e {
+        WindowEvent::Focused(true) => {
             let _ = emitter.emit("app:focus", json!([]));
         }
+        WindowEvent::CloseRequested { api, .. } if !may_quit(&emitter) => api.prevent_close(),
+        _ => {}
     });
     if std::env::var("WORK_DEVTOOLS").is_ok() {
         #[cfg(debug_assertions)]
@@ -271,7 +274,9 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
             &P::hide_others(app, None)?,
             &P::show_all(app, None)?,
             &P::separator(app)?,
-            &P::quit(app, None)?,
+            // Not the predefined Quit: that one ends the app without asking
+            // (tao has no applicationShouldTerminate), unsaved edits included.
+            &tauri::menu::MenuItem::with_id(app, "quit", "Esci da Work", true, Some("CmdOrCtrl+Q"))?,
         ],
     )?;
     let edit = Submenu::with_items(
@@ -286,10 +291,14 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
     Menu::with_items(app, &[&app_menu, &edit, &window, &help])
 }
 
+// Esci da Work asks about unsaved edits first (see may_quit).
 // Aiuto › Esporta log… exports from here, without the renderer: it works with
 // the page's JS blocked too. The toast follows through log:exported.
 #[cfg(target_os = "macos")]
 pub fn on_menu(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    if event.id() == "quit" && may_quit(app) {
+        app.exit(0);
+    }
     if event.id() != "export-log" {
         return;
     }
@@ -303,6 +312,30 @@ pub fn on_menu(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let _ = app.emit("log:export-failed", [e]);
         }
     });
+}
+
+// Unsaved edits in the preview (the page says so): closing the window or
+// quitting asks the page first, which shows its "Scarta / Continua" bar.
+static UNSAVED: AtomicBool = AtomicBool::new(false);
+
+pub fn may_quit(app: &AppHandle) -> bool {
+    if !UNSAVED.load(Ordering::Relaxed) {
+        return true;
+    }
+    let _ = app.emit("app:quit-requested", json!([]));
+    false
+}
+
+#[tauri::command]
+pub fn app_set_unsaved(unsaved: bool) {
+    UNSAVED.store(unsaved, Ordering::Relaxed);
+}
+
+// The page let the edits go: quit for real.
+#[tauri::command]
+pub fn app_quit(app: AppHandle) {
+    UNSAVED.store(false, Ordering::Relaxed);
+    app.exit(0);
 }
 
 // ── Commands ─────────────────────────────────────────────────
