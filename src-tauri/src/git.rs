@@ -75,6 +75,8 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
     let start = std::time::Instant::now();
     let mut exit = None;
     let o_has_input = o.input.is_some();
+    // "Does this ref exist?": exit 1 is the answer no, not a failure.
+    let probe = args.starts_with(&["rev-parse", "--verify", "--quiet"]);
     let res = run_git(cwd, args, o, &mut exit).await;
     let ms = start.elapsed().as_millis();
     let exit = exit.map_or("-".to_string(), |c: i32| c.to_string());
@@ -91,6 +93,7 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
         );
     }
     match &res {
+        Err(_) if probe => {}
         // A commit's stderr is its hooks' output: commitlint quotes the
         // message, linters print source lines. Neither belongs in the log.
         Err(_) if o_has_input => log(
@@ -979,6 +982,18 @@ mod tests {
                 && line.contains("fatal: "),
             "{line}"
         );
+    }
+
+    #[test]
+    fn asking_whether_a_ref_exists_is_not_a_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert!(!rt.block_on(is_ref(dir.path().to_str().unwrap(), "ramo-sondato-zq")));
+        let logged = crate::diag::CAPTURED.lock().unwrap().join("");
+        assert!(!logged.contains("ramo-sondato-zq"), "{logged}");
     }
 
     #[test]
