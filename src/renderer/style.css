@@ -1187,3 +1187,53 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 .gh-jobs .dot { margin-top: 0; width: 7px; height: 7px; }
 .gh-job-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gh-jobs i { font-style: normal; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+/* Segmented control: the pill under the selection slides to it. */
+.gh-nav:empty { display: none; }
+.gh-nav { padding: 2px 0 8px; }
+.gh-seg { position: relative; --i: 0; }
+.gh-seg button { position: relative; z-index: 1; flex: 1; background: none; box-shadow: none; transition: color var(--t-press) ease-out; }
+.gh-seg button.active { background: none; box-shadow: none; color: var(--text); }
+.gh-pill {
+  position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px - (var(--n) - 1) * 2px) / var(--n));
+  border-radius: 5px; background: var(--bg-3-hover); box-shadow: inset 0 1px 0 var(--edge);
+  transform: translateX(calc(var(--i) * (100% + 2px)));
+  transition: transform var(--t-ui) var(--ease-out);
+}
+.gh-mono { font-family: var(--mono); font-size: 12px; }
+.gh-secret .row-btns { padding-left: 9px; }
+
+/* Secret sheet: from the panel's edge, translucent, no veil. */
+.panel { position: relative; }
+.panel > .gh-sheet {
+  position: absolute; z-index: 20; top: 44px; right: 8px; bottom: 8px; left: 8px; min-width: 0;
+  display: flex; flex-direction: column; border-radius: 14px; overflow: auto;
+  background: rgba(30, 32, 41, .82); backdrop-filter: var(--blur);
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 20px 50px rgba(0, 0, 0, .45);
+  animation: gh-sheet-in 280ms var(--ease-out);
+}
+.panel > .gh-sheet.closing { animation: gh-sheet-out 180ms var(--ease-in) forwards; pointer-events: none; }
+@keyframes gh-sheet-in { from { transform: translateX(calc(100% + 16px)); } }
+@keyframes gh-sheet-out { to { transform: translateX(calc(100% + 16px)); } }
+.gh-sheet-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; flex: 1; min-height: 0; }
+.gh-sheet-card h3 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.015em; }
+.gh-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); }
+.gh-field input, .gh-field textarea {
+  font: inherit; font-size: 12px; color: var(--text); background: rgba(0, 0, 0, .25);
+  border: 1px solid var(--line); border-radius: var(--radius-s); padding: 6px 8px; resize: none; width: 100%; box-sizing: border-box;
+}
+.gh-field input:focus, .gh-field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, .22); }
+.gh-field input[readonly] { opacity: .7; }
+.gh-field-error { margin: -4px 0 0; min-height: 14px; font-size: 11px; color: var(--red); }
+.gh-value { position: relative; display: block; }
+.gh-value textarea { padding-right: 34px; }
+.gh-value textarea.masked { -webkit-text-security: disc; }
+.gh-eye { position: absolute; top: 4px; right: 4px; }
+.gh-eye[aria-pressed="true"] { color: var(--accent); }
+.gh-sheet-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .gh-pill { transition: none; }
+  .panel > .gh-sheet { animation: fade-in 150ms linear; }
+  .panel > .gh-sheet.closing { animation: fade-out 120ms linear forwards; }
+}

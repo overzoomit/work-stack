@@ -1,5 +1,5 @@
 // GitHub tab: the active project's repository, through the gh CLI the user is signed in with.
-import { $, esc, ago, setHtml, setOpenRow, contextMenu, ask, toast, toastError } from './ui.js';
+import { $, esc, ago, setHtml, setOpenRow, contextMenu, ask, leave, toast, toastError } from './ui.js';
 
 const { work } = window;
 
@@ -11,6 +11,7 @@ let timer = 0;
 // Before initGithub (the panel state is restored first) there is no project yet.
 const activeProject = () => hooks.activeProject?.();
 
+const SECTIONS = [['actions', 'Actions'], ['secrets', 'Secrets']];
 const DONE = { rerun: 'Run rimessa in coda', rerunFailed: 'Job falliti rimessi in coda', cancel: 'Run annullata' };
 const STATE_LABEL = { queued: 'In coda', running: 'In corso', success: 'Riuscita', failure: 'Fallita', cancelled: 'Annullata' };
 const live = (runs) => runs.some((r) => r.state === 'running' || r.state === 'queued');
@@ -75,7 +76,7 @@ function runRow(g, r) {
   const start = Date.parse(r.createdAt);
   const isLive = r.state === 'running' || r.state === 'queued';
   const took = isLive ? '' : `<i>${duration(Date.parse(r.updatedAt) - start)}</i>`;
-  const open = r.id === g.open;
+  const open = String(r.id) === g.open;
   return `<li data-id="${r.id}" class="row-item gh-item${open ? ' open' : ''}">
     <button class="row-main" aria-expanded="${open}">
       <span class="dot g-${r.state}" title="${STATE_LABEL[r.state]}"></span>
@@ -105,20 +106,88 @@ function actionsHtml(g) {
   return `<ul class="list gh-list">${g.runs.map((r) => runRow(g, r)).join('')}</ul>`;
 }
 
-function html(p) {
-  const g = p.gh;
-  if (g?.error) return card('Impossibile leggere GitHub', g.error, 'retry', 'Riprova');
-  if (!g?.status) return '<p class="empty">Carico…</p>';
-  const e = emptyState(g.status);
-  if (e) return card(e.title, e.text, e.id, e.action);
-  return `<div class="gh-head"><b>${esc(g.status.repo)}</b>
-    <button class="btn btn-small" data-gh="workflow">Esegui workflow <span class="btn-chev">⌄</span></button>
-    <button class="btn btn-small" data-gh="open">Apri su GitHub</button></div>${actionsHtml(g)}`;
+const actionsPage = (g) => `<div class="gh-head"><b>${esc(g.status.repo)}</b>
+  <button class="btn btn-small" data-gh="workflow">Esegui workflow <span class="btn-chev">⌄</span></button>
+  <button class="btn btn-small" data-gh="open">Apri su GitHub</button></div>${actionsHtml(g)}`;
+
+// GitHub never gives a secret's value back: a row has a name and an age.
+const since = (iso) => {
+  const a = ago(Date.parse(iso));
+  if (a === 'ora') return 'aggiornato ora';
+  return /^\d+(s| min| h| g)$/.test(a) ? `aggiornato ${a} fa` : `aggiornato il ${a}`;
+};
+
+function secretRow(g, x) {
+  const open = x.name === g.open;
+  return `<li data-id="${esc(x.name)}" class="row-item gh-item gh-secret${open ? ' open' : ''}">
+    <button class="row-main" aria-expanded="${open}">
+      <div class="li-main">
+        <div class="li-title gh-mono">${esc(x.name)}</div>
+        <div class="li-sub">${since(x.updatedAt)}</div>
+      </div>
+      <span class="chev">›</span>
+    </button>
+    <div class="row-actions"><div>
+      <div class="row-btns">
+        <button class="btn btn-small" data-gh="updateSecret">Aggiorna valore</button>
+        <button class="btn btn-small btn-danger-text" data-gh="deleteSecret">Elimina</button>
+      </div>
+    </div></div>
+  </li>`;
+}
+
+function secretsPage(g) {
+  const head = '<div class="gh-head"><b>Secret del repository</b><button class="btn btn-small" data-gh="newSecret">＋ Nuovo secret</button></div>';
+  if (g.secretsError) return head + card('Impossibile leggere i secret', g.secretsError, 'retrySecrets', 'Riprova');
+  if (!g.secrets) return `${head}<p class="empty">Carico i secret…</p>`;
+  if (!g.secrets.length) return `${head}<p class="empty">Nessun secret in questo repository.</p>`;
+  return `${head}<ul class="list gh-list">${g.secrets.map((x) => secretRow(g, x)).join('')}</ul>`;
+}
+
+const PAGES = { actions: actionsPage, secrets: secretsPage };
+
+// The section a project last showed (kept in the browser, like the panel sizes).
+const sectionKey = (p) => `work.gh.section:${p.path}`;
+function sectionOf(p) {
+  const g = (p.gh ??= {});
+  if (!g.section) {
+    let saved = null;
+    try {
+      saved = localStorage.getItem(sectionKey(p));
+    } catch {
+      // storage unavailable: the default
+    }
+    g.section = SECTIONS.some(([id]) => id === saved) ? saved : 'actions';
+  }
+  return g.section;
+}
+
+const navHtml = () => `<div class="segmented gh-seg" role="tablist" style="--n:${SECTIONS.length}"><i class="gh-pill"></i>${
+  SECTIONS.map(([id, label]) => `<button role="tab" data-seg="${id}">${label}</button>`).join('')}</div>`;
+
+// The selection is applied on the nodes already there: the pill slides to it.
+function applyNav(p) {
+  const nav = $('#gh-nav');
+  const sel = sectionOf(p);
+  nav.querySelector('.gh-seg')?.style.setProperty('--i', SECTIONS.findIndex(([id]) => id === sel));
+  for (const b of nav.querySelectorAll('[data-seg]')) {
+    b.classList.toggle('active', b.dataset.seg === sel);
+    b.setAttribute('aria-selected', String(b.dataset.seg === sel));
+  }
 }
 
 function render() {
   const p = activeProject();
-  if (p) setHtml($('#gh-body'), html(p));
+  if (!p) return;
+  const g = p.gh;
+  const ready = g?.status && !g.error && !emptyState(g.status);
+  if (setHtml($('#gh-nav'), ready ? navHtml() : '') || ready) applyNav(p);
+  if (g?.error) setHtml($('#gh-content'), card('Impossibile leggere GitHub', g.error, 'retry', 'Riprova'));
+  else if (!g?.status) setHtml($('#gh-content'), '<p class="empty">Carico…</p>');
+  else {
+    const e = emptyState(g.status);
+    setHtml($('#gh-content'), e ? card(e.title, e.text, e.id, e.action) : PAGES[sectionOf(p)](g));
+  }
 }
 
 export function updateDot() {
@@ -173,7 +242,125 @@ function schedule() {
 
 function refresh(opts) {
   const p = activeProject();
-  if (p) load(p, opts);
+  if (!p) return;
+  load(p, opts);
+  if (opts?.status !== false && shown() && sectionOf(p) === 'secrets') loadSecrets(p);
+}
+
+async function loadSecrets(p) {
+  const g = p.gh;
+  try {
+    g.secrets = await work.github.secrets(p.path);
+    g.secretsError = null;
+  } catch (e) {
+    g.secretsError = message(e);
+  }
+  if (p === activeProject()) render();
+}
+
+function setSection(p, id) {
+  const g = p.gh;
+  if (sectionOf(p) === id) return;
+  g.section = id;
+  g.open = null;
+  try {
+    localStorage.setItem(sectionKey(p), id);
+  } catch {
+    // storage unavailable: the choice lasts until the app closes
+  }
+  applyNav(p);
+  render();
+  if (id === 'secrets') loadSecrets(p);
+}
+
+// ── Secrets ──────────────────────────────────────────────────
+
+// The same rule as the backend, so a wrong name is told while typing.
+export function secretNameError(name) {
+  if (!name) return '';
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Solo lettere, cifre e _; non può iniziare con una cifra.';
+  if (/^github_/i.test(name)) return 'I nomi che iniziano con GITHUB_ sono riservati da GitHub.';
+  return '';
+}
+
+let sheet = null;
+
+function closeSheet() {
+  if (!sheet) return;
+  const el = sheet;
+  sheet = null;
+  el.querySelector('#gh-secret-value').value = ''; // the value lives only while the sheet is open
+  leave(el, () => el.remove());
+}
+
+// A translucent sheet from the panel's edge. It does not dim the rest: nothing else is blocked.
+function openSecretSheet(p, existing) {
+  closeSheet();
+  const el = document.createElement('div');
+  el.className = 'gh-sheet';
+  el.innerHTML = `<form class="gh-sheet-card" autocomplete="off">
+    <h3>${existing ? 'Aggiorna valore' : 'Nuovo secret'}</h3>
+    <label class="gh-field">Nome
+      <input id="gh-secret-name" class="gh-mono" spellcheck="false" ${existing ? 'readonly' : 'placeholder="NOME_DEL_SECRET"'}>
+    </label>
+    <p class="gh-field-error" id="gh-secret-error"></p>
+    <label class="gh-field">Valore
+      <span class="gh-value">
+        <textarea id="gh-secret-value" class="gh-mono" rows="6" spellcheck="false" placeholder="Anche un certificato su più righe"></textarea>
+        <button type="button" class="icon-btn gh-eye" id="gh-secret-eye" title="Mostra il valore" aria-pressed="false">◉</button>
+      </span>
+    </label>
+    <div class="gh-sheet-btns">
+      <button type="button" class="btn" id="gh-secret-cancel">Annulla</button>
+      <button type="submit" class="btn btn-accent" id="gh-secret-save" disabled>Salva</button>
+    </div>
+  </form>`;
+  const [name, value, error, eye, save] = ['name', 'value', 'error', 'eye', 'save'].map((x) => el.querySelector(`#gh-secret-${x}`));
+  const check = () => {
+    const err = existing ? '' : secretNameError(name.value);
+    error.textContent = err;
+    save.disabled = !name.value || !!err || !value.value;
+  };
+  if (existing) name.value = existing;
+  value.classList.add('masked');
+  check();
+  name.oninput = check;
+  value.oninput = check;
+  eye.onclick = () => {
+    const hidden = value.classList.toggle('masked');
+    eye.setAttribute('aria-pressed', String(!hidden));
+    eye.title = hidden ? 'Mostra il valore' : 'Nascondi il valore';
+  };
+  el.querySelector('#gh-secret-cancel').onclick = closeSheet;
+  el.onkeydown = (e) => e.key === 'Escape' && closeSheet();
+  el.querySelector('form').onsubmit = async (e) => {
+    e.preventDefault();
+    if (save.disabled) return;
+    const label = save.textContent;
+    save.textContent = '…';
+    save.disabled = true;
+    try {
+      await work.github.secretSet(p.path, name.value, value.value);
+      toast(`Secret «${name.value}» salvato`);
+      closeSheet();
+      loadSecrets(p);
+    } catch (err) {
+      toastError(err);
+      save.textContent = label;
+      check();
+    }
+  };
+  $('.panel').appendChild(el);
+  sheet = el;
+  (existing ? value : name).focus();
+}
+
+async function deleteSecret(p, btn, name) {
+  const ok = await ask({ text: `Eliminare il secret «${name}»? I workflow che lo usano non lo troveranno più.`, input: false, danger: true, okLabel: 'Elimina' });
+  if (ok && await act(p, btn, () => work.github.secretDelete(p.path, name), `Secret «${name}» eliminato`)) {
+    p.gh.open = null;
+    loadSecrets(p);
+  }
 }
 
 // The open run's jobs: loaded when it opens, and again when its state moves.
@@ -185,21 +372,23 @@ async function loadJobs(p, id) {
   } catch (e) {
     g.jobs = { ...g.jobs, [id]: { error: message(e) } };
   }
-  if (p === activeProject() && g.open === id) render();
+  if (p === activeProject() && g.open === String(id)) render();
 }
 
 function syncOpenRun(p) {
   const g = p.gh;
-  const run = g.runs.find((r) => r.id === g.open);
-  if (!run) g.open = null;
-  else if (g.jobs?.[run.id]?.runState !== run.state || live([run])) loadJobs(p, run.id);
+  const run = g.runs.find((r) => String(r.id) === g.open);
+  if (!run) {
+    if (sectionOf(p) === 'actions') g.open = null;
+  } else if (g.jobs?.[run.id]?.runState !== run.state || live([run])) loadJobs(p, run.id);
 }
 
-function toggleRun(p, id) {
+// A row is a run (Actions) or a secret: its id is the run's number or the secret's name.
+function toggleRow(p, id) {
   const g = p.gh;
   g.open = g.open === id ? null : id;
-  setOpenRow($('#gh-body'), g.open);
-  if (g.open) loadJobs(p, id);
+  setOpenRow($('#gh-content'), g.open);
+  if (g.open && sectionOf(p) === 'actions') loadJobs(p, Number(id));
 }
 
 // The button reads "…" while gh works; a toast says how it went.
@@ -258,7 +447,7 @@ const rowOf = (e) => e.target.closest('.row-main') && e.target.closest('li[data-
 function onPointerDown(e) {
   const li = e.button === 0 && rowOf(e);
   const p = activeProject();
-  if (li && p) toggleRun(p, Number(li.dataset.id));
+  if (li && p) toggleRow(p, li.dataset.id);
 }
 
 function onClick(e) {
@@ -266,18 +455,25 @@ function onClick(e) {
   if (!p) return;
   const li = rowOf(e);
   if (li) {
-    if (e.detail === 0) toggleRun(p, Number(li.dataset.id));
+    if (e.detail === 0) toggleRow(p, li.dataset.id);
     return;
   }
+  const seg = e.target.closest('[data-seg]');
+  if (seg) return setSection(p, seg.dataset.seg);
   const btn = e.target.closest('[data-gh]');
   const act = btn?.dataset.gh;
   if (!act) return;
-  const run = e.target.closest('li[data-id]') && p.gh.runs?.find((r) => r.id === Number(e.target.closest('li[data-id]').dataset.id));
+  const id = e.target.closest('li[data-id]')?.dataset.id;
+  const run = id && p.gh.runs?.find((r) => String(r.id) === id);
   if (act === 'install') work.app.openExternal(CLI_URL);
   else if (act === 'login') hooks.login(p);
   else if (act === 'open') work.app.openExternal(p.gh.status.url);
   else if (act === 'retry') refresh();
   else if (act === 'workflow') workflowMenu(p, btn);
+  else if (act === 'newSecret') openSecretSheet(p, null);
+  else if (act === 'updateSecret' && id) openSecretSheet(p, id);
+  else if (act === 'deleteSecret' && id) deleteSecret(p, btn, id);
+  else if (act === 'retrySecrets') loadSecrets(p);
   else if (act === 'openRun' && run) work.app.openExternal(run.url);
   else if (run && ['rerun', 'rerunFailed', 'cancel'].includes(act)) runAction(p, btn, run, act);
 }

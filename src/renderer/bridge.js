@@ -129,6 +129,9 @@
       runAction: call('gh_run_action', 'cwd', 'id', 'action'),
       workflows: call('gh_workflows', 'cwd'),
       runWorkflow: call('gh_workflow_run', 'cwd', 'workflow', 'branch'),
+      secrets: call('gh_secrets', 'cwd'),
+      secretSet: call('gh_secret_set', 'cwd', 'name', 'value'),
+      secretDelete: call('gh_secret_delete', 'cwd', 'name'),
     },
     fs: {
       list: call('fs_list', 'dir'),

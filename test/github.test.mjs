@@ -8,6 +8,11 @@ let calls = 0;
 let runs = [];
 let jobs = [];
 let workflows = [];
+let secrets = [];
+let secretsCalls = 0;
+let setFails = null;
+const saved = [];
+const deleted = [];
 const jobsCalls = [];
 const actions = [];
 const started = [];
@@ -26,6 +31,16 @@ globalThis.window.work.github = {
   runAction: async (cwd, id, action) => { actions.push([cwd, id, action]); },
   workflows: async () => workflows,
   runWorkflow: async (cwd, id, branch) => { started.push([cwd, id, branch]); },
+  secrets: async () => {
+    secretsCalls++;
+    if (secrets instanceof Error) throw secrets.message;
+    return secrets;
+  },
+  secretSet: async (cwd, name, value) => {
+    if (setFails) throw setFails;
+    saved.push([cwd, name, value]);
+  },
+  secretDelete: async (cwd, name) => { deleted.push([cwd, name]); },
   runs: async (cwd) => {
     runsCalls++;
     assert.equal(cwd, '/p');
@@ -35,12 +50,15 @@ globalThis.window.work.github = {
 };
 let onFocus = null;
 globalThis.window.work.app.onFocus = (fn) => { onFocus = fn; };
-const { initGithub, setGithubVisible, emptyState, pollDelay, tabDot, duration, githubPushed } = await import('../src/renderer/github.js');
+// The browser's storage, as a Map: the section a project last showed is kept there.
+const stored = new Map();
+globalThis.localStorage = { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v) };
+const { initGithub, setGithubVisible, emptyState, pollDelay, tabDot, duration, githubPushed, secretNameError } = await import('../src/renderer/github.js');
 
 const project = { path: '/p', gitStatus: { branch: { name: 'main' } } };
 const logins = [];
 initGithub({ activeProject: () => project, login: (p) => logins.push(p.path) });
-const body = () => $('#gh-body').innerHTML;
+const body = () => $('#gh-content').innerHTML;
 // A click on the button `act`, inside the row of run `id` when given.
 const click = (act, id) => {
   const btn = new El();
@@ -242,7 +260,7 @@ test('un clic sulla riga la apre e carica i job; una sola alla volta; di nuovo l
   await show(repoStatus);
   press(11);
   await tick();
-  assert.equal(project.gh.open, 11);
+  assert.equal(project.gh.open, '11');
   assert.deepEqual(jobsCalls, [['/p', 11]]);
   assert.match(body(), /<li data-id="11" class="row-item gh-item open"/);
   assert.match(body(), /gh-job-name">build</);
@@ -250,15 +268,15 @@ test('un clic sulla riga la apre e carica i job; una sola alla volta; di nuovo l
   assert.match(body(), /<i>1m 42s<\/i>/, 'a job shows how long it took');
 
   press(12);
-  assert.equal(project.gh.open, 12, 'opening another row closes the previous one');
+  assert.equal(project.gh.open, '12', 'opening another row closes the previous one');
   press(12);
   assert.equal(project.gh.open, null);
   press(11, { button: 2 });
   assert.equal(project.gh.open, null, 'only the main button opens a row');
   enter(11);
-  assert.equal(project.gh.open, 11, 'Enter and Space open it too');
+  assert.equal(project.gh.open, '11', 'Enter and Space open it too');
   $('#gh-body').onclick({ detail: 1, ...row(11) });
-  assert.equal(project.gh.open, 11, 'a pointer click does not toggle twice');
+  assert.equal(project.gh.open, '11', 'a pointer click does not toggle twice');
 });
 
 test('le capsule dipendono dallo stato: "Riesegui falliti" solo se fallita, "Annulla" solo se viva', async () => {
@@ -365,4 +383,189 @@ test('se la run aperta sparisce dall\'elenco non resta aperto niente; i job si r
   delays.at(-1)[1]();
   await tick();
   assert.equal(project.gh.open, null);
+});
+
+const secret = (name, ago_ = 3 * 86400_000) => ({ name, updatedAt: new Date(Date.now() - ago_).toISOString() });
+const chooseSection = (id) => $('#gh-body').onclick({ detail: 1, target: { closest: (sel) => (sel === '[data-seg]' ? { dataset: { seg: id } } : null) } });
+const sheetEl = () => $('.panel').children.filter((c) => c.className === 'gh-sheet').at(-1);
+const field = (id) => sheetEl().querySelector(`#gh-secret-${id}`);
+const typeIn = (id, v) => { field(id).value = v; field(id).oninput(); };
+const submit = () => sheetEl().querySelector('form').onsubmit({ preventDefault() {} });
+const endAnimation = (el) => el.listeners.animationend?.at(-1)?.();
+
+test('secretNameError: la stessa regola del backend, detta mentre si scrive', () => {
+  assert.equal(secretNameError(''), '', 'empty is not an error yet');
+  assert.equal(secretNameError('NPM_TOKEN'), '');
+  assert.equal(secretNameError('_x1'), '');
+  assert.match(secretNameError('1ABC'), /cifra/);
+  assert.match(secretNameError('A B'), /Solo lettere/);
+  assert.match(secretNameError('A-B'), /Solo lettere/);
+  assert.match(secretNameError('GITHUB_TOKEN'), /GITHUB_/);
+  assert.match(secretNameError('github_x'), /GITHUB_/);
+});
+
+test('il controllo segmentato compare solo con un repository, ricorda la sezione per progetto e carica i secret', async () => {
+  stored.clear();
+  secrets = [secret('ZED'), secret('ALPHA', 5_000)];
+  await show({ installed: false });
+  assert.equal($('#gh-nav').innerHTML, '', 'no control without a repository');
+  await show(repoStatus);
+  assert.match($('#gh-nav').innerHTML, /data-seg="actions"[\s\S]*data-seg="secrets"/);
+  assert.match(body(), /Esegui workflow/, 'Actions is the default');
+
+  secretsCalls = 0;
+  chooseSection('secrets');
+  await tick();
+  assert.equal(stored.get('work.gh.section:/p'), 'secrets', 'remembered per project');
+  assert.equal(secretsCalls, 1);
+  const html = body();
+  assert.match(html, /ZED/);
+  assert.match(html, /aggiornato 3 g fa/);
+  assert.match(html, /aggiornato ora/);
+  assert.doesNotMatch(html, /Esegui workflow/);
+
+  // A fresh visit to the project opens on the same section.
+  await show(repoStatus);
+  await tick();
+  assert.match(body(), /Secret del repository/);
+  chooseSection('actions');
+  assert.equal(stored.get('work.gh.section:/p'), 'actions');
+  stored.clear();
+});
+
+test('i nomi dei secret si vedono escapati e i permessi mancanti restano nella sezione', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [secret('A<B>')];
+  await show(repoStatus);
+  assert.match(body(), /A&lt;B&gt;/);
+  secrets = new Error('Servono i permessi di amministratore del repository per vedere i secret.');
+  await show(repoStatus);
+  assert.match(body(), /Servono i permessi di amministratore/);
+  assert.match($('#gh-nav').innerHTML, /data-seg/, 'the other section is still one click away');
+  stored.clear();
+});
+
+test('Nuovo secret: il nome è validato mentre si scrive e Salva resta spento finché non c\'è tutto', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [];
+  await show(repoStatus);
+  click('newSecret');
+  assert.ok(sheetEl(), 'the sheet opens inside the panel');
+  assert.equal(field('save').disabled, true);
+  typeIn('name', '1ABC');
+  assert.match(field('error').textContent, /cifra/);
+  typeIn('value', 'x');
+  assert.equal(field('save').disabled, true, 'a wrong name keeps Save off');
+  typeIn('name', 'GITHUB_TOKEN');
+  assert.match(field('error').textContent, /GITHUB_/);
+  typeIn('name', 'NPM_TOKEN');
+  assert.equal(field('error').textContent, '');
+  assert.equal(field('save').disabled, false);
+  typeIn('value', '');
+  assert.equal(field('save').disabled, true, 'no value, no save');
+  stored.clear();
+});
+
+test('il valore è mascherato, si mostra con l\'occhio, arriva intero a gh e sparisce alla chiusura', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [];
+  saved.length = 0;
+  await show(repoStatus);
+  click('newSecret');
+  const el = sheetEl();
+  assert.ok(field('value').classList.contains('masked'), 'masked by default');
+  field('eye').onclick();
+  assert.equal(field('value').classList.contains('masked'), false);
+  field('eye').onclick();
+  assert.ok(field('value').classList.contains('masked'));
+
+  const cert = '-----BEGIN CERT-----\nMIIB\n-----END CERT-----\n';
+  typeIn('name', 'TLS_CERT');
+  typeIn('value', cert);
+  const before = secretsCalls;
+  secrets = [secret('TLS_CERT', 1000)];
+  submit();
+  assert.equal(field('save').textContent, '…', 'immediate feedback');
+  await tick();
+  assert.deepEqual(saved, [['/p', 'TLS_CERT', cert]], 'whole, multi-line');
+  assert.equal(secretsCalls, before + 1, 'the list is read again');
+  assert.equal(field('value').value, '', 'the value is wiped when the sheet closes');
+  endAnimation(el);
+  assert.equal($('.panel').children.includes(el), false, 'the sheet is gone');
+  assert.doesNotMatch(body(), /MIIB/, 'the value is nowhere in the page');
+  assert.equal([...stored.values()].some((v) => v.includes('MIIB')), false, 'nor in the stored preferences');
+  stored.clear();
+});
+
+test('se gh rifiuta il secret, il foglio resta aperto con il motivo e Salva torna disponibile', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [];
+  await show(repoStatus);
+  click('newSecret');
+  typeIn('name', 'OK_NAME');
+  typeIn('value', 'v');
+  const label = field('save').textContent;
+  setFails = 'Servono i permessi di amministratore del repository per vedere i secret.';
+  submit();
+  await tick();
+  setFails = null;
+  assert.ok(sheetEl() && !sheetEl().classList.contains('closing'), 'still open');
+  assert.equal(field('save').textContent, label, 'the button reads as before');
+  assert.equal(field('save').disabled, false);
+  field('cancel').onclick();
+  endAnimation(sheetEl());
+  stored.clear();
+});
+
+test('Escape chiude il foglio e Annulla non salva niente', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [];
+  saved.length = 0;
+  await show(repoStatus);
+  click('newSecret');
+  typeIn('name', 'A');
+  typeIn('value', 'v');
+  const el = sheetEl();
+  el.onkeydown({ key: 'Escape' });
+  assert.ok(el.classList.contains('closing'));
+  endAnimation(el);
+  assert.deepEqual(saved, []);
+  stored.clear();
+});
+
+test('Aggiorna valore: il nome è fisso e si salva sullo stesso secret', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [secret('NPM_TOKEN')];
+  saved.length = 0;
+  await show(repoStatus);
+  click('updateSecret', 'NPM_TOKEN');
+  assert.match(sheetEl().innerHTML, /readonly/);
+  assert.equal(field('name').value, 'NPM_TOKEN');
+  typeIn('value', 'new');
+  assert.equal(field('save').disabled, false, 'the fixed name needs no check');
+  submit();
+  await tick();
+  assert.deepEqual(saved, [['/p', 'NPM_TOKEN', 'new']]);
+  endAnimation(sheetEl());
+  stored.clear();
+});
+
+test('Elimina chiede conferma con il nome del secret; senza il sì non parte nulla', async () => {
+  stored.set('work.gh.section:/p', 'secrets');
+  secrets = [secret('NPM_TOKEN')];
+  deleted.length = 0;
+  await show(repoStatus);
+  click('deleteSecret', 'NPM_TOKEN');
+  await tick(0);
+  assert.match($('#modal-text').textContent, /NPM_TOKEN/);
+  $('#modal-cancel').onclick();
+  await tick();
+  assert.deepEqual(deleted, []);
+  const before = secretsCalls;
+  click('deleteSecret', 'NPM_TOKEN');
+  await answer('');
+  await tick();
+  assert.deepEqual(deleted, [['/p', 'NPM_TOKEN']]);
+  assert.equal(secretsCalls, before + 1);
+  stored.clear();
 });

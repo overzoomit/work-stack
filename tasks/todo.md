@@ -69,12 +69,13 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `style.css`, `test/github.test.mjs`
 
 ### T6: Secrets e controllo segmentato (M)
-- [ ] Controllo segmentato Actions · Secrets, capsula che scorre (240 ms, senza scorrere con reduced-motion); scelta ricordata per progetto (vedi domanda aperta 1)
-- [ ] Lista: nome in monospazio, "aggiornato 3 g fa"; permessi insufficienti = messaggio nella sezione
-- [ ] Foglio traslucido: nome validato mentre si scrive, area di testo mascherata con occhio, multi-riga ok
-- [ ] `gh_secret_set` col valore su stdin, mai in argv, log o errori; `check_secret_name` (`^[A-Za-z_][A-Za-z0-9_]*$`, non `GITHUB_`)
-- [ ] Elimina con conferma che nomina il secret
+- [x] Controllo segmentato Actions · Secrets, capsula che scorre (240 ms, senza scorrere con reduced-motion); scelta ricordata per progetto (vedi domanda aperta 1)
+- [x] Lista: nome in monospazio, "aggiornato 3 g fa"; permessi insufficienti = messaggio nella sezione
+- [x] Foglio traslucido: nome validato mentre si scrive, area di testo mascherata con occhio, multi-riga ok
+- [x] `gh_secret_set` col valore su stdin, mai in argv, log o errori; `check_secret_name` (`^[A-Za-z_][A-Za-z0-9_]*$`, non `GITHUB_`)
+- [x] Elimina con conferma che nomina il secret
 - Verifica: test Rust (nome valido/vuoto/spazi/cifra/`GITHUB_TOKEN`, riga di log senza valore, stdin multi-riga); a mano: secret di prova creato, visto in `gh secret list`, eliminato; valore assente dal log di Work
+- Verifica reale: un test `#[ignore]` (`real_secret_roundtrip`) ha creato su `work-stack` un secret multi-riga, l'ha visto in `gh secret list` e l'ha eliminato; il valore non è in nessun output. Segmento ricordato in `localStorage` (decisione 2).
 - Dipende da: T3
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `index.html`, `style.css`, `test/github.test.mjs`
 
