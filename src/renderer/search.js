@@ -8,6 +8,30 @@ import { previewFile } from './preview.js';
 const { work } = window;
 const MAX_ROWS = 200;
 const GREP_DELAY = 120;
+const MAX_RECENT = 8;
+
+// ⌘/Ctrl+↵ shows the file in the tree: app.js knows the panels.
+let hooks = { reveal() {} };
+export const setSearchHooks = (h) => { hooks = h; };
+
+// The last files opened from the palette, per project, newest first.
+const recentKey = (project) => `work.search.recent:${project.path}`;
+export function recentFiles(project) {
+  try {
+    const list = JSON.parse(localStorage.getItem(recentKey(project)) || '[]');
+    return Array.isArray(list) ? list.filter((p) => typeof p === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function remember(project, path) {
+  try {
+    const list = [path, ...recentFiles(project).filter((p) => p !== path)].slice(0, MAX_RECENT);
+    localStorage.setItem(recentKey(project), JSON.stringify(list));
+  } catch {
+    // no storage: no recent files
+  }
+}
 const SEGMENT = '/._- ';
 
 // In order, rewarding segment starts, runs and the file name; a long path
@@ -164,11 +188,16 @@ function render() {
 function renderFiles() {
   const query = s.input.value;
   const cached = lists.get(s.project.path);
-  s.rows = query && cached ? rank(query, cached.files) : [];
+  if (query) s.rows = cached ? rank(query, cached.files) : [];
+  else {
+    // Empty field: the recent files (those still there, once the list is known).
+    const known = cached && new Map(cached.files.map((f) => [f.path, f]));
+    s.rows = recentFiles(s.project).filter((p) => !known || known.has(p)).map((p) => known?.get(p) || { path: p, ignored: false });
+  }
   s.sel = Math.min(s.sel, Math.max(0, s.rows.length - 1));
   if (s.error) s.list.innerHTML = `<li class="sr-empty">${esc(s.error)}</li>`;
   else if (query && cached && !s.rows.length) s.list.innerHTML = `<li class="sr-empty">Nessun file con “${esc(query)}”. ⇥ per cercarlo nel testo.</li>`;
-  else s.list.innerHTML = s.rows.map(row).join('');
+  else s.list.innerHTML = (!query && s.rows.length ? '<li class="sr-label" role="presentation">Aperti di recente</li>' : '') + s.rows.map(row).join('');
   s.foot.textContent = !cached ? 'Carico i file…'
     : cached.truncated ? `Elenco parziale: oltre ${cached.files.length.toLocaleString('it')} file`
       : query ? `${s.rows.length}${s.rows.length === MAX_ROWS ? '+' : ''} file` : `${cached.files.length.toLocaleString('it')} file`;
@@ -186,12 +215,15 @@ function select(i) {
   s.list.querySelector(`#sr-${s.sel}`)?.scrollIntoView({ block: 'nearest' });
 }
 
-function open(i = s.sel) {
+// ↵ opens the preview; ⌘/Ctrl+↵ shows the file in the tree instead.
+function open(i = s.sel, { inTree = false } = {}) {
   const f = s.rows[i];
   if (!f) return;
   const path = `${s.project.path}/${f.path}`;
+  remember(s.project, f.path);
   closeSearch({ restoreFocus: false });
-  previewFile(path, { line: f.line });
+  if (inTree) hooks.reveal(path);
+  else previewFile(path, { line: f.line });
 }
 
 function setMode(mode) {
@@ -236,6 +268,7 @@ export function openSearch(project, { mode = 'files' } = {}) {
   el.innerHTML = `
     <div class="search-head">
       <div class="search-modes" role="tablist" aria-label="Cerca per">
+        <span class="search-thumb"></span>
         <button role="tab" data-mode="files" tabindex="-1">File</button><button role="tab" data-mode="text" tabindex="-1">Testo</button>
       </div>
       <span class="search-hint">⇥ cambia</span>
@@ -246,6 +279,12 @@ export function openSearch(project, { mode = 'files' } = {}) {
     <footer class="search-foot"></footer>`;
   document.body.appendChild(veil);
   document.body.appendChild(el);
+  // It grows out of the field in the top bar, and goes back into it.
+  const field = document.querySelector('#search-field')?.getBoundingClientRect();
+  if (field?.width) {
+    const box = el.getBoundingClientRect();
+    el.style.transformOrigin = `${field.left + field.width / 2 - box.left}px ${field.top + field.height / 2 - box.top}px`;
+  }
   s = {
     project, mode, el, veil, sel: 0, rows: [], error: null, grep: null, back: document.activeElement,
     input: el.querySelector('.search-input'), list: el.querySelector('.search-list'), foot: el.querySelector('.search-foot'),
@@ -281,7 +320,7 @@ function onKey(e) {
   const act = {
     ArrowDown: () => select(s.sel + 1),
     ArrowUp: () => select(s.sel - 1),
-    Enter: () => open(),
+    Enter: () => open(s.sel, { inTree: e.metaKey || e.ctrlKey }),
     Escape: () => closeSearch(),
     Tab: () => setMode(s.mode === 'files' ? 'text' : 'files'),
   }[e.key];

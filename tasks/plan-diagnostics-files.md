@@ -148,7 +148,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     `.env`.
   - File: `src/renderer/search.js`, `src/renderer/preview.js` (apertura alla riga), `test/search.test.mjs`
   - Dipende da: F2, F3 · Scope: S
-- [ ] **F5: rifiniture della palette**
+- [x] **F5: rifiniture della palette**
   - Accettazione: "Aperti di recente" (8, `localStorage` con `try/catch`); `⌘/Ctrl+↵` mostra nell'albero;
     selettore con indicatore che scorre; ingresso/uscita dal campo; movimento e trasparenza ridotti.
   - Verifica: a mano, anche con "Riduci movimento" attivo; `npm test` verde.

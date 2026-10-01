@@ -66,3 +66,31 @@ test('nel modo Testo conta solo la risposta all\'ultima ricerca', async () => {
   assert.equal(foot.textContent, '1 risultato in 1 file');
   closeSearch();
 });
+
+test('a campo vuoto il modo File mostra gli ultimi 8 file aperti dalla palette, il più recente in cima', async () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
+  const { openSearch, closeSearch, recentFiles } = await import('../src/renderer/search.js');
+  const files = Array.from({ length: 10 }, (_, i) => ({ path: `f${i}.js`, ignored: false }));
+  window.work.fs = { files: async () => ({ files, truncated: false }), read: async () => ({ text: '', size: 0 }) };
+  const project = { path: '/recenti', name: 'recenti' };
+  for (const f of [...files, files[3]]) {
+    openSearch(project);
+    const el = document.body.children.filter((c) => c.className === 'search').at(-1);
+    await new Promise((r) => setTimeout(r, 0));
+    el.querySelector('.search-input').value = f.path.replace('.js', '');
+    el.querySelector('.search-input').oninput();
+    el.querySelector('.search-input').onkeydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  }
+  assert.deepEqual(recentFiles(project), ['f3.js', 'f9.js', 'f8.js', 'f7.js', 'f6.js', 'f5.js', 'f4.js', 'f2.js']);
+
+  openSearch(project);
+  await new Promise((r) => setTimeout(r, 0));
+  const list = document.body.children.filter((c) => c.className === 'search').at(-1).querySelector('.search-list').innerHTML;
+  assert.match(list, /Aperti di recente/);
+  assert.ok(list.indexOf('f3') < list.indexOf('f9'));
+  closeSearch();
+
+  store.set('work.search.recent:/recenti', '{rotto');
+  assert.deepEqual(recentFiles(project), [], 'a broken entry is ignored');
+});

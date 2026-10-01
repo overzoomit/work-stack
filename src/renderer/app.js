@@ -14,7 +14,7 @@ import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
-import { openSearch } from './search.js';
+import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
 import { isRefreshKey, isCloseTerminalKey } from './keys.js';
 
@@ -315,6 +315,16 @@ setGitHooks({
   preview: (abs) => active && treeHooks(active).preview(abs),
   reveal: (abs) => {
     if (!active) return;
+    showTab('project');
+    active.tree.reveal(abs);
+  },
+});
+
+// ⌘/Ctrl+↵ in the search palette: the file in the tree, panel open if hidden.
+setSearchHooks({
+  reveal: (abs) => {
+    if (!active) return;
+    setPanel('right', true);
     showTab('project');
     active.tree.reveal(abs);
   },
