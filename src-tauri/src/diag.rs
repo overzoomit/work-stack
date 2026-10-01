@@ -74,7 +74,8 @@ pub fn log(level: Level, area: &str, msg: impl fmt::Display) {
         return;
     }
     let line = line(&now_local(), level, area, &msg.to_string());
-    eprint!("{line}");
+    // Not eprint!: it panics when stderr is gone (a closed pipe in a dev run).
+    let _ = std::io::stderr().write_all(line.as_bytes());
     if let Some(f) = FILE.get() {
         let _ = f
             .lock()
@@ -92,8 +93,31 @@ pub fn log(level: Level, area: &str, msg: impl fmt::Display) {
 fn line(time: &str, level: Level, area: &str, msg: &str) -> String {
     format!(
         "{time} {level:<5} {area:<8} {}\n",
-        msg.trim_end().replace('\n', "\n    ")
+        hide_credentials(msg.trim_end()).replace('\n', "\n    ")
     )
+}
+
+// A remote like https://user:token@host can show up in git's stderr: the
+// part before "@" never reaches the log.
+fn hide_credentials(msg: &str) -> String {
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    while let Some(i) = rest.find("://") {
+        let (head, tail) = rest.split_at(i + 3);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| c == '/' || c.is_whitespace())
+            .unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(at) => {
+                out.push_str("***");
+                rest = &tail[at..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn local_time() -> (libc::tm, u32) {
@@ -135,6 +159,17 @@ fn export_name() -> String {
 
 // A header line, then work.log.1 (older) and work.log, in this order.
 fn write_export(log: &Path, to: &Path, header: &str) -> std::io::Result<()> {
+    // The log itself as destination would be truncated, then copied into itself forever.
+    let real = |p: &Path| p.canonicalize().ok();
+    if real(to).is_some()
+        && [log.to_path_buf(), log.with_extension("log.1")]
+            .iter()
+            .any(|f| real(f) == real(to))
+    {
+        return Err(std::io::Error::other(
+            "Scegli un file diverso dal log di Work.",
+        ));
+    }
     let mut out = File::create(to)?;
     writeln!(out, "{header}")?;
     for f in [log.with_extension("log.1"), log.to_path_buf()] {
@@ -308,6 +343,27 @@ mod tests {
             "{name}"
         );
         assert_eq!(name.len(), "Work-log-2026-09-30-1403.txt".len(), "{name}");
+    }
+
+    #[test]
+    fn credentials_in_a_url_never_reach_the_log() {
+        assert_eq!(
+            hide_credentials("fatal: https://anna:ghp_x@github.com/o/r.git e ssh://git@host/r"),
+            "fatal: https://***@github.com/o/r.git e ssh://***@host/r"
+        );
+        assert_eq!(
+            hide_credentials("https://github.com/o/r"),
+            "https://github.com/o/r"
+        );
+    }
+
+    #[test]
+    fn the_log_cannot_be_exported_onto_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("work.log");
+        std::fs::write(&log, "riga\n").unwrap();
+        assert!(write_export(&log, &log, "Work").is_err());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "riga\n");
     }
 
     #[test]

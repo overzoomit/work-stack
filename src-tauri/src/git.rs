@@ -74,6 +74,7 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
     }
     let start = std::time::Instant::now();
     let mut exit = None;
+    let o_has_input = o.input.is_some();
     let res = run_git(cwd, args, o, &mut exit).await;
     let ms = start.elapsed().as_millis();
     let exit = exit.map_or("-".to_string(), |c: i32| c.to_string());
@@ -90,6 +91,13 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
         );
     }
     match &res {
+        // A commit's stderr is its hooks' output: commitlint quotes the
+        // message, linters print source lines. Neither belongs in the log.
+        Err(_) if o_has_input => log(
+            Level::Warn,
+            "git",
+            format!("{cmd} in {cwd}: exit {exit} dopo {ms} ms"),
+        ),
         Err(e) => log(
             Level::Warn,
             "git",

@@ -15,7 +15,9 @@
     };
     return invoke(cmd, Object.fromEntries(names.map((n, i) => [n, args[i]]))).then(
       (r) => { slow(); return r; },
-      (e) => { slow(); log('warn', `${cmd} fallito: ${e?.message ?? e}`); throw e; },
+      // A git action's error is git's stderr (hooks quoting a commit message):
+      // the backend already logged it without that part.
+      (e) => { slow(); log('warn', cmd === 'git_action' ? `${cmd} fallito` : `${cmd} fallito: ${e?.message ?? e}`); throw e; },
     );
   };
   // Fire and forget, like ipcRenderer.send: a failure has no caller to reach.
