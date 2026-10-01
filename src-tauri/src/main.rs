@@ -67,6 +67,7 @@ fn main() {
         .manage(std::sync::Mutex::new(sysinfo::System::new()))
         .manage(fsops::Roots::default())
         .manage(github::Downloaded::default())
+        .manage(app::PendingUpdate::default())
         .setup(|app| {
             // Debug/tests: WORK_USER_DATA keeps state separate from the real profile.
             let (dir, legacy) = match std::env::var("WORK_USER_DATA") {
@@ -121,6 +122,7 @@ fn main() {
             app::app_reveal_export,
             app::app_set_unsaved,
             app::app_quit,
+            app::app_update_check,
             app::app_open_external,
             app::app_copy,
             app::app_paste,

@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, 
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 // Web pages and mail links only: other schemes could launch local programs.
 pub fn is_web_link(url: &str) -> bool {
@@ -267,6 +268,7 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         true,
         &[
             &P::about(app, None, None)?,
+            &tauri::menu::MenuItem::with_id(app, "check-update", "Controlla aggiornamenti…", true, None::<&str>)?,
             &P::separator(app)?,
             &P::services(app, None)?,
             &P::separator(app)?,
@@ -298,6 +300,10 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
 pub fn on_menu(app: &AppHandle, event: tauri::menu::MenuEvent) {
     if event.id() == "quit" && may_quit(app) {
         app.exit(0);
+    }
+    // The page checks and answers, like for the ⋯ item on Linux.
+    if event.id() == "check-update" {
+        let _ = app.emit("app:check-update", json!([]));
     }
     if event.id() != "export-log" {
         return;
@@ -336,6 +342,36 @@ pub fn app_set_unsaved(unsaved: bool) {
 pub fn app_quit(app: AppHandle) {
     UNSAVED.store(false, Ordering::Relaxed);
     app.exit(0);
+}
+
+// ── Updates ──────────────────────────────────────────────────
+// The newer version the last check found, kept for the install step.
+#[derive(Default)]
+pub struct PendingUpdate(pub Mutex<Option<tauri_plugin_updater::Update>>);
+
+// Only an AppImage (or the macOS app) can replace itself: a .deb or .rpm is
+// owned by the package manager, so those get the notice and a link.
+fn can_install(os: &str, appimage: Option<&std::ffi::OsStr>) -> bool {
+    os != "linux" || appimage.is_some_and(|a| !a.is_empty())
+}
+
+fn update_json(version: &str, notes: Option<&str>, date_ms: Option<i64>, can_install: bool) -> Value {
+    json!({ "version": version, "notes": notes.unwrap_or(""), "date": date_ms, "canInstall": can_install })
+}
+
+// null when this is the newest version. Development runs never check: they have no release to compare with.
+#[tauri::command]
+pub async fn app_update_check(app: AppHandle, pending: tauri::State<'_, PendingUpdate>) -> Result<Option<Value>, String> {
+    if cfg!(debug_assertions) {
+        return Ok(None);
+    }
+    let found = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let info = found.as_ref().map(|u| {
+        let can = can_install(std::env::consts::OS, std::env::var_os("APPIMAGE").as_deref());
+        update_json(&u.version, u.body.as_deref(), u.date.map(|d| d.unix_timestamp() * 1000), can)
+    });
+    *pending.0.lock().unwrap() = found;
+    Ok(info)
 }
 
 // ── Commands ─────────────────────────────────────────────────
@@ -447,6 +483,23 @@ pub fn debug_log(level: String, msg: String) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_an_appimage_or_the_mac_app_can_install_an_update() {
+        use std::ffi::OsStr;
+        assert!(can_install("macos", None));
+        assert!(can_install("linux", Some(OsStr::new("/home/u/Work.AppImage"))));
+        assert!(!can_install("linux", None), "a .deb or .rpm");
+        assert!(!can_install("linux", Some(OsStr::new(""))), "an empty variable is not an AppImage");
+    }
+
+    #[test]
+    fn the_update_info_has_what_the_page_shows() {
+        let v = update_json("1.2.0", Some("- nuovo"), Some(1_790_000_000_000), true);
+        assert_eq!(v, json!({ "version": "1.2.0", "notes": "- nuovo", "date": 1_790_000_000_000i64, "canInstall": true }));
+        let v = update_json("1.2.0", None, None, false);
+        assert_eq!((v["notes"].as_str(), v["date"].is_null(), v["canInstall"].as_bool()), (Some(""), true, Some(false)));
+    }
     use super::*;
 
     #[cfg(target_os = "macos")]
