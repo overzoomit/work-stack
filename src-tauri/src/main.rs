@@ -140,6 +140,7 @@ fn main() {
             gitwatch::git_unwatch,
             fsops::fs_list,
             fsops::fs_read,
+            fsops::fs_files,
             fsops::fs_create,
             fsops::fs_rename,
             fsops::fs_move,

@@ -114,7 +114,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
 
 ## Branch `files`
 
-- [ ] **F1: `fs_files`**
+- [x] **F1: `fs_files`**
   - Accettazione: con git, tracciati + nuovi + ignorati (solo file, cartelle ignorate escluse) meno i
     cancellati; senza git, visita senza symlink che salta la lista di cartelle; massimo 50 000 con
     `truncated`; passa da `guard`.

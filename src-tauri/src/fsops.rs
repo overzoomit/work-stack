@@ -186,6 +186,70 @@ fn read(roots: &[PathBuf], file: &str) -> Result<Value, String> {
     Ok(json!({ "text": String::from_utf8_lossy(&buf), "size": size }))
 }
 
+// ── Project-wide search ──────────────────────────────────────
+const MAX_FILES: usize = 50_000;
+// Without git, the folders no one searches in.
+const SKIP_DIRS: [&str; 9] = [".git", "node_modules", "target", "dist", "build", ".next", ".venv", "venv", "__pycache__"];
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct Found {
+    path: String,
+    ignored: bool,
+}
+
+// A git command's NUL-separated output, or None if git can't run there (not a repository).
+fn git_z(dir: &Path, args: &[&str]) -> Option<Vec<String>> {
+    use std::process::{Command, Stdio};
+    let out = Command::new("git").args(args).current_dir(dir).env("GIT_OPTIONAL_LOCKS", "0").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+    out.status.success().then(|| out.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| String::from_utf8_lossy(p).into_owned()).collect())
+}
+
+// Tracked and new files, then the ignored ones (.env) but not what is inside
+// ignored folders (node_modules/, target/): git reports those as one entry
+// ending in "/", which is dropped. Files deleted but still in the index go.
+fn git_files(dir: &Path) -> Option<Vec<Found>> {
+    let mut tracked = git_z(dir, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
+    tracked.dedup(); // a conflicted file is listed once per stage
+    let deleted: std::collections::HashSet<String> = git_z(dir, &["ls-files", "-z", "--deleted"]).unwrap_or_default().into_iter().collect();
+    let ignored = git_z(dir, &["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]).unwrap_or_default();
+    let found = |ignored| move |path| Found { path, ignored };
+    Some(tracked.into_iter().filter(|p| !deleted.contains(p)).map(found(false)).chain(ignored.into_iter().filter(|p| !p.ends_with('/')).map(found(true))).collect())
+}
+
+// Without git: every file, not following links into folders, skipping SKIP_DIRS.
+fn walk_files(dir: &Path) -> Vec<Found> {
+    let mut out = vec![];
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(dir.join(&rel)) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let path = rel.join(&name);
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                if !SKIP_DIRS.iter().any(|d| name == *d) {
+                    stack.push(path);
+                }
+            } else if !ft.is_symlink() || fs::metadata(dir.join(&path)).is_ok_and(|m| m.is_file()) {
+                out.push(Found { path: path.to_string_lossy().into_owned(), ignored: false });
+                if out.len() > MAX_FILES {
+                    return out;
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+fn files(roots: &[PathBuf], root: &str) -> Result<Value, String> {
+    let abs = guard(roots, Path::new(root), true)?;
+    let mut list = git_files(&abs).unwrap_or_else(|| walk_files(&abs));
+    let truncated = list.len() > MAX_FILES;
+    list.truncate(MAX_FILES);
+    Ok(json!({ "files": list, "truncated": truncated }))
+}
+
 fn create(roots: &[PathBuf], parent: &str, name: &str, dir: bool) -> Result<PathBuf, String> {
     check_name(name)?;
     let abs = guard(roots, &Path::new(parent).join(name), false)?;
@@ -309,6 +373,12 @@ pub async fn fs_read(roots: State<'_, Roots>, file: String) -> Result<Value, Str
 }
 
 #[tauri::command]
+pub async fn fs_files(roots: State<'_, Roots>, root: String) -> Result<Value, String> {
+    let r = roots.get();
+    blocking(move || files(&r, &root)).await
+}
+
+#[tauri::command]
 pub async fn fs_create(roots: State<'_, Roots>, parent: String, name: String, dir: bool) -> Result<PathBuf, String> {
     let r = roots.get();
     blocking(move || create(&r, &parent, &name, dir)).await
@@ -407,6 +477,59 @@ mod tests {
         fs::write(f.project.join("file2.txt"), "").unwrap();
         let names: Vec<String> = list(&f.roots, &s(&f.project)).unwrap().into_iter().map(|e| e.name).collect();
         assert_eq!(names, ["link-dir", "src", "file2.txt", "file10.txt", "link-file"]);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git").args(args).current_dir(dir).output().unwrap().status.success();
+        assert!(ok, "git {args:?}");
+    }
+
+    fn paths(v: &Value) -> Vec<(String, bool)> {
+        v["files"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_string(), f["ignored"].as_bool().unwrap())).collect()
+    }
+
+    #[test]
+    fn i_file_di_un_repository_includono_il_env_ignorato_ma_non_node_modules() {
+        let f = fx();
+        let p = &f.project;
+        git(p, &["init", "-q"]);
+        fs::write(p.join(".gitignore"), ".env*\nnode_modules/\n").unwrap();
+        fs::write(p.join("vecchio.txt"), "").unwrap();
+        git(p, &["add", "."]);
+        git(p, &["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "x"]);
+        fs::remove_file(p.join("vecchio.txt")).unwrap();
+        fs::write(p.join(".env.local"), "A=1\n").unwrap();
+        fs::write(p.join("nuovo.js"), "").unwrap();
+        fs::create_dir_all(p.join("node_modules/lib")).unwrap();
+        fs::write(p.join("node_modules/lib/index.js"), "").unwrap();
+
+        let got = paths(&files(&f.roots, &s(p)).unwrap());
+        let has = |path: &str, ignored: bool| got.contains(&(path.to_string(), ignored));
+        assert!(has("src/a.txt", false) && has("nuovo.js", false) && has(".gitignore", false), "{got:?}");
+        assert!(has(".env.local", true), "{got:?}");
+        assert!(!got.iter().any(|(p, _)| p.starts_with("node_modules")), "{got:?}");
+        assert!(!got.iter().any(|(p, _)| p == "vecchio.txt"), "deleted from disk: {got:?}");
+    }
+
+    #[test]
+    fn i_file_senza_git_saltano_le_cartelle_della_lista() {
+        let f = fx();
+        for d in ["node_modules/x", "target/debug", ".venv"] {
+            fs::create_dir_all(f.project.join(d)).unwrap();
+            fs::write(f.project.join(d).join("f"), "").unwrap();
+        }
+        fs::write(f.project.join(".env"), "").unwrap();
+        let v = files(&f.roots, &s(&f.project)).unwrap();
+        assert_eq!(v["truncated"], false);
+        let got: Vec<String> = paths(&v).into_iter().map(|(p, _)| p).collect();
+        assert_eq!(got, [".env", "link-file", "src/a.txt"], "the link to a folder is not followed");
+    }
+
+    #[test]
+    fn non_elenca_i_file_fuori_dal_progetto() {
+        let f = fx();
+        rejects(files(&f.roots, &s(&f.outside)), "fuori dai progetti");
+        rejects(files(&f.roots, &s(&f.project.join("link-dir"))), "fuori dai progetti");
     }
 
     #[test]
