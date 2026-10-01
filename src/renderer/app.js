@@ -14,6 +14,7 @@ import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
+import { openSearch } from './search.js';
 import { tildify } from './paths.js';
 import { isRefreshKey, isCloseTerminalKey } from './keys.js';
 
@@ -122,6 +123,8 @@ function showWelcome() {
 }
 
 function renderProjectTabs() {
+  $('#search-field').hidden = !active;
+  if (active) $('#search-field .search-field-text').textContent = `Cerca in ${active.name}`;
   const box = $('#project-tabs');
   const changed = setHtml(box, projects.map((p, i) => {
     const agent = agentStateFor(p.path);
@@ -498,6 +501,7 @@ const newTerminal = () => (active ? openTerminal(active) : pickProject());
 $('#new-project').onclick = pickProject;
 $('#refresh').onclick = refreshAll;
 $('#new-term').onclick = newTerminal;
+$('#search-field').onclick = () => openSearch(active);
 $('#empty-new-term').onclick = newTerminal;
 $('#tree-new-file').onclick = () => active?.tree.create(active.tree.selected || active.path, false);
 $('#tree-new-dir').onclick = () => active?.tree.create(active.tree.selected || active.path, true);
@@ -525,6 +529,13 @@ addEventListener('keydown', (e) => {
     if (active?.focusedId) closeTerminal(active.focusedId);
     return;
   }
+  // ⌘P on macOS, like the editors there; Ctrl/⌘+Shift+P everywhere.
+  if (info.platform === 'darwin' && e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    e.stopPropagation();
+    openSearch(active);
+    return;
+  }
   const mod = (e.ctrlKey || e.metaKey) && e.shiftKey;
   if (!mod) return;
   const t = focused();
@@ -546,6 +557,7 @@ addEventListener('keydown', (e) => {
     O: pickProject,
     B: () => togglePanel('left'),
     M: () => active?.focusedId && toggleMax(active.focusedId),
+    P: () => openSearch(active),
   };
   const fn = actions[e.key.toUpperCase()];
   if (fn) {
@@ -648,6 +660,7 @@ more.onclick = (e) => {
   info = await work.app.info();
   if (info.platform === 'darwin') document.body.classList.add('mac');
   else $('#more').hidden = false;
+  $('#search-kbd').textContent = info.platform === 'darwin' ? '⌘P' : 'Ctrl+Shift+P';
 
   initTerminals({
     homeDir: info.home,

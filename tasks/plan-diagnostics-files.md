@@ -130,7 +130,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     fuori radice).
   - File: `src-tauri/src/fsops.rs`, `src-tauri/src/main.rs`
   - Scope: M
-- [ ] **F3: palette, modo File**
+- [x] **F3: palette, modo File**
   - Accettazione: `⌘P` / `Ctrl/⌘+Shift+P` e il campo "Cerca in <progetto>" aprono la palette (non senza
     progetto); `fuzzy()` in ordine con punteggio e posizioni; primi 200; cache dell'elenco per
     progetto; `↑↓ ↵ esc`, combobox/listbox; materiale `.menu`. `↵` apre l'anteprima esistente.
