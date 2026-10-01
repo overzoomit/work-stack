@@ -40,6 +40,16 @@ Un wrapper e non un symlink: lanciato dal suo percorso reale, il binario trova i
   ignorato). Tasto destro per creare, rinominare, spostare nel cestino, aprire un terminale;
   trascina per spostare (con "Annulla"). Anteprima dei file con doppio clic: **Markdown e HTML
   renderizzati** (Anteprima / Sorgente; l'HTML senza i suoi script, a meno di attivare "Esegui script" per quel file), gli altri con numeri di riga.
+- **Ricerca** (`⌘P` su macOS, `Ctrl+Shift+P`, o il campo "Cerca in <progetto>" in alto): una palette sul
+  progetto attivo con due modi, `⇥` passa dall'uno all'altro. **File** cerca per nome con un fuzzy match (a
+  campo vuoto gli ultimi file aperti); **Testo** (`Ctrl+Shift+F`) cerca il testo letterale nei file, con le
+  maiuscole che contano solo se la query ne ha, e apre l'anteprima alla riga trovata. I file ignorati come
+  `.env` ci sono (segnati "ignorato"), le cartelle ignorate come `node_modules/` no. `↵` apre l'anteprima,
+  `⌘/Ctrl+↵` mostra il file nell'albero.
+- **Modifica** dall'anteprima, per i file di testo UTF-8: "Modifica", poi "Salva" (`⌘/Ctrl+S`). Il file resta
+  com'è su disco (permessi, fine riga `\r\n`); se nel frattempo è cambiato, Work chiede se ricaricarlo o
+  sovrascriverlo, e chiudere con modifiche non salvate chiede prima di scartarle. Nei `.env` i valori sono
+  visibili; l'occhio su una riga o "Nascondi valori" li coprono.
 - **Git**: stage/unstage, scarta, commit (anche amend), branch, checkout, fetch/pull/push, stash.
   **Graph** di tutti i branch; il dettaglio di un commit mostra messaggio, autore, branch che lo
   contengono, l'albero dei file cambiati con +/− e il **diff affiancato** (o unificato) con le
@@ -96,6 +106,9 @@ rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'ap
 | Ctrl+F5 | Riavvia |
 | Ctrl+F2 | Ferma |
 | F5 | Aggiorna albero e git |
+| ⌘P (macOS) / Ctrl+Shift+P | Cerca un file nel progetto |
+| Ctrl+Shift+F | Cerca un testo nel progetto |
+| ⌘S / Ctrl+S | Salva il file in modifica |
 | Ctrl+Shift+O | Apri un altro progetto |
 | Ctrl+Shift+B | Mostra/nascondi la colonna terminali e sessioni |
 | Ctrl+Alt+B | Mostra/nascondi il pannello Project / Modifiche / Graph / Agente |
@@ -132,7 +145,8 @@ src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
   gitpanel.js    modifiche, branch, graph
   review.js      dettaglio commit / modifiche (stile WebStorm)
   diff.js        diff affiancato e unificato
-  preview.js     anteprima file, Markdown e HTML
+  preview.js     anteprima file, Markdown e HTML, modifica
+  search.js      palette di ricerca (file e testo)
   run.js         configurazioni Run (avvia / riavvia / ferma)
   launcher.js    menu ✦ Agente
   themes.js      profili colore del terminale

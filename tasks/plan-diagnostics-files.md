@@ -183,7 +183,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     `600`: dopo il salvataggio ancora `600`.
   - File: `src/renderer/preview.js`, `src/renderer/style.css`, `test/preview.test.mjs`
   - Dipende da: E2 · Scope: S
-- [ ] **E5: README "Cosa fa": Ricerca e Modifica** · File: `README.md` · Scope: XS
+- [x] **E5: README "Cosa fa": Ricerca e Modifica** · File: `README.md` · Scope: XS
 - [ ] **Checkpoint D**: tutti i criteri di `SPEC-files.md` verdi. Revisione, push di `files` e PR.
 
 ## Rischi
