@@ -63,6 +63,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(std::sync::Mutex::new(sysinfo::System::new()))
         .manage(fsops::Roots::default())
         .manage(github::Downloaded::default())
