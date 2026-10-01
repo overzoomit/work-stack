@@ -2,6 +2,7 @@
 // (~/.claude/projects/<project>/<session>.jsonl) and turns them into a
 // live picture of what each agent is doing.
 use crate::claudeprocs;
+use crate::diag::{log, Level};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -634,21 +635,29 @@ impl Worker {
     fn scan(&mut self) {
         self.root = real(&self.shared.projects);
         let now = now_ms();
+        let (mut dirs, mut sessions, mut recent, mut unreadable) = (0, 0, 0, 0);
         for d in fs::read_dir(&self.root).into_iter().flatten().flatten() {
             let Ok(files) = fs::read_dir(d.path()) else { continue };
+            dirs += 1;
             for f in files.flatten() {
                 if !f.file_name().to_str().is_some_and(is_session_file) {
                     continue;
                 }
+                sessions += 1;
                 let file = f.path();
                 match fs::metadata(&file) {
                     Ok(m) if now - mtime_ms(&m) <= WINDOW_MS => {
+                        recent += 1;
                         self.shared.read_file(&file);
                     }
-                    _ => {}
+                    Ok(_) => {}
+                    Err(_) => unreadable += 1,
                 }
             }
         }
+        // The first scan always, the ones every 60 s only with WORK_DEBUG.
+        let level = if self.started { Level::Debug } else { Level::Info };
+        log(level, "agents", format!("scansione: {dirs} cartelle progetto, {sessions} sessioni ({recent} recenti), {unreadable} illeggibili"));
         self.watch_dirs();
     }
 
@@ -674,7 +683,8 @@ impl Worker {
             match rx.recv_timeout(next.saturating_duration_since(Instant::now())) {
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 Ok(Msg::Fs(Ok(ev))) => ev.paths.iter().for_each(|p| self.route(p)),
-                Ok(Msg::Fs(Err(_))) | Err(RecvTimeoutError::Timeout) => {}
+                Ok(Msg::Fs(Err(e))) => log(Level::Warn, "agents", format!("errore del watcher: {e}")),
+                Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
             if self.flush_at.is_some_and(|t| t <= now) {
@@ -696,6 +706,15 @@ impl Worker {
                 }
             }
         }
+    }
+}
+
+// For the log: the folder, and whether it is there and readable.
+fn describe_dir(dir: &Path) -> String {
+    match fs::read_dir(dir) {
+        Ok(_) => format!("{} (leggibile)", dir.display()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => format!("{} (non esiste)", dir.display()),
+        Err(e) => format!("{} (non leggibile: {e})", dir.display()),
     }
 }
 
@@ -724,6 +743,16 @@ impl AgentWatcher {
                 let _ = events.send(Msg::Fs(r));
             }
         });
+        log(
+            Level::Info,
+            "agents",
+            format!(
+                "watcher: projects_dir {}, sessions_dir {}, file watcher {}",
+                describe_dir(&self.shared.projects),
+                describe_dir(&self.shared.sessions_dir),
+                fsw.as_ref().map_or_else(|e| format!("non partito: {e}"), |_| "ok".into())
+            ),
+        );
         let mut w = Worker {
             root: real(&self.shared.projects),
             procs_dir: real(&self.shared.sessions_dir),
@@ -793,7 +822,9 @@ pub fn has_history(projects: &Path, dir: &Value) -> bool {
     let Some(dir) = dir.as_str().filter(|d| d.starts_with('/')) else { return false };
     // One "-" per UTF-16 unit, as the JS regex replaced them.
     let name: String = dir.chars().flat_map(|c| std::iter::repeat_n(if c.is_ascii_alphanumeric() { c } else { '-' }, if c.is_ascii_alphanumeric() { 1 } else { c.len_utf16() })).collect();
-    fs::read_dir(projects.join(name)).is_ok_and(|rd| rd.flatten().any(|f| f.file_name().to_str().is_some_and(is_session_file)))
+    let sessions = fs::read_dir(projects.join(&name)).map_or(0, |rd| rd.flatten().filter(|f| f.file_name().to_str().is_some_and(is_session_file)).count());
+    log(Level::Debug, "agents", format!("storia di {dir}: {name}, {sessions} sessioni"));
+    sessions > 0
 }
 
 fn is_safe_command(c: &str) -> bool {
@@ -803,7 +834,6 @@ fn is_safe_command(c: &str) -> bool {
 // Which agent CLIs are installed, resolved through an interactive login shell
 // (-lic) so nvm / ~/.local/bin paths are found like in a normal terminal.
 pub async fn available(commands: Vec<String>) -> Vec<String> {
-    use crate::diag::{log, Level};
     use tokio::io::AsyncReadExt;
     let safe: Vec<String> = commands.into_iter().filter(|c| is_safe_command(c)).collect();
     if safe.is_empty() {

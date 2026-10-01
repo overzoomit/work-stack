@@ -59,7 +59,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     senza upstream lascia inizio e fine nel log.
   - File: `src-tauri/src/git.rs`
   - Dipende da: D1 · Scope: S
-- [ ] **D4: log degli agenti**
+- [x] **D4: log degli agenti**
   - Accettazione: `INFO` all'avvio del watcher con `projects_dir`/`sessions_dir` ed errore di `notify`
     (non più scartato da `fsw.ok()`); `Msg::Fs(Err)` → `WARN`; scansione `INFO` la prima volta poi
     `DEBUG`; `has_history` `DEBUG` con cartella, nome codificato e numero di sessioni.
