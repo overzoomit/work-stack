@@ -97,7 +97,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     errore git con azione); a mano su Linux con `tasks/linux-check.sh`.
   - File: `src/renderer/index.html`, `src/renderer/app.js`, `src/renderer/gitpanel.js`, `test/*.test.mjs`
   - Dipende da: D5, D6 · Scope: M
-- [ ] **D8: README "Diagnostica"**
+- [x] **D8: README "Diagnostica"**
   - Accettazione: runbook in 4 punti della spec; cosa contiene il log e cosa no.
   - File: `README.md` · Dipende da: D6 · Scope: XS
 - [ ] **D9: firma macOS stabile (`fix-mac-signing`)**

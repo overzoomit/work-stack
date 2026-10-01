@@ -115,6 +115,7 @@ rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'ap
 ```
 src-tauri/        backend in Rust (Tauri 2)
   src/main.rs    avvio e collegamento dei comandi
+  src/diag.rs    file di log, watchdog del main thread, esportazione del log
   src/app.rs     finestra, menu, comandi di sistema (appunti, cartelle, link)
   src/pty.rs     sessioni terminale (portable-pty), con controllo di flusso
   src/git.rs     operazioni git tramite la CLI
@@ -141,10 +142,35 @@ src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
 ## Debug
 
 - `WORK_DEVTOOLS=1 npm run dev` apre i DevTools.
-- `WORK_EVAL='…'` esegue uno snippet nella pagina dopo l'avvio e stampa il risultato come `[eval]` (utile per
-  test automatici). Errori e warning della pagina finiscono comunque sul terminale che ha avviato Work.
+- `WORK_EVAL='…'` esegue uno snippet nella pagina dopo l'avvio e scrive il risultato nel log, area `ui` (utile
+  per test automatici). Errori e warning della pagina finiscono nel log e sul terminale che ha avviato Work.
 - `WORK_USER_DATA=/tmp/work-test` usa un profilo separato (i progetti salvati non vengono toccati).
 - `performance.getEntriesByName('work:ready')` dà il momento in cui l'avvio è completo.
+
+## Diagnostica
+
+Work scrive un log, una riga per evento, in `~/Library/Logs/it.overzoom.work/work.log` (macOS) o
+`~/.local/share/it.overzoom.work/logs/work.log` (Linux); con `WORK_USER_DATA` impostato, in
+`$WORK_USER_DATA/work.log`. Oltre 5 MB, all'avvio diventa `work.log.1`. Le stesse righe vanno su stderr.
+
+**Cosa contiene**: la riga di avvio (versione, sistema, `SHELL`, esito della shell di login, se
+`SSH_AUTH_SOCK` c'è), i blocchi del main thread e del JS, i comandi lenti o falliti, i comandi git (con
+`WORK_DEBUG=1` tutti, altrimenti inizio e fine di fetch/pull/push e gli errori, con la coda di stderr), lo
+stato del watcher degli agenti e quali CLI degli agenti sono installati. Contiene percorsi di progetti e
+nomi di comandi. **Non contiene mai** l'output dei terminali, i transcript di Claude, il contenuto dei file,
+i messaggi di commit, il testo degli appunti né variabili d'ambiente diverse da `PATH`, `SHELL` e `TERM`.
+Chi lo condivide sa quindi cosa sta condividendo: cartelle e comandi, non contenuti.
+
+1. Riproduci il problema, poi **Aiuto › Esporta log…** (macOS) o **⋯ › Esporta log…** (Linux). Per il
+   dettaglio, riavvia con `WORK_DEBUG=1`: da terminale `WORK_DEBUG=1 work .`, da Dock su macOS
+   `launchctl setenv WORK_DEBUG 1` e poi riavvio.
+2. **Finestra congelata e ancora bloccata**: `sample $(pgrep -x work) 5 -file ~/Desktop/work-sample.txt`
+   (macOS) oppure `gdb -p $(pgrep -x work) -batch -ex 'thread apply all bt'` (Linux).
+3. **Richieste di permesso su macOS**: mentre compaiono, in un altro terminale
+   `log stream --info --predicate 'subsystem == "com.apple.TCC"' | grep -i -E 'work|AUTHREQ'`.
+   Mostra il servizio (Documenti, Scrivania, Rete locale…) e il processo che lo chiede.
+   `codesign -dv /Applications/Work.app` mostra l'identità con cui la richiesta è registrata.
+4. **Simulare l'avvio da Dock**: `env -i HOME=$HOME USER=$USER SHELL=$SHELL $SHELL -lic 'command -v claude'`.
 
 ## Prestazioni
 
