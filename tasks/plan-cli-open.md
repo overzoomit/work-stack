@@ -36,12 +36,12 @@ Spec: `SPEC-cli-open.md`. Due branch, in quest'ordine.
 - [x] **L2: correzioni all'installer**
   - Controllo `uname`, via `rustup`, `Exec` tra virgolette. Su macOS lo script esce con 1 (verificato).
   - File: `scripts/install-linux.sh`
-- [x] **L3: app_id Wayland** (X11 verificato: `WM_CLASS` = `work`, `StartupWMClass=work`; Wayland ancora da provare)
+- [x] **L3: app_id Wayland** (X11 verificato: `WM_CLASS` = `work`, `StartupWMClass=work`; Wayland non verificabile: limite noto, se la dock mostra l'icona generica rinominare il `.desktop` come l'app_id di `WAYLAND_DEBUG`)
   - Tauri 2 non imposta l'app_id GTK (`enableGTKAppId` è false di default), quindi l'app_id atteso è il nome del binario, `work`, e `work.desktop` dovrebbe già andare bene.
   - Verifica: `tasks/linux-check.sh`, sezione 11. Se fallisce, rinominare il file `.desktop` come indicato.
 - [x] **L4: `work .` su Linux** (criteri 8–10 verdi con `tasks/linux-check.sh`)
   - Verifica: `npm run install:linux && tasks/linux-check.sh` (criteri 8–11).
-- [ ] **Checkpoint Linux**: criteri 8–12 verdi, controllo a occhio di icona nel menu e nella dock (criterio 13).
+- [x] **Checkpoint Linux**: criteri 8–12 verdi su X11, icona nel menu e nella dock controllata a occhio (criterio 13); Wayland non provato.
 
 ## Rischi
 
