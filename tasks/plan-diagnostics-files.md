@@ -109,7 +109,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     successiva.
   - File: `src-tauri/tauri.conf.json`, `src-tauri/Info.plist` (nuovo), `.github/workflows/release.yml`
   - Scope: S
-- [ ] **Checkpoint B**: criteri di successo di `SPEC-diagnostics.md` verdi (tranne TCC tra due release,
+- [x] **Checkpoint B**: criteri di successo di `SPEC-diagnostics.md` verdi (tranne TCC tra due release,
   che si chiude dopo la seconda release firmata). Revisione, push di `diagnostics` e PR.
 
 ## Branch `files`
