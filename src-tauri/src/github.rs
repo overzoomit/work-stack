@@ -110,6 +110,12 @@ fn explain(stderr: &str) -> String {
         || s.contains("must have admin")
     {
         "Non hai i permessi per farlo su questo repository.".into()
+    } else if s.contains("workflow_dispatch") {
+        "Questo workflow non si può avviare a mano: manca il trigger workflow_dispatch.".into()
+    } else if s.contains("could not prompt") || s.contains("required input") {
+        "Questo workflow chiede degli input: avvialo da GitHub.".into()
+    } else if s.contains("no ref found") || s.contains("could not find any commit") {
+        "Il branch non esiste su GitHub: fai prima il push.".into()
     } else if s.contains("error connecting")
         || s.contains("could not resolve host")
         || s.contains("timeout")
@@ -259,6 +265,107 @@ fn parse_runs(text: &str) -> Result<Vec<Value>, String> {
 pub async fn gh_runs(roots: State<'_, Roots>, cwd: String) -> Result<Vec<Value>, String> {
     let dir = project(&roots, &cwd)?;
     parse_runs(&gh_out(&dir, &["run", "list", "-L", "30", "--json", RUN_FIELDS]).await?)
+}
+
+// `gh run view --json jobs` → name, state, times of each job.
+fn parse_jobs(text: &str) -> Result<Vec<Value>, String> {
+    let v: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(v["jobs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|j| {
+            let s = |k: &str| j[k].as_str().unwrap_or("");
+            json!({
+                "name": s("name"), "state": run_state(s("status"), s("conclusion")),
+                "startedAt": s("startedAt"), "completedAt": s("completedAt"),
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn gh_run_jobs(
+    roots: State<'_, Roots>,
+    cwd: String,
+    id: u64,
+) -> Result<Vec<Value>, String> {
+    let dir = project(&roots, &cwd)?;
+    parse_jobs(&gh_out(&dir, &["run", "view", &id.to_string(), "--json", "jobs"]).await?)
+}
+
+// The arguments of `gh run <action>`; anything but the three actions is refused.
+fn run_action_args(action: &str, id: u64) -> Result<Vec<String>, String> {
+    let id = id.to_string();
+    let args: &[&str] = match action {
+        "rerun" => &["run", "rerun", &id],
+        "rerunFailed" => &["run", "rerun", &id, "--failed"],
+        "cancel" => &["run", "cancel", &id],
+        other => return Err(format!("Azione non valida: {other}")),
+    };
+    Ok(args.iter().map(|a| a.to_string()).collect())
+}
+
+#[tauri::command]
+pub async fn gh_run_action(
+    roots: State<'_, Roots>,
+    cwd: String,
+    id: u64,
+    action: String,
+) -> Result<(), String> {
+    let dir = project(&roots, &cwd)?;
+    let args = run_action_args(&action, id)?;
+    gh_out(&dir, &args.iter().map(String::as_str).collect::<Vec<_>>())
+        .await
+        .map(|_| ())
+}
+
+// Workflows a person can start: active, and defined in the repository (the
+// "dynamic" ones, like Pages, have no file to dispatch).
+fn parse_workflows(text: &str) -> Result<Vec<Value>, String> {
+    let list: Vec<Value> = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(list
+        .iter()
+        .filter(|w| {
+            w["state"] == "active"
+                && w["path"]
+                    .as_str()
+                    .is_some_and(|p| p.starts_with(".github/workflows/"))
+        })
+        .map(|w| json!({ "id": w["id"], "name": w["name"].as_str().unwrap_or("") }))
+        .collect())
+}
+
+#[tauri::command]
+pub async fn gh_workflows(roots: State<'_, Roots>, cwd: String) -> Result<Vec<Value>, String> {
+    let dir = project(&roots, &cwd)?;
+    parse_workflows(&gh_out(&dir, &["workflow", "list", "--json", "id,name,path,state"]).await?)
+}
+
+// A branch or tag name goes to gh as an argument: it must not read as a flag.
+fn check_ref(r: &str) -> Result<(), String> {
+    if r.is_empty() || r.starts_with('-') || r.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(format!("Branch non valido: {r}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn gh_workflow_run(
+    roots: State<'_, Roots>,
+    cwd: String,
+    workflow: u64,
+    branch: String,
+) -> Result<(), String> {
+    let dir = project(&roots, &cwd)?;
+    check_ref(&branch)?;
+    gh_out(
+        &dir,
+        &["workflow", "run", &workflow.to_string(), "--ref", &branch],
+    )
+    .await
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -431,6 +538,68 @@ mod tests {
         assert_eq!(runs[2]["state"], "queued");
         assert!(parse_runs("not json").is_err());
         assert!(parse_runs("[]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn jobs_parse_with_state_and_times() {
+        let text = r#"{"jobs":[{"name":"build","status":"completed","conclusion":"success","startedAt":"2026-10-01T14:36:18Z","completedAt":"2026-10-01T14:36:24Z","steps":[]},{"name":"test","status":"in_progress","conclusion":""}]}"#;
+        let jobs = parse_jobs(text).unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(
+            (jobs[0]["name"].as_str(), jobs[0]["state"].as_str()),
+            (Some("build"), Some("success"))
+        );
+        assert_eq!(jobs[0]["completedAt"], "2026-10-01T14:36:24Z");
+        assert_eq!(jobs[1]["state"], "running");
+        assert!(parse_jobs("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_run_action_becomes_its_gh_arguments_and_nothing_else_does() {
+        assert_eq!(run_action_args("rerun", 7).unwrap(), ["run", "rerun", "7"]);
+        assert_eq!(
+            run_action_args("rerunFailed", 7).unwrap(),
+            ["run", "rerun", "7", "--failed"]
+        );
+        assert_eq!(
+            run_action_args("cancel", 7).unwrap(),
+            ["run", "cancel", "7"]
+        );
+        assert!(run_action_args("delete", 7).is_err());
+        assert!(run_action_args("", 7).is_err());
+        assert!(run_action_args("rerun --repo x/y", 7).is_err());
+    }
+
+    #[test]
+    fn only_active_workflows_defined_in_the_repository_can_be_started() {
+        let text = r#"[
+          {"id":1,"name":"release","path":".github/workflows/release.yml","state":"active"},
+          {"id":2,"name":"pages","path":"dynamic/pages/pages-build-deployment","state":"active"},
+          {"id":3,"name":"old","path":".github/workflows/old.yml","state":"disabled_manually"}]"#;
+        assert_eq!(
+            parse_workflows(text).unwrap(),
+            [json!({ "id": 1, "name": "release" })]
+        );
+    }
+
+    #[test]
+    fn a_ref_that_reads_as_a_flag_or_has_spaces_is_refused() {
+        for ok in ["main", "feature/x", "v1.2.0", "user/fix-#12"] {
+            assert!(check_ref(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "--repo=x/y", "-f", "a b", "a\nb"] {
+            assert!(check_ref(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn explain_knows_workflow_failures() {
+        assert!(
+            explain("Workflow does not have 'workflow_dispatch' trigger")
+                .contains("workflow_dispatch")
+        );
+        assert!(explain("could not prompt: required input missing").contains("input"));
+        assert!(explain("HTTP 422: No ref found for: nope").contains("push"));
     }
 
     #[test]
