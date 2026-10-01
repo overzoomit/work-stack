@@ -37,11 +37,12 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 ### T3: `gh` e tab GitHub con gli stati vuoti (M)
 `github.rs`: funzione unica che esegue `gh` (cwd = progetto aperto, timeout 30 s, `GH_PROMPT_DISABLED=1`,
 `NO_COLOR=1`, log senza argomenti dei secret) e `gh_status`. Tab GitHub al posto di Agente con i quattro stati vuoti.
-- [ ] `gh_status` → `{installed, authed, repo, url}`; `cwd` controllato con `Roots`
-- [ ] Stati: `gh` assente (link cli.github.com), non autenticato ("Accedi a GitHub" apre un terminale con `gh auth login`), nessun remote GitHub, repo trovato
-- [ ] Test Rust su output di esempio: assente, non autenticato, remote non GitHub, ok
-- [ ] Il resto dell'app funziona senza `gh`
+- [x] `gh_status` → `{installed, authed, repo, url}`; `cwd` controllato con `Roots`
+- [x] Stati: `gh` assente (link cli.github.com), non autenticato ("Accedi a GitHub" apre un terminale con `gh auth login`), nessun remote GitHub, repo trovato
+- [x] Test Rust su output di esempio: assente, non autenticato, remote non GitHub, ok
+- [x] Il resto dell'app funziona senza `gh`
 - Verifica: `cargo test`, `node --test test/github.test.mjs`; a mano con `gh` fuori dal `PATH` e dopo `gh auth logout`
+- Il test Rust di `exec` usa un `gh` finto: verifica stdin multi-riga, ambiente ed exit code. Manca la prova a mano senza `gh` e dopo `auth logout` (Checkpoint B).
 - Dipende da: T2
 - File: `src-tauri/src/github.rs`, `main.rs`, `bridge.js`, `github.js`, `index.html`, `app.js`, `style.css`, `test/github.test.mjs`
 

@@ -122,6 +122,9 @@
       unwatch: send('git_unwatch', 'repo'),
       onChanged: listen('git:changed'),
     },
+    github: {
+      status: call('gh_status', 'cwd'),
+    },
     fs: {
       list: call('fs_list', 'dir'),
       read: call('fs_read', 'file'),

@@ -1151,3 +1151,11 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 .tabs .dot { margin: 0 0 1px 3px; display: inline-block; vertical-align: middle; width: 6px; height: 6px; box-shadow: none; }
 .tabs .dot.hidden { display: none; }
 #run-tab-stop:disabled .i-stop { background: var(--muted); }
+
+/* ── GitHub tab ── */
+.gh-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 16px 16px; }
+.gh-empty { padding: 28px 8px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.gh-empty h3 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.015em; }
+.gh-empty p { margin: 0; max-width: 260px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.gh-head { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.gh-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }

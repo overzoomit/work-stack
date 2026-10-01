@@ -87,6 +87,7 @@
         <button data-tab="project" class="active">Project</button>
         <button data-tab="changes">Modifiche <span class="count" id="changes-count">0</span></button>
         <button data-tab="graph">Graph</button>
+        <button data-tab="github">GitHub <span class="dot hidden" id="gh-tab-dot"></span></button>
         <button data-tab="run">Run <span class="dot hidden" id="run-tab-dot"></span></button>
         <span class="spacer"></span>
         <button class="icon-btn panel-collapse right" data-panel="right" title="Nascondi il pannello (Ctrl+Alt+B)">
@@ -159,6 +160,10 @@
         </div>
         <p class="empty" id="run-empty">Nessun processo avviato in questo progetto. Usa ▶ in alto a destra.</p>
         <div class="run-output" id="run-output"></div>
+      </div>
+
+      <div class="tab-body" data-tab="github">
+        <div class="gh-body" id="gh-body"></div>
       </div>
     </aside>
   </main>

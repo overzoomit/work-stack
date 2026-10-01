@@ -11,6 +11,7 @@ import {
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
+import { initGithub, setGithubVisible, showGithub } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
@@ -75,6 +76,7 @@ async function activateProject(p) {
   $('#status-repo').textContent = tildify(p.path, info.home);
   renderAgentList();
   showRun(p);
+  showGithub();
   await showGit(p);
 }
 
@@ -459,6 +461,7 @@ function showTab(name) {
   $$('.tab-body').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   if (name === 'project') $('#tree').focus({ preventScroll: true });
   setGraphVisible(name === 'graph');
+  setGithubVisible(name === 'github');
 }
 $$('#tabs button').forEach((b) => {
   b.onpointerdown = () => showTab(b.dataset.tab);
@@ -709,6 +712,10 @@ more.onclick = (e) => {
     },
   });
   initLauncher({ activeProject: () => active });
+  initGithub({
+    activeProject: () => active,
+    login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Accedi a GitHub' }),
+  });
   initAgents({
     activeProject: () => active,
     changed: renderProjectTabs,
