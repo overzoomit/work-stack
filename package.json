@@ -1,7 +1,7 @@
 {
   "name": "work",
   "productName": "Work",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Work — terminali, git e agenti in un'unica dashboard",
   "scripts": {
     "dev": "tauri dev",
