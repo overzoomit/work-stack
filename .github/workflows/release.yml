@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       # Only whether the macOS signing secrets exist, not their value.
-      SIGN_MAC: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
+      SIGN_MAC: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v4
 
