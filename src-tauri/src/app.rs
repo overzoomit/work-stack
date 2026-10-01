@@ -2,7 +2,7 @@
 // clipboard, external links, and the renderer's console in debug runs.
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -74,31 +74,65 @@ pub fn open_again(app: &AppHandle, args: Vec<String>, cwd: String) {
 // (no Homebrew, no ~/.local/bin), so git and the agent CLIs may not be found.
 // The login shell's PATH is the one a terminal would have. From a terminal,
 // the PATH is already the user's.
+// It runs before the log is open: the outcome waits in LOGIN for log_start.
+static LOGIN: OnceLock<String> = OnceLock::new();
+
 pub fn adopt_login_path() {
     if std::env::var_os("TERM").is_some() {
         return;
     }
-    if let Some(path) = login_path(&crate::pty::user_shell()) {
-        std::env::set_var("PATH", path); // before any thread starts
-    }
+    let start = std::time::Instant::now();
+    let outcome = match login_path(&crate::pty::user_shell()) {
+        Ok(path) => {
+            std::env::set_var("PATH", path); // before any thread starts
+            "ok"
+        }
+        Err(e) => e,
+    };
+    let _ = LOGIN.set(format!("-lc {outcome} in {} ms", start.elapsed().as_millis()));
 }
 
-pub fn login_path(shell: &str) -> Option<String> {
+pub fn login_path(shell: &str) -> Result<String, &'static str> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
-    let mut child = Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut child = Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| "errore")?;
     // A profile waiting for input must not hold the start up.
     let deadline = Instant::now() + Duration::from_secs(3);
-    while child.try_wait().ok()?.is_none() {
+    while child.try_wait().map_err(|_| "errore")?.is_none() {
         if Instant::now() > deadline {
             let _ = child.kill();
-            return None;
+            return Err("timeout");
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let out = child.wait_with_output().ok()?;
-    let path = String::from_utf8(out.stdout).ok()?;
-    (out.status.success() && path.contains('/')).then_some(path)
+    let out = child.wait_with_output().map_err(|_| "errore")?;
+    let path = String::from_utf8(out.stdout).map_err(|_| "errore")?;
+    if out.status.success() && path.contains('/') {
+        Ok(path)
+    } else {
+        Err("errore")
+    }
+}
+
+// The first lines of every run: what Work started with.
+pub fn log_start(app: &AppHandle) {
+    use crate::diag::{log, Level};
+    let yes = |b: bool| if b { "sì" } else { "no" };
+    log(
+        Level::Info,
+        "app",
+        format!(
+            "avvio Work {} su {}/{}, da terminale: {}, SHELL={}, shell di login: {}, SSH_AUTH_SOCK: {}",
+            app.package_info().version,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            yes(std::env::var_os("TERM").is_some()),
+            crate::pty::user_shell(),
+            LOGIN.get().map_or("non usata", String::as_str),
+            yes(std::env::var_os("SSH_AUTH_SOCK").is_some()),
+        ),
+    );
+    log(Level::Debug, "app", format!("PATH={}", std::env::var("PATH").unwrap_or_default()));
 }
 
 pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
@@ -271,10 +305,17 @@ fn drag_paths() -> Vec<String> {
     vec![]
 }
 
-// Renderer errors and warnings (and WORK_EVAL results) on the terminal that started Work.
+// Renderer errors and warnings (and WORK_EVAL results), in the log.
 #[tauri::command]
 pub fn debug_log(level: String, msg: String) {
-    eprintln!("[{level}] {msg}");
+    use crate::diag::Level;
+    let level = match level.as_str() {
+        "error" => Level::Error,
+        "warn" => Level::Warn,
+        "debug" => Level::Debug,
+        _ => Level::Info,
+    };
+    crate::diag::log(level, "ui", msg);
 }
 
 #[cfg(test)]
@@ -300,7 +341,7 @@ mod tests {
     fn the_login_shell_gives_its_path() {
         let path = login_path("/bin/sh").expect("sh prints its PATH");
         assert!(path.split(':').any(|d| d == "/usr/bin" || d == "/bin"), "{path}");
-        assert_eq!(login_path("/percorso/vuoto/shell"), None);
+        assert_eq!(login_path("/percorso/vuoto/shell"), Err("errore"));
     }
 
     #[test]

@@ -34,7 +34,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
 
 ## Branch `diagnostics`
 
-- [ ] **D1: `diag.rs`, file di log e riga di avvio**
+- [x] **D1: `diag.rs`, file di log e riga di avvio**
   - Accettazione: `diag::log(level, area, msg)` scrive su `work.log` (o `$WORK_USER_DATA/work.log`) e su
     stderr, nel formato della spec; rotazione oltre 5 MB in `work.log.1`; `DEBUG` solo con
     `WORK_DEBUG=1`; `debug_log` del renderer passa da `diag`; riga `INFO` di avvio con esito della shell

@@ -2,6 +2,7 @@
 mod agents;
 mod app;
 mod claudeprocs;
+mod diag;
 mod fsops;
 mod git;
 mod gitwatch;
@@ -69,6 +70,9 @@ fn main() {
                 Ok(d) => (PathBuf::from(d), None),
                 Err(_) => (app.path().app_data_dir()?, app.path().config_dir().ok().map(|d| d.join("Work").join("state.json"))),
             };
+            let log = if std::env::var_os("WORK_USER_DATA").is_some() { dir.clone() } else { app.path().app_log_dir()? };
+            diag::init(&log.join("work.log"));
+            app::log_start(app.handle());
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
             allow_projects(app.handle(), &state);
