@@ -123,6 +123,8 @@ fn main() {
             app::app_set_unsaved,
             app::app_quit,
             app::app_update_check,
+            app::app_update_install,
+            app::app_update_restart,
             app::app_open_external,
             app::app_copy,
             app::app_paste,

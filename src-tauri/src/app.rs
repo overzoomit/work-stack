@@ -374,6 +374,41 @@ pub async fn app_update_check(app: AppHandle, pending: tauri::State<'_, PendingU
     Ok(info)
 }
 
+// Downloads the newer version, checks its signature and installs it, telling the
+// page how far it got as [downloaded, total] bytes (total 0 when unknown).
+// It does not restart: that is the person's call (app_update_restart).
+#[tauri::command]
+pub async fn app_update_install(app: AppHandle, pending: tauri::State<'_, PendingUpdate>) -> Result<(), String> {
+    let update = pending.0.lock().unwrap().clone().ok_or("Nessun aggiornamento da installare: controlla di nuovo.")?;
+    if !can_install(std::env::consts::OS, std::env::var_os("APPIMAGE").as_deref()) {
+        return Err("Questa installazione non può aggiornarsi da sola: scarica la nuova versione dalla pagina della release.".into());
+    }
+    let mut done = 0u64;
+    let page = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                done += chunk as u64;
+                let _ = page.emit("app:update-progress", [done, total.unwrap_or(0)]);
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("Aggiornamento non installato: {e}"))
+}
+
+// The page asked about unsaved edits and live terminals first; edits still
+// unsaved here mean it did not, so this refuses rather than lose them.
+#[tauri::command]
+pub fn app_update_restart(app: AppHandle) -> Result<(), String> {
+    if UNSAVED.load(Ordering::Relaxed) {
+        return Err("Ci sono modifiche non salvate: salvale o scartale, poi riavvia.".into());
+    }
+    app.state::<crate::pty::PtyState>().mgr.kill_all();
+    app.state::<crate::agents::AgentWatcher>().stop();
+    app.restart()
+}
+
 // ── Commands ─────────────────────────────────────────────────
 // Platform and arch named like Node's process.platform / process.arch,
 // which the renderer already knows.
