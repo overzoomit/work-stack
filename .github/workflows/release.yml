@@ -28,6 +28,9 @@ jobs:
         # macos-latest is arm64
         os: ${{ fromJSON((inputs.os == '' || inputs.os == 'all') && '["macos-latest","ubuntu-22.04"]' || format('["{0}"]', inputs.os)) }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Only whether the macOS signing secrets exist, not their value.
+      SIGN_MAC: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +55,29 @@ jobs:
 
       - run: npm test
 
-      - uses: tauri-apps/tauri-action@v0
+      # Signed with the team's certificate, so macOS keeps the permissions
+      # granted to Work from one release to the next.
+      - if: runner.os == 'macOS' && env.SIGN_MAC == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        with:
+          tauriScript: npx tauri
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          releaseName: Work ${{ github.ref_name }}
+          releaseBody: Installer per macOS (Apple Silicon) e Linux (x86_64). Vedi https://overzoomit.github.io/work-stack/
+          releaseDraft: false
+          prerelease: false
+
+      # Linux, and macOS without the secrets (a fork, or before they are
+      # uploaded): the bundler reads an empty APPLE_CERTIFICATE as a
+      # certificate to import and fails, so the variables are left out.
+      - if: runner.os != 'macOS' || env.SIGN_MAC != 'true'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

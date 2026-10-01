@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by Tauri into the app's Info.plist: the text macOS shows when Work,
+     or a shell or git it started, opens one of these folders. -->
+<plist version="1.0">
+<dict>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Work apre i progetti, i terminali e git nelle cartelle che scegli.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Work apre i progetti, i terminali e git nelle cartelle che scegli.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Work apre i progetti, i terminali e git nelle cartelle che scegli.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Work apre i progetti, i terminali e git nelle cartelle che scegli.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Work apre i progetti, i terminali e git nelle cartelle che scegli.</string>
+</dict>
+</plist>

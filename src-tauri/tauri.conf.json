@@ -29,7 +29,8 @@
       "icons/icon.png"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": false
     },
     "linux": {
       "deb": {

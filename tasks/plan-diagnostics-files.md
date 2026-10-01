@@ -76,7 +76,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     anche l'evento. Il comando si toglie prima del commit.
   - File: `src-tauri/src/diag.rs`, `src-tauri/src/main.rs`, `src/renderer/bridge.js`
   - Dipende da: D1 · Scope: M
-- [ ] **Checkpoint A**: build release installata e avviata da Dock; `work.log` ha la riga di avvio con
+- [x] **Checkpoint A**: build release installata e avviata da Dock; `work.log` ha la riga di avvio con
   `-lic ok`; ✦ pieno; nessun contenuto utente nel log (`grep` su output di terminale, commit,
   transcript). Revisione con l'utente.
 - [x] **D6: esportazione + menu Aiuto (macOS)**
@@ -100,7 +100,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
 - [x] **D8: README "Diagnostica"**
   - Accettazione: runbook in 4 punti della spec; cosa contiene il log e cosa no.
   - File: `README.md` · Dipende da: D6 · Scope: XS
-- [ ] **D9: firma macOS stabile (`fix-mac-signing`)**
+- [x] **D9: firma macOS stabile (`fix-mac-signing`)**
   - Accettazione: `hardenedRuntime: false`; `src-tauri/Info.plist` con i 5 testi; `release.yml` passa
     i 4 secret a `tauri-action`; senza `APPLE_SIGNING_IDENTITY` la build locale resta ad-hoc.
   - **Azione dell'utente**: esportare il .p12 e caricare i secret. Nessun certificato nel repo.
