@@ -3,6 +3,7 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::State;
 use tokio::io::AsyncWriteExt;
@@ -110,7 +111,10 @@ async fn exec(bin: &str, cwd: &Path, args: &[&str], input: Option<&[u8]>) -> Res
 fn explain(stderr: &str) -> String {
     let s = stderr.to_lowercase();
     // First: its message also suggests `gh auth login`.
-    if s.contains("no git remotes") || s.contains("none of the git remotes") {
+    if s.contains("no git remotes")
+        || s.contains("none of the git remotes")
+        || s.contains("not a git repository")
+    {
         "Questo progetto non ha un repository su GitHub.".into()
     } else if s.contains("gh auth login") || s.contains("not logged in") {
         "Non hai effettuato l'accesso a GitHub.".into()
@@ -187,7 +191,11 @@ pub fn project(roots: &Roots, cwd: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn gh_status(roots: State<'_, Roots>, cwd: String) -> Result<Value, String> {
-    let dir = project(&roots, &cwd)?;
+    status_for(&project(&roots, &cwd)?).await
+}
+
+async fn status_for(dir: &Path) -> Result<Value, String> {
+    let dir = dir.to_path_buf();
     let version = match run_gh(&dir, &["--version"], None).await {
         Ok(r) if r.code == Some(0) => r.out,
         Ok(_) => return status_json(Some(""), false, None),
@@ -465,6 +473,135 @@ pub async fn gh_secret_delete(
         .map(|_| ())
 }
 
+// `gh api .../actions/artifacts` → what the panel lists. Sizes are bytes.
+fn parse_artifacts(text: &str) -> Result<Vec<Value>, String> {
+    let v: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(v["artifacts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| {
+            json!({
+                "id": a["id"], "name": a["name"].as_str().unwrap_or(""), "size": a["size_in_bytes"],
+                "expired": a["expired"].as_bool().unwrap_or(false),
+                "createdAt": a["created_at"].as_str().unwrap_or(""), "expiresAt": a["expires_at"].as_str().unwrap_or(""),
+                "run": a["workflow_run"]["id"], "branch": a["workflow_run"]["head_branch"].as_str().unwrap_or(""),
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn gh_artifacts(roots: State<'_, Roots>, cwd: String) -> Result<Vec<Value>, String> {
+    let dir = project(&roots, &cwd)?;
+    parse_artifacts(
+        &gh_out(
+            &dir,
+            &["api", "repos/{owner}/{repo}/actions/artifacts?per_page=50"],
+        )
+        .await?,
+    )
+}
+
+// The name becomes a folder under the chosen one: it must not climb out of it or read as a flag.
+fn check_artifact_name(name: &str) -> Result<(), String> {
+    let bad = name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.starts_with('-')
+        || name.contains(['/', '\\', '\0']);
+    if bad {
+        return Err(format!("Nome dell'artifact non valido: {name}"));
+    }
+    Ok(())
+}
+
+// Where an artifact lands: a new folder named after it inside the chosen one.
+fn download_target(dir: &str, name: &str) -> Result<PathBuf, String> {
+    check_artifact_name(name)?;
+    if dir.is_empty() || !Path::new(dir).is_dir() {
+        return Err("Scegli una cartella di destinazione.".into());
+    }
+    let target = Path::new(dir).join(name);
+    if target.exists() {
+        return Err(format!(
+            "In questa cartella esiste già «{name}»: scegline un'altra."
+        ));
+    }
+    Ok(target)
+}
+
+async fn artifact_download(
+    bin: &str,
+    cwd: &Path,
+    run: u64,
+    name: &str,
+    dir: &str,
+) -> Result<PathBuf, String> {
+    let target = download_target(dir, name)?;
+    let args = [
+        "run",
+        "download",
+        &run.to_string(),
+        "-n",
+        name,
+        "-D",
+        &target.to_string_lossy(),
+    ];
+    match run_with(bin, cwd, &args, None).await {
+        Ok(r) if r.code == Some(0) => Ok(target),
+        Ok(r) => Err(explain(&r.err)),
+        Err(Spawn::Missing) => Err("GitHub CLI non trovato.".into()),
+        Err(Spawn::Other(e)) => Err(e),
+    }
+}
+
+// What Work downloaded in this run: the only paths it will reveal in the file manager.
+#[derive(Default)]
+pub struct Downloaded(Mutex<Vec<PathBuf>>);
+
+#[tauri::command]
+pub async fn gh_artifact_download(
+    roots: State<'_, Roots>,
+    downloaded: State<'_, Downloaded>,
+    cwd: String,
+    run: u64,
+    name: String,
+    dir: String,
+) -> Result<String, String> {
+    let target = artifact_download("gh", &project(&roots, &cwd)?, run, &name, &dir).await?;
+    downloaded.0.lock().unwrap().push(target.clone());
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn gh_artifact_reveal(
+    app: tauri::AppHandle,
+    downloaded: State<'_, Downloaded>,
+    path: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !downloaded.0.lock().unwrap().contains(&path) {
+        return Err("Percorso non scaricato da Work.".into());
+    }
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .reveal_item_in_dir(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn gh_artifact_delete(
+    roots: State<'_, Roots>,
+    cwd: String,
+    id: u64,
+) -> Result<(), String> {
+    let dir = project(&roots, &cwd)?;
+    let path = format!("repos/{{owner}}/{{repo}}/actions/artifacts/{id}");
+    gh_out(&dir, &["api", "-X", "DELETE", &path])
+        .await
+        .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -690,6 +827,15 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_without_git_is_a_folder_without_a_github_repository() {
+        let err = "failed to run git: fatal: not a git repository (or any of the parent directories): .git";
+        assert_eq!(
+            status_json(Some(VERSION), true, Some(Err(err))).unwrap()["repo"],
+            Value::Null
+        );
+    }
+
+    #[test]
     fn explain_knows_workflow_failures() {
         assert!(
             explain("Workflow does not have 'workflow_dispatch' trigger")
@@ -828,6 +974,150 @@ mod tests {
             !after.iter().any(|x| x["name"] == name),
             "and gone after deleting it"
         );
+    }
+
+    const ARTIFACTS: &str = r#"{"total_count":2,"artifacts":[
+      {"id":11,"name":"github-pages","size_in_bytes":215525,"expired":false,"created_at":"2026-10-01T14:36:23Z","expires_at":"2026-10-02T14:36:22Z","workflow_run":{"id":36877625346,"head_branch":"main"}},
+      {"id":10,"name":"old","size_in_bytes":5,"expired":true,"workflow_run":{"id":1}}]}"#;
+
+    #[test]
+    fn artifacts_parse_with_size_expiry_and_origin() {
+        let list = parse_artifacts(ARTIFACTS).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(
+            (
+                list[0]["id"].as_u64(),
+                list[0]["size"].as_u64(),
+                list[0]["run"].as_u64()
+            ),
+            (Some(11), Some(215525), Some(36877625346))
+        );
+        assert_eq!(
+            (
+                list[0]["name"].as_str(),
+                list[0]["branch"].as_str(),
+                list[0]["expired"].as_bool()
+            ),
+            (Some("github-pages"), Some("main"), Some(false))
+        );
+        assert_eq!(list[1]["expired"], true);
+        assert_eq!(list[1]["expiresAt"], "");
+        assert!(parse_artifacts("{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_artifact_name_cannot_climb_out_of_the_folder_or_read_as_a_flag() {
+        for ok in ["github-pages", "build.zip", "bundle-macos-latest", "a b"] {
+            assert!(check_artifact_name(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", ".", "..", "../x", "a/b", "a\\b", "-n", "a\0b"] {
+            assert!(check_artifact_name(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_target_needs_an_existing_folder_and_a_free_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().to_string_lossy().into_owned();
+        assert_eq!(download_target(&d, "art").unwrap(), dir.path().join("art"));
+        assert!(download_target("", "art").is_err());
+        assert!(download_target(&format!("{d}/nope"), "art").is_err());
+        std::fs::create_dir(dir.path().join("art")).unwrap();
+        assert!(download_target(&d, "art")
+            .unwrap_err()
+            .contains("esiste già"));
+    }
+
+    #[tokio::test]
+    async fn a_download_runs_gh_into_a_folder_named_after_the_artifact() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("gh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/argv\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let dest = dir.path().join("out");
+        std::fs::create_dir(&dest).unwrap();
+        let got = artifact_download(
+            fake.to_str().unwrap(),
+            dir.path(),
+            9,
+            "my-art",
+            dest.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, dest.join("my-art"));
+        let argv = std::fs::read_to_string(dir.path().join("argv")).unwrap();
+        assert_eq!(
+            argv.trim(),
+            format!(
+                "run download 9 -n my-art -D {}",
+                dest.join("my-art").display()
+            )
+        );
+        assert!(artifact_download(
+            fake.to_str().unwrap(),
+            dir.path(),
+            9,
+            "../escape",
+            dest.to_str().unwrap()
+        )
+        .await
+        .is_err());
+    }
+
+    // Against the real GitHub: downloads the newest live artifact of the repository the tests run from.
+    #[tokio::test]
+    #[ignore]
+    async fn real_artifact_download() {
+        let cwd = std::env::current_dir().unwrap();
+        let text = gh_out(
+            &cwd,
+            &["api", "repos/{owner}/{repo}/actions/artifacts?per_page=50"],
+        )
+        .await
+        .unwrap();
+        let list = parse_artifacts(&text).unwrap();
+        let live = list
+            .iter()
+            .find(|a| a["expired"] == false)
+            .expect("a live artifact");
+        let (run, name) = (
+            live["run"].as_u64().unwrap(),
+            live["name"].as_str().unwrap(),
+        );
+        let dest = tempfile::tempdir().unwrap();
+        let got = artifact_download("gh", &cwd, run, name, dest.path().to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(
+            got.is_dir() && std::fs::read_dir(&got).unwrap().count() > 0,
+            "files landed in {got:?}"
+        );
+    }
+
+    // The real gh against a folder, with the expectation in WORK_EXPECT (a JSON subset of the status).
+    // Run by hand, e.g. with GH_CONFIG_DIR=$(mktemp -d) for "no login" or a PATH without gh:
+    //   WORK_EXPECT='{"authed":false}' GH_CONFIG_DIR=$(mktemp -d) cargo test real_status -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn real_status() {
+        let dir = std::env::var("WORK_TEST_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| std::env::current_dir().unwrap());
+        let got = status_for(&dir).await;
+        println!("status: {got:?}");
+        let want: Value =
+            serde_json::from_str(&std::env::var("WORK_EXPECT").unwrap_or_else(|_| "{}".into()))
+                .unwrap();
+        let got = got.unwrap();
+        for (k, v) in want.as_object().unwrap() {
+            assert_eq!(&got[k], v, "{k}");
+        }
     }
 
     #[test]

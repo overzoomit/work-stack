@@ -65,6 +65,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(std::sync::Mutex::new(sysinfo::System::new()))
         .manage(fsops::Roots::default())
+        .manage(github::Downloaded::default())
         .setup(|app| {
             // Debug/tests: WORK_USER_DATA keeps state separate from the real profile.
             let (dir, legacy) = match std::env::var("WORK_USER_DATA") {
@@ -148,6 +149,10 @@ fn main() {
             github::gh_secrets,
             github::gh_secret_set,
             github::gh_secret_delete,
+            github::gh_artifacts,
+            github::gh_artifact_download,
+            github::gh_artifact_reveal,
+            github::gh_artifact_delete,
             gitwatch::git_watch,
             gitwatch::git_unwatch,
             fsops::fs_list,
