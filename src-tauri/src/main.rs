@@ -154,7 +154,6 @@ fn main() {
             fsops::fs_reveal,
             runconfigs::run_detect,
             agents::agents_list,
-            agents::agents_events,
             agents::agents_has_history,
             agents::agents_stop,
             agents::agents_available,

@@ -467,8 +467,7 @@ impl Session {
             "tokens": num(self.tokens),
             "status": { "state": state, "label": label },
             "live": open == Some(true),
-            // Events stay out of the list (it goes to the UI several times a second);
-            // the detail view asks for them with events(id) when eventSeq moves.
+            // Events stay out of the list: it goes to the UI several times a second.
             "eventSeq": self.event_seq,
         })
     }
@@ -802,6 +801,7 @@ impl AgentWatcher {
 
     // The same id can live in two project folders (a session resumed elsewhere):
     // the most recently written one is the one the list shows as active.
+    #[cfg(test)]
     pub fn events(&self, id: &str) -> Vec<Event> {
         let st = self.shared.state.lock().unwrap();
         let mut best: Option<&Session> = None;
@@ -1353,11 +1353,6 @@ mod tests {
 #[tauri::command]
 pub fn agents_list(w: tauri::State<AgentWatcher>) -> Vec<Value> {
     w.list()
-}
-
-#[tauri::command]
-pub fn agents_events(w: tauri::State<AgentWatcher>, id: Value) -> Vec<Event> {
-    id.as_str().map(|id| w.events(id)).unwrap_or_default()
 }
 
 #[tauri::command]

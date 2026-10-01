@@ -141,7 +141,6 @@
     },
     agents: {
       list: call('agents_list'),
-      events: call('agents_events', 'id'),
       stop: call('agents_stop', 'id'),
       hasHistory: call('agents_has_history', 'dir'),
       available: call('agents_available', 'commands'),
