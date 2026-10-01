@@ -80,7 +80,7 @@ test('a campo vuoto il modo File mostra gli ultimi 8 file aperti dalla palette, 
     await new Promise((r) => setTimeout(r, 0));
     el.querySelector('.search-input').value = f.path.replace('.js', '');
     el.querySelector('.search-input').oninput();
-    el.querySelector('.search-input').onkeydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+    el.onkeydown({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
   }
   assert.deepEqual(recentFiles(project), ['f3.js', 'f9.js', 'f8.js', 'f7.js', 'f6.js', 'f5.js', 'f4.js', 'f2.js']);
 

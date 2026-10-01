@@ -96,6 +96,7 @@ const lists = new Map(); // project path -> { files, truncated } of the last ope
 // the next one is `searching`.
 let s = null;
 let grepSeq = 0; // answers to an older query are dropped
+let loadSeq = 0; // same for the file lists
 let grepTimer = null;
 
 const nameOf = (path) => path.slice(path.lastIndexOf('/') + 1);
@@ -237,8 +238,10 @@ function setMode(mode) {
 }
 
 async function load(project) {
+  const n = ++loadSeq;
   try {
     const fresh = await work.fs.files(project.path);
+    if (n !== loadSeq) return;
     lists.set(project.path, fresh);
     if (s?.project !== project || s.mode !== 'files') return;
     s.error = null;
@@ -248,7 +251,7 @@ async function load(project) {
     const i = s.rows.findIndex((f) => f.path === keep);
     if (i >= 0) select(i);
   } catch (e) {
-    if (s?.project !== project || s.mode !== 'files') return;
+    if (n !== loadSeq || s?.project !== project || s.mode !== 'files') return;
     s.error = e?.message || String(e);
     render();
   }
@@ -301,7 +304,8 @@ export function openSearch(project, { mode = 'files' } = {}) {
     e.preventDefault(); // the focus stays in the field
     setMode(b.dataset.mode);
   };
-  s.input.onkeydown = onKey;
+  // On the whole palette: a click on its header or footer moves the focus off the field.
+  el.onkeydown = onKey;
   s.list.onpointermove = (e) => {
     const li = e.target.closest('.sr');
     if (li && Number(li.dataset.i) !== s.sel) select(Number(li.dataset.i));
