@@ -81,21 +81,46 @@ pub fn adopt_login_path() {
     if std::env::var_os("TERM").is_some() {
         return;
     }
-    let start = std::time::Instant::now();
-    let outcome = match login_path(&crate::pty::user_shell()) {
-        Ok(path) => {
-            std::env::set_var("PATH", path); // before any thread starts
-            "ok"
-        }
-        Err(e) => e,
-    };
-    let _ = LOGIN.set(format!("-lc {outcome} in {} ms", start.elapsed().as_millis()));
+    let (path, outcome) = login_path(&crate::pty::user_shell());
+    if let Some(path) = path {
+        std::env::set_var("PATH", path); // before any thread starts
+    }
+    let _ = LOGIN.set(outcome);
 }
 
-pub fn login_path(shell: &str) -> Result<String, &'static str> {
+// Interactive first (-i): nvm and ~/.local/bin are often added in ~/.zshrc or
+// ~/.bashrc, which a plain login shell skips. An rc that hangs or fails there
+// (exec tmux, a prompt for input) falls back to -lc. The outcome says which
+// flags worked and how long each took.
+pub fn login_path(shell: &str) -> (Option<String>, String) {
+    let mut tried = vec![];
+    for flags in ["-lic", "-lc"] {
+        let start = std::time::Instant::now();
+        let res = shell_path(shell, flags);
+        let ms = start.elapsed().as_millis();
+        match res {
+            Ok(path) => {
+                tried.push(format!("{flags} ok in {ms} ms"));
+                return (Some(path), tried.join(", "));
+            }
+            Err(e) => tried.push(format!("{flags} {e} in {ms} ms")),
+        }
+    }
+    (None, tried.join(", "))
+}
+
+// What follows the marker: an interactive shell may print its own text first.
+pub const PATH_MARK: &str = "__WORK_PATH__";
+
+pub fn after_mark(out: &str) -> Option<&str> {
+    out.rsplit_once(PATH_MARK).and_then(|(_, rest)| rest.lines().next())
+}
+
+fn shell_path(shell: &str, flags: &str) -> Result<String, &'static str> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
-    let mut child = Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| "errore")?;
+    let print = format!("printf '\\n{PATH_MARK}%s\\n' \"$PATH\"");
+    let mut child = Command::new(shell).args([flags, &print]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|_| "errore")?;
     // A profile waiting for input must not hold the start up.
     let deadline = Instant::now() + Duration::from_secs(3);
     while child.try_wait().map_err(|_| "errore")?.is_none() {
@@ -106,11 +131,9 @@ pub fn login_path(shell: &str) -> Result<String, &'static str> {
         std::thread::sleep(Duration::from_millis(20));
     }
     let out = child.wait_with_output().map_err(|_| "errore")?;
-    let path = String::from_utf8(out.stdout).map_err(|_| "errore")?;
-    if out.status.success() && path.contains('/') {
-        Ok(path)
-    } else {
-        Err("errore")
+    match after_mark(&String::from_utf8_lossy(&out.stdout)) {
+        Some(path) if out.status.success() && path.contains('/') => Ok(path.to_string()),
+        _ => Err("errore"),
     }
 }
 
@@ -339,9 +362,38 @@ mod tests {
 
     #[test]
     fn the_login_shell_gives_its_path() {
-        let path = login_path("/bin/sh").expect("sh prints its PATH");
+        let path = login_path("/bin/sh").0.expect("sh prints its PATH");
         assert!(path.split(':').any(|d| d == "/usr/bin" || d == "/bin"), "{path}");
-        assert_eq!(login_path("/percorso/vuoto/shell"), Err("errore"));
+        assert_eq!(login_path("/percorso/vuoto/shell").0, None);
+    }
+
+    // A fake shell: some text of its own first, and an extra PATH entry only
+    // when interactive, like an rc that adds ~/.local/bin.
+    fn fake_shell(dir: &Path, interactive: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let sh = dir.join("fakesh");
+        std::fs::write(&sh, format!("#!/bin/sh\necho 'Benvenuto!'\ncase \"$1\" in *i*) {interactive} ;; esac\neval \"$2\"\n")).unwrap();
+        std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        sh.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn the_login_path_comes_from_the_interactive_shell_without_its_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, outcome) = login_path(&fake_shell(dir.path(), "PATH=/solo/interattiva:$PATH"));
+        let path = path.unwrap();
+        assert!(path.starts_with("/solo/interattiva:"), "{path}");
+        assert!(!path.contains("Benvenuto"), "{path}");
+        assert!(outcome.starts_with("-lic ok in "), "{outcome}");
+    }
+
+    #[test]
+    fn an_interactive_shell_that_never_ends_falls_back_to_lc() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, outcome) = login_path(&fake_shell(dir.path(), "exec sleep 30"));
+        assert!(path.unwrap().contains('/'));
+        assert!(outcome.starts_with("-lic timeout in "), "{outcome}");
+        assert!(outcome.contains(", -lc ok in "), "{outcome}");
     }
 
     #[test]

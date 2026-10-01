@@ -43,7 +43,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     `npm run dev` mostra la riga di avvio nel terminale e nel file.
   - File: `src-tauri/src/diag.rs` (nuovo), `src-tauri/src/main.rs`, `src-tauri/src/app.rs`
   - Scope: M
-- [ ] **D2: shell `-lic` con marcatore e ripiego (`fix-login-shell`)**
+- [x] **D2: shell `-lic` con marcatore e ripiego (`fix-login-shell`)**
   - Accettazione: `login_path` e `available` usano `-lic`; `login_path` legge solo dopo
     `__WORK_PATH__`; se `-lic` fallisce o scade, `login_path` riprova con `-lc`; il log di avvio e di
     `available` dice quale ha funzionato, i ms, i CLI trovati e mancanti.

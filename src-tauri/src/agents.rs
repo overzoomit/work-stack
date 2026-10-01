@@ -800,9 +800,10 @@ fn is_safe_command(c: &str) -> bool {
     !c.is_empty() && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
-// Which agent CLIs are installed, resolved through a login shell so
-// nvm / ~/.local/bin paths are found like in a normal terminal.
+// Which agent CLIs are installed, resolved through an interactive login shell
+// (-lic) so nvm / ~/.local/bin paths are found like in a normal terminal.
 pub async fn available(commands: Vec<String>) -> Vec<String> {
+    use crate::diag::{log, Level};
     use tokio::io::AsyncReadExt;
     let safe: Vec<String> = commands.into_iter().filter(|c| is_safe_command(c)).collect();
     if safe.is_empty() {
@@ -810,23 +811,43 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
     }
     let script = safe.iter().map(|c| format!("command -v {c} >/dev/null 2>&1 && echo {c}")).collect::<Vec<_>>().join("; ");
     let shell = crate::pty::user_shell();
-    let child = tokio::process::Command::new(shell)
-        .arg("-lc")
-        .arg(format!("{script}; true"))
+    let start = std::time::Instant::now();
+    let child = tokio::process::Command::new(&shell)
+        .arg("-lic")
+        .arg(format!("{script}; printf '\\n{}%s\\n' \"$PATH\"; true", crate::app::PATH_MARK))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn();
-    let Ok(mut child) = child else { return vec![] };
+    let Ok(mut child) = child else {
+        log(Level::Warn, "agents", format!("CLI disponibili: {shell} -lic non parte"));
+        return vec![];
+    };
     let mut out = Vec::new();
+    let mut timed_out = false;
     if let Some(mut stdout) = child.stdout.take() {
         // What was printed before the timeout still counts.
-        let _ = tokio::time::timeout(Duration::from_secs(8), stdout.read_to_end(&mut out)).await;
+        timed_out = tokio::time::timeout(Duration::from_secs(8), stdout.read_to_end(&mut out)).await.is_err();
     }
     let _ = child.start_kill();
     let _ = child.wait().await;
-    String::from_utf8_lossy(&out).split('\n').filter(|l| safe.iter().any(|c| c == l)).map(String::from).collect()
+    let out = String::from_utf8_lossy(&out);
+    let found: Vec<String> = out.split('\n').filter(|l| safe.iter().any(|c| c == l)).map(String::from).collect();
+    let missing: Vec<&str> = safe.iter().filter(|c| !found.contains(c)).map(String::as_str).collect();
+    log(
+        Level::Info,
+        "agents",
+        format!(
+            "CLI disponibili: {shell} -lic in {} ms{}, trovati: {}; mancanti: {}",
+            start.elapsed().as_millis(),
+            if timed_out { " (timeout di 8 s)" } else { "" },
+            found.join(", "),
+            missing.join(", ")
+        ),
+    );
+    log(Level::Debug, "agents", format!("PATH della shell: {}", crate::app::after_mark(&out).unwrap_or("?")));
+    found
 }
 
 #[cfg(test)]
@@ -1294,6 +1315,15 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let got = rt.block_on(available(vec!["sh".into(), "no-such-cmd-xyz".into(), "sh;id".into(), "$(id)".into()]));
         assert_eq!(got, ["sh"]);
+    }
+
+    #[test]
+    fn available_logs_the_missing_clis() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(available(vec!["sh".into(), "manca-davvero-qwz".into()]));
+        let logged = crate::diag::CAPTURED.lock().unwrap().join("");
+        let line = logged.lines().find(|l| l.contains("mancanti: manca-davvero-qwz")).expect(&logged);
+        assert!(line.contains(" INFO  agents ") && line.contains("-lic in ") && line.contains("trovati: sh;"), "{line}");
     }
 }
 
