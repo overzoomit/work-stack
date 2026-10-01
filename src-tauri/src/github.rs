@@ -215,6 +215,52 @@ pub async fn gh_status(roots: State<'_, Roots>, cwd: String) -> Result<Value, St
     }
 }
 
+// Runs `gh` and returns its stdout; a failure becomes an Italian message.
+async fn gh_out(dir: &Path, args: &[&str]) -> Result<String, String> {
+    match run_gh(dir, args, None).await {
+        Ok(r) if r.code == Some(0) => Ok(r.out),
+        Ok(r) => Err(explain(&r.err)),
+        Err(Spawn::Missing) => Err("GitHub CLI non trovato.".into()),
+        Err(Spawn::Other(e)) => Err(e),
+    }
+}
+
+// One word for the dot of a run: queued, running, success, failure, cancelled.
+fn run_state(status: &str, conclusion: &str) -> &'static str {
+    match (status, conclusion) {
+        ("completed", "success") => "success",
+        ("completed", "failure" | "timed_out" | "startup_failure") => "failure",
+        ("completed", _) => "cancelled",
+        ("in_progress", _) => "running",
+        _ => "queued",
+    }
+}
+
+const RUN_FIELDS: &str = "databaseId,workflowName,displayTitle,headBranch,event,status,conclusion,createdAt,updatedAt,url";
+
+// `gh run list --json` → what the panel draws. Missing fields become empty.
+fn parse_runs(text: &str) -> Result<Vec<Value>, String> {
+    let list: Vec<Value> = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(list
+        .iter()
+        .map(|r| {
+            let s = |k: &str| r[k].as_str().unwrap_or("");
+            json!({
+                "id": r["databaseId"], "workflow": s("workflowName"), "title": s("displayTitle"),
+                "branch": s("headBranch"), "event": s("event"), "url": s("url"),
+                "state": run_state(s("status"), s("conclusion")),
+                "createdAt": s("createdAt"), "updatedAt": s("updatedAt"),
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn gh_runs(roots: State<'_, Roots>, cwd: String) -> Result<Vec<Value>, String> {
+    let dir = project(&roots, &cwd)?;
+    parse_runs(&gh_out(&dir, &["run", "list", "-L", "30", "--json", RUN_FIELDS]).await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +389,48 @@ mod tests {
             exec("gh-che-non-esiste", dir.path(), &[], None).await,
             Err(Spawn::Missing)
         ));
+    }
+
+    const RUNS: &str = r#"[
+      {"conclusion":"","createdAt":"2026-10-01T14:36:14Z","databaseId":3,"displayTitle":"fix: x","event":"push","headBranch":"main","status":"in_progress","updatedAt":"2026-10-01T14:36:48Z","url":"https://github.com/o/r/actions/runs/3","workflowName":"release"},
+      {"conclusion":"failure","createdAt":"2026-10-01T14:03:04Z","databaseId":2,"displayTitle":"chore","event":"push","headBranch":"v1","status":"completed","updatedAt":"2026-10-01T14:12:27Z","url":"u2","workflowName":"ci"},
+      {"databaseId":1}
+    ]"#;
+
+    #[test]
+    fn status_and_conclusion_map_to_the_dot_states() {
+        let cases = [
+            ("queued", "", "queued"),
+            ("waiting", "", "queued"),
+            ("pending", "", "queued"),
+            ("requested", "", "queued"),
+            ("in_progress", "", "running"),
+            ("completed", "success", "success"),
+            ("completed", "failure", "failure"),
+            ("completed", "timed_out", "failure"),
+            ("completed", "startup_failure", "failure"),
+            ("completed", "cancelled", "cancelled"),
+            ("completed", "skipped", "cancelled"),
+            ("completed", "neutral", "cancelled"),
+        ];
+        for (status, conclusion, want) in cases {
+            assert_eq!(run_state(status, conclusion), want, "{status}/{conclusion}");
+        }
+    }
+
+    #[test]
+    fn runs_parse_into_what_the_panel_draws_and_tolerate_missing_fields() {
+        let runs = parse_runs(RUNS).unwrap();
+        assert_eq!(runs.len(), 3);
+        assert_eq!(runs[0]["id"], 3);
+        assert_eq!(runs[0]["workflow"], "release");
+        assert_eq!(runs[0]["state"], "running");
+        assert_eq!(runs[1]["state"], "failure");
+        assert_eq!(runs[1]["branch"], "v1");
+        assert_eq!(runs[2]["title"], "");
+        assert_eq!(runs[2]["state"], "queued");
+        assert!(parse_runs("not json").is_err());
+        assert!(parse_runs("[]").unwrap().is_empty());
     }
 
     #[test]

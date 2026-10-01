@@ -140,6 +140,7 @@ fn main() {
             git::git_file_diff,
             git::git_action,
             github::gh_status,
+            github::gh_runs,
             gitwatch::git_watch,
             gitwatch::git_unwatch,
             fsops::fs_list,
