@@ -122,7 +122,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     percorso fuori radice rifiutato).
   - File: `src-tauri/src/fsops.rs`, `src-tauri/src/main.rs`
   - Scope: S
-- [ ] **F2: `fs_grep`**
+- [x] **F2: `fs_grep`**
   - Accettazione: letterale, smart case, `git grep -z -n --column -I --untracked -F`; ignorati e
     progetti senza git cercati in Rust (≤1 MB, binari saltati come `read`); 2000 risultati con
     `truncated`, righe a 300 caratteri, timeout 10 s; ignorati in fondo.

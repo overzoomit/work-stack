@@ -250,6 +250,146 @@ fn files(roots: &[PathBuf], root: &str) -> Result<Value, String> {
     Ok(json!({ "files": list, "truncated": truncated }))
 }
 
+const MAX_HITS: usize = 2000;
+const MAX_LINE: usize = 300;
+const GREP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Hit {
+    line: u64,
+    col: u64,
+    text: String,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Group {
+    path: String,
+    ignored: bool,
+    hits: Vec<Hit>,
+}
+
+// Search results, grouped by file, up to MAX_HITS in all.
+#[derive(Default)]
+struct Hits {
+    groups: Vec<Group>,
+    count: usize,
+    truncated: bool,
+}
+
+impl Hits {
+    // false once full: the search stops there.
+    fn add(&mut self, path: &str, ignored: bool, line: u64, col: u64, text: &str) -> bool {
+        if self.count == MAX_HITS {
+            self.truncated = true;
+            return false;
+        }
+        self.count += 1;
+        let hit = Hit { line, col, text: clip(text, col) };
+        match self.groups.last_mut() {
+            Some(g) if g.path == path => g.hits.push(hit),
+            _ => self.groups.push(Group { path: path.to_string(), ignored, hits: vec![hit] }),
+        }
+        true
+    }
+}
+
+// A long line (minified code) is cut to MAX_LINE characters around the match
+// (`col`: 1-based byte column).
+fn clip(text: &str, col: u64) -> String {
+    let text = text.trim_end_matches('\r');
+    if text.chars().count() <= MAX_LINE {
+        return text.to_string();
+    }
+    let at = text.char_indices().take_while(|(i, _)| (*i as u64) < col.saturating_sub(1)).count();
+    text.chars().skip(at.saturating_sub(MAX_LINE / 3)).take(MAX_LINE).collect()
+}
+
+// Like `rg -S`: case matters only when the query has a capital letter.
+fn smart_case(query: &str) -> bool {
+    !query.chars().any(char::is_uppercase)
+}
+
+// git grep on tracked and new files (what .gitignore leaves out is searched by
+// search_files). Killed at the deadline or once the results are full.
+fn git_grep(dir: &Path, query: &str, deadline: std::time::Instant, hits: &mut Hits) -> Result<(), String> {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+    let mut args = vec!["grep", "-z", "-n", "--column", "-I", "--untracked", "-F", "--no-color"];
+    if smart_case(query) {
+        args.push("-i");
+    }
+    args.extend(["-e", query]);
+    let mut child = Command::new("git").args(&args).current_dir(dir).env("GIT_OPTIONAL_LOCKS", "0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(err)?;
+    let stdout = child.stdout.take().unwrap();
+    let (done, wait) = std::sync::mpsc::channel::<()>();
+    let killer = std::thread::spawn(move || {
+        let timed_out = wait.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())).is_err();
+        let _ = child.kill();
+        let _ = child.wait();
+        timed_out
+    });
+    // path\0line\0column\0text\n
+    for rec in std::io::BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
+        let rec = String::from_utf8_lossy(&rec);
+        let mut f = rec.splitn(4, '\0');
+        let (Some(path), Some(line), Some(col), Some(text)) = (f.next(), f.next(), f.next(), f.next()) else { continue };
+        if !hits.add(path, false, line.parse().unwrap_or(0), col.parse().unwrap_or(0), text) {
+            break;
+        }
+    }
+    let _ = done.send(());
+    hits.truncated |= killer.join().unwrap_or(false);
+    Ok(())
+}
+
+// The files git grep doesn't see (ignored ones, or a project without git),
+// up to the preview's size and skipping binaries like `read`. A link that
+// leads out of the open projects is not read, as in the preview.
+fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, deadline: std::time::Instant, hits: &mut Hits) {
+    let ci = smart_case(query);
+    let q = if ci { query.to_lowercase() } else { query.to_string() };
+    for f in list {
+        if std::time::Instant::now() > deadline {
+            hits.truncated = true;
+            return;
+        }
+        let path = dir.join(&f.path);
+        if guard(roots, &path, true).is_err() || fs::metadata(&path).map_or(true, |m| m.len() > MAX_PREVIEW) {
+            continue;
+        }
+        let Ok(buf) = fs::read(&path) else { continue };
+        if buf[..buf.len().min(8000)].contains(&0) {
+            continue;
+        }
+        for (n, line) in String::from_utf8_lossy(&buf).split('\n').enumerate() {
+            let found = if ci { line.to_lowercase().find(&q) } else { line.find(&q) };
+            if let Some(i) = found {
+                if !hits.add(&f.path, f.ignored, n as u64 + 1, i as u64 + 1, line) {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+// Literal text, smart case. Tracked and new files first, then the ignored ones.
+fn grep(roots: &[PathBuf], root: &str, query: &str) -> Result<Value, String> {
+    let abs = guard(roots, Path::new(root), true)?;
+    let mut hits = Hits::default();
+    let deadline = std::time::Instant::now() + GREP_TIMEOUT;
+    if !query.is_empty() {
+        match git_files(&abs) {
+            Some(list) => {
+                git_grep(&abs, query, deadline, &mut hits)?;
+                let ignored: Vec<Found> = list.into_iter().filter(|f| f.ignored).collect();
+                search_files(roots, &abs, &ignored, query, deadline, &mut hits);
+            }
+            None => search_files(roots, &abs, &walk_files(&abs), query, deadline, &mut hits),
+        }
+    }
+    Ok(json!({ "groups": hits.groups, "truncated": hits.truncated }))
+}
+
 fn create(roots: &[PathBuf], parent: &str, name: &str, dir: bool) -> Result<PathBuf, String> {
     check_name(name)?;
     let abs = guard(roots, &Path::new(parent).join(name), false)?;
@@ -376,6 +516,12 @@ pub async fn fs_read(roots: State<'_, Roots>, file: String) -> Result<Value, Str
 pub async fn fs_files(roots: State<'_, Roots>, root: String) -> Result<Value, String> {
     let r = roots.get();
     blocking(move || files(&r, &root)).await
+}
+
+#[tauri::command]
+pub async fn fs_grep(roots: State<'_, Roots>, root: String, query: String) -> Result<Value, String> {
+    let r = roots.get();
+    blocking(move || grep(&r, &root, &query)).await
 }
 
 #[tauri::command]
@@ -530,6 +676,84 @@ mod tests {
         let f = fx();
         rejects(files(&f.roots, &s(&f.outside)), "fuori dai progetti");
         rejects(files(&f.roots, &s(&f.project.join("link-dir"))), "fuori dai progetti");
+    }
+
+    fn repo_with_env(f: &Fx) {
+        let p = &f.project;
+        git(p, &["init", "-q"]);
+        fs::write(p.join(".gitignore"), ".env\nnode_modules/\n").unwrap();
+        fs::write(p.join("db.js"), "const url = process.env.DATABASE_URL;\nconst x = 1;\n").unwrap();
+        fs::write(p.join(".env"), "# locale\nDATABASE_URL=postgres://localhost\n").unwrap();
+        fs::create_dir_all(p.join("node_modules/pg")).unwrap();
+        fs::write(p.join("node_modules/pg/index.js"), "DATABASE_URL\n").unwrap();
+    }
+
+    fn hits(v: &Value) -> Vec<(String, bool, u64)> {
+        let mut out = vec![];
+        for g in v["groups"].as_array().unwrap() {
+            for h in g["hits"].as_array().unwrap() {
+                out.push((g["path"].as_str().unwrap().to_string(), g["ignored"].as_bool().unwrap(), h["line"].as_u64().unwrap()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn cerca_il_testo_nel_codice_e_poi_nel_env_ignorato_ma_non_in_node_modules() {
+        let f = fx();
+        repo_with_env(&f);
+        let v = grep(&f.roots, &s(&f.project), "DATABASE_URL").unwrap();
+        assert_eq!(hits(&v), [("db.js".to_string(), false, 1), (".env".to_string(), true, 2)]);
+        assert_eq!(v["groups"][0]["hits"][0]["col"], 25);
+        assert_eq!(v["groups"][0]["hits"][0]["text"], "const url = process.env.DATABASE_URL;");
+        assert_eq!(v["truncated"], false);
+    }
+
+    #[test]
+    fn le_maiuscole_contano_solo_se_la_query_ne_ha() {
+        let f = fx();
+        repo_with_env(&f);
+        assert_eq!(hits(&grep(&f.roots, &s(&f.project), "database_url").unwrap()).len(), 2);
+        assert_eq!(hits(&grep(&f.roots, &s(&f.project), "Database_url").unwrap()).len(), 0);
+        let no_git = fx();
+        fs::write(no_git.project.join("b.txt"), "DATABASE_URL\n").unwrap();
+        assert_eq!(hits(&grep(&no_git.roots, &s(&no_git.project), "database_url").unwrap()).len(), 1);
+        assert_eq!(hits(&grep(&no_git.roots, &s(&no_git.project), "Database_url").unwrap()).len(), 0);
+    }
+
+    #[test]
+    fn oltre_2000_risultati_la_ricerca_si_ferma_e_lo_dice() {
+        let f = fx();
+        git(&f.project, &["init", "-q"]);
+        fs::write(f.project.join("tanti.txt"), "ago\n".repeat(2500)).unwrap();
+        let v = grep(&f.roots, &s(&f.project), "ago").unwrap();
+        assert_eq!(hits(&v).len(), 2000);
+        assert_eq!(v["truncated"], true);
+    }
+
+    #[test]
+    fn salta_i_file_binari_anche_senza_git() {
+        let f = fx();
+        fs::write(f.project.join("img.bin"), b"ago\0\x01ago").unwrap();
+        fs::write(f.project.join("testo.txt"), "un ago\n").unwrap();
+        let v = grep(&f.roots, &s(&f.project), "ago").unwrap();
+        assert_eq!(hits(&v), [("testo.txt".to_string(), false, 1)]);
+    }
+
+    #[test]
+    fn una_riga_lunga_si_taglia_intorno_al_testo_trovato() {
+        let line = format!("{}TROVATO{}", "a".repeat(1000), "b".repeat(1000));
+        let cut = clip(&line, 1001);
+        assert_eq!(cut.chars().count(), MAX_LINE);
+        assert!(cut.contains("TROVATO"), "{cut}");
+    }
+
+    #[test]
+    fn non_cerca_fuori_dal_progetto() {
+        let f = fx();
+        rejects(grep(&f.roots, &s(&f.outside), "segreto"), "fuori dai progetti");
+        let v = grep(&f.roots, &s(&f.project), "segreto").unwrap();
+        assert_eq!(hits(&v), [], "link-file leads outside: not read");
     }
 
     #[test]
