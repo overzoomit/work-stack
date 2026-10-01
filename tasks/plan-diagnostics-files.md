@@ -155,7 +155,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
   - File: `src/renderer/search.js`, `src/renderer/style.css`
   - Dipende da: F4 · Scope: S
 - [ ] **Checkpoint C**: criteri 1–4 di `SPEC-files.md`. Revisione con l'utente.
-- [ ] **E1: `fs_read` con `mtime`/`utf8`, nuovo `fs_write`**
+- [x] **E1: `fs_read` con `mtime`/`utf8`, nuovo `fs_write`**
   - Accettazione: come da spec (`guard` con follow, solo file esistenti, ≤1 MB, `CHANGED` senza
     `force`, `fs::write` che tiene inode/permessi, commento `ponytail:` sulla non atomicità).
   - Verifica: `cargo test … fs_write` (scrive e dà `mtime`; `CHANGED`; `force`; resta `600`; fuori
