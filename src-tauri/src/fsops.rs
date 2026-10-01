@@ -340,7 +340,35 @@ fn smart_case(query: &str) -> bool {
 
 // git grep on tracked and new files (what .gitignore leaves out is searched by
 // search_files). Killed at the deadline or once the results are full.
-fn git_grep(dir: &Path, query: &str, deadline: std::time::Instant, hits: &mut Hits) -> Result<(), String> {
+// The latest search per project: typing starts a new one every pause, and an
+// older one still running stops instead of taking the CPU from it.
+static SEARCHES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>> = std::sync::LazyLock::new(Default::default);
+
+#[derive(Clone)]
+struct Search {
+    root: PathBuf,
+    id: u64,
+    deadline: std::time::Instant,
+}
+
+impl Search {
+    fn start(root: &Path) -> Search {
+        let mut all = SEARCHES.lock().unwrap();
+        let id = all.get(root).map_or(1, |n| n + 1);
+        all.insert(root.to_path_buf(), id);
+        Search { root: root.to_path_buf(), id, deadline: std::time::Instant::now() + GREP_TIMEOUT }
+    }
+
+    fn superseded(&self) -> bool {
+        SEARCHES.lock().unwrap().get(&self.root) != Some(&self.id)
+    }
+
+    fn timed_out(&self) -> bool {
+        std::time::Instant::now() >= self.deadline
+    }
+}
+
+fn git_grep(dir: &Path, query: &str, search: &Search, hits: &mut Hits) -> Result<(), String> {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
     let mut args = vec!["grep", "-z", "-n", "--column", "-I", "--untracked", "-F", "--no-color"];
@@ -351,11 +379,19 @@ fn git_grep(dir: &Path, query: &str, deadline: std::time::Instant, hits: &mut Hi
     let mut child = Command::new("git").args(&args).current_dir(dir).env("GIT_OPTIONAL_LOCKS", "0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(err)?;
     let stdout = child.stdout.take().unwrap();
     let (done, wait) = std::sync::mpsc::channel::<()>();
+    let search = search.clone();
+    // Killed at the deadline, when a newer search starts, or once the results are full.
     let killer = std::thread::spawn(move || {
-        let timed_out = wait.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())).is_err();
+        let cut = loop {
+            match wait.recv_timeout(std::time::Duration::from_millis(100)) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if search.timed_out() || search.superseded() => break true,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                _ => break false,
+            }
+        };
         let _ = child.kill();
         let _ = child.wait();
-        timed_out
+        cut
     });
     // path\0line\0column\0text\n
     for rec in std::io::BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
@@ -374,11 +410,11 @@ fn git_grep(dir: &Path, query: &str, deadline: std::time::Instant, hits: &mut Hi
 // The files git grep doesn't see (ignored ones, or a project without git),
 // up to the preview's size and skipping binaries like `read`. A link that
 // leads out of the open projects is not read, as in the preview.
-fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, deadline: std::time::Instant, hits: &mut Hits) {
+fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, search: &Search, hits: &mut Hits) {
     let ci = smart_case(query);
     let q = if ci { query.to_lowercase() } else { query.to_string() };
     for f in list {
-        if std::time::Instant::now() > deadline {
+        if search.timed_out() || search.superseded() {
             hits.truncated = true;
             return;
         }
@@ -405,15 +441,15 @@ fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, dead
 fn grep(roots: &[PathBuf], root: &str, query: &str) -> Result<Value, String> {
     let abs = guard(roots, Path::new(root), true)?;
     let mut hits = Hits::default();
-    let deadline = std::time::Instant::now() + GREP_TIMEOUT;
+    let search = Search::start(&abs);
     if !query.is_empty() {
         match git_files(&abs) {
             Some(list) => {
-                git_grep(&abs, query, deadline, &mut hits)?;
+                git_grep(&abs, query, &search, &mut hits)?;
                 let ignored: Vec<Found> = list.into_iter().filter(|f| f.ignored).collect();
-                search_files(roots, &abs, &ignored, query, deadline, &mut hits);
+                search_files(roots, &abs, &ignored, query, &search, &mut hits);
             }
-            None => search_files(roots, &abs, &walk_files(&abs), query, deadline, &mut hits),
+            None => search_files(roots, &abs, &walk_files(&abs), query, &search, &mut hits),
         }
     }
     Ok(json!({ "groups": hits.groups, "truncated": hits.truncated }))
@@ -781,6 +817,26 @@ mod tests {
         let cut = clip(&line, 1001);
         assert_eq!(cut.chars().count(), MAX_LINE);
         assert!(cut.contains("TROVATO"), "{cut}");
+    }
+
+    #[test]
+    fn una_ricerca_superata_da_una_nuova_sullo_stesso_progetto_si_ferma() {
+        let f = fx();
+        fs::write(f.project.join("b.txt"), "ago\n").unwrap();
+        let old = Search::start(&f.project);
+        assert!(!old.superseded());
+        let new = Search::start(&f.project);
+        assert!(old.superseded() && !new.superseded());
+        let other = fx();
+        Search::start(&other.project);
+        assert!(!new.superseded(), "a search in another project doesn't count");
+
+        let list = walk_files(&f.project);
+        let mut hits = Hits::default();
+        search_files(&f.roots, &f.project, &list, "ago", &old, &mut hits);
+        assert!(hits.groups.is_empty(), "the old search reads nothing more");
+        search_files(&f.roots, &f.project, &list, "ago", &new, &mut hits);
+        assert_eq!(hits.count, 1);
     }
 
     #[test]
