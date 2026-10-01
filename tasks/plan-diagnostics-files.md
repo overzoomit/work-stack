@@ -162,7 +162,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     radice e cartella rifiutati).
   - File: `src-tauri/src/fsops.rs`, `src-tauri/src/main.rs`, `src/renderer/bridge.js`
   - Scope: S
-- [ ] **E2: Modifica, Salva e guardia sulle modifiche non salvate**
+- [x] **E2: Modifica, Salva e guardia sulle modifiche non salvate**
   - Accettazione: "Modifica" solo per testo `utf8`; area monospace con numeri di riga; pallino nel
     titolo; Annulla / Salva ⌘S (disattivo senza modifiche); CRLF ripristinato; toast "salvato";
     `esc`/✕/clic fuori con modifiche → barra "Scarta / Continua a modificare". Niente `confirm()`.

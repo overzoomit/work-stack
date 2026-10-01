@@ -3,12 +3,14 @@
 // so relative CSS and images resolve) and images.
 import { marked } from './vendor/marked.esm.js';
 import DOMPurify from './vendor/purify.es.mjs';
-import { $, $$, esc, dirname, leave, toastError } from './ui.js';
+import { $, $$, esc, basename, dirname, leave, toast, toastError } from './ui.js';
 import { insertChunked, resetChunks } from './chunks.js';
 
 const { work } = window;
 
-let current = null; // { path, kind, text (null for binary images), onDiff }
+// { path, kind, text (null for binary images), onDiff, line, mtime, editable,
+//   edit: { crlf, orig, dirty } while the file is being edited }
+let current = null;
 let zoom = null; // controls of the image on screen, if any
 
 const fileUrl = (p) => `file://${p.split('/').map(encodeURIComponent).join('/')}`;
@@ -182,18 +184,102 @@ function draw() {
   }
 }
 
-export async function previewFile(path, { onDiff, line } = {}) {
-  let r;
-  try {
-    r = await work.fs.read(path);
-  } catch (e) {
-    return toastError(e);
-  }
-  const kind = kindOf(path);
-  const image = kind === 'image';
-  current = { path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff, line };
-  $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
+// ── Editing ─────────────────────────────────────────────────
+// The text is edited with \n line ends; a file written with \r\n gets them back.
+export const toLF = (text) => text.replaceAll('\r\n', '\n');
+export const fromLF = (text, crlf) => (crlf ? text.replaceAll('\n', '\r\n') : text);
 
+const editor = () => $('#viewer-body').querySelector('.pv-edit-text');
+
+function lineNumbers(ta) {
+  const n = ta.value.split('\n').length;
+  const box = $('#viewer-body').querySelector('.pv-edit-lines');
+  if (box.dataset.n !== String(n)) {
+    box.dataset.n = String(n);
+    box.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
+  }
+}
+
+function setDirty(dirty) {
+  current.edit.dirty = dirty;
+  $('#viewer-dirty').hidden = !dirty;
+  current.edit.saveBtn.disabled = !dirty;
+}
+
+function startEdit() {
+  const text = toLF(current.text);
+  current.edit = { crlf: current.text.includes('\r\n'), orig: text, dirty: false };
+  $('#viewer-mode').hidden = true;
+  const body = $('#viewer-body');
+  resetChunks(body);
+  body.classList.remove('rendered');
+  body.innerHTML = '<div class="pv-edit"><pre class="pv-edit-lines" aria-hidden="true"></pre><textarea class="pv-edit-text" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Testo del file"></textarea></div>';
+  const ta = editor();
+  ta.value = text;
+  lineNumbers(ta);
+  ta.oninput = () => {
+    lineNumbers(ta);
+    setDirty(ta.value !== current.edit.orig);
+  };
+  ta.onscroll = () => { body.querySelector('.pv-edit-lines').scrollTop = ta.scrollTop; };
+  drawActions();
+  ta.focus();
+  ta.setSelectionRange(0, 0);
+}
+
+function stopEdit() {
+  current.edit = null;
+  hideBar();
+  $('#viewer-dirty').hidden = true;
+  draw();
+  drawActions();
+}
+
+async function save(force = false) {
+  if (!current?.edit?.dirty) return;
+  const { path } = current;
+  const text = fromLF(editor().value, current.edit.crlf);
+  try {
+    const r = await work.fs.write(path, text, current.mtime, force);
+    if (current?.path !== path) return;
+    current.mtime = r.mtime;
+    current.text = text;
+    stopEdit();
+    toast(`${basename(path)} salvato`);
+  } catch (e) {
+    toastError(e); // the edits stay
+  }
+}
+
+// Unsaved edits are never dropped silently: a bar asks first. `then` runs
+// once they are discarded.
+function guardEdits(then) {
+  if (!current?.edit?.dirty) return then();
+  const bar = $('#viewer-bar');
+  bar.innerHTML = `<span class="pv-bar-text">Hai modifiche non salvate in <b>${esc(basename(current.path))}</b>.</span>
+    <button class="btn btn-small pv-discard">Scarta</button><button class="btn btn-small btn-accent pv-keep">Continua a modificare</button>`;
+  bar.hidden = false;
+  bar.querySelector('.pv-discard').onclick = () => {
+    current.edit.dirty = false;
+    hideBar();
+    then();
+  };
+  const keep = bar.querySelector('.pv-keep');
+  keep.onclick = () => {
+    hideBar();
+    editor()?.focus();
+  };
+  keep.focus();
+}
+
+function hideBar() {
+  $('#viewer-bar').hidden = true;
+}
+
+const cancelEdit = () => guardEdits(stopEdit);
+
+function drawActions() {
+  const { path, kind, text, onDiff } = current;
   const actions = $('#viewer-actions');
   actions.innerHTML = '';
   const add = (label, run) => {
@@ -204,22 +290,53 @@ export async function previewFile(path, { onDiff, line } = {}) {
     actions.appendChild(b);
     return b;
   };
-  if (image) {
+  if (current.edit) {
+    add('Annulla', cancelEdit);
+    const b = add(`Salva ${document.body.classList.contains('mac') ? '⌘S' : 'Ctrl+S'}`, () => save());
+    b.classList.add('btn-accent');
+    b.disabled = !current.edit.dirty;
+    current.edit.saveBtn = b;
+    return;
+  }
+  if (kind === 'image') {
     const b = add('', () => zoom?.toggle());
     b.id = 'pv-zoom';
     b.classList.add('pv-zoom');
     b.title = 'Adatta ↔ 100% · Ctrl/⌘ + rotella o pinch per lo zoom · + − 0';
   }
-  if (kind === 'html' && r.text != null) {
+  if (kind === 'html' && text != null) {
     const b = add('Esegui script', () => {
       current.scripts = !current.scripts;
       b.classList.toggle('active', current.scripts);
       draw();
     });
+    b.classList.toggle('active', !!current.scripts);
     b.title = 'Esegue il JavaScript della pagina (può leggere gli altri file dei progetti aperti)';
   }
-  if (onDiff) add('Mostra differenze', () => closeViewer(onDiff));
+  if (current.editable) add('Modifica', startEdit);
+  if (onDiff) add('Mostra differenze', () => requestClose(onDiff));
   add('Apri con app di sistema', () => work.fs.openPath(path));
+}
+
+export async function previewFile(path, opts = {}) {
+  if (current?.edit?.dirty) return guardEdits(() => { current.edit = null; previewFile(path, opts); });
+  const { onDiff, line } = opts;
+  let r;
+  try {
+    r = await work.fs.read(path);
+  } catch (e) {
+    return toastError(e);
+  }
+  const kind = kindOf(path);
+  const image = kind === 'image';
+  current = {
+    path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff, line,
+    mtime: r.mtime, editable: r.utf8 === true && r.text != null && !image, edit: null,
+  };
+  $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
+  $('#viewer-dirty').hidden = true;
+  hideBar();
+  drawActions();
 
   if (!image && (r.binary || r.tooBig)) {
     $('#viewer-mode').hidden = true;
@@ -238,9 +355,15 @@ export async function previewFile(path, { onDiff, line } = {}) {
   $('#viewer').hidden = false;
 }
 
+// ✕, Esc and a click outside: unsaved edits are asked about first.
+export function requestClose(then) {
+  guardEdits(() => closeViewer(then));
+}
+
 export function closeViewer(then) {
   const v = $('#viewer');
   if (v.hidden) return;
+  hideBar();
   leave(v, () => {
     v.hidden = true;
     $('#viewer-body').innerHTML = ''; // unload iframes
@@ -257,8 +380,8 @@ $$('#viewer-mode button').forEach((b) => {
     draw();
   };
 });
-$('#viewer-close').onclick = () => closeViewer();
-$('#viewer').addEventListener('pointerdown', (e) => e.target.id === 'viewer' && closeViewer());
+$('#viewer-close').onclick = () => requestClose();
+$('#viewer').addEventListener('pointerdown', (e) => e.target.id === 'viewer' && requestClose());
 $('#viewer-body').addEventListener('click', (e) => {
   const a = e.target.closest('a[data-external], a[data-local]');
   if (!a) return;
@@ -267,7 +390,15 @@ $('#viewer-body').addEventListener('click', (e) => {
 });
 addEventListener('keydown', (e) => {
   if ($('#viewer').hidden) return;
-  if (e.key === 'Escape') return closeViewer();
+  if (current?.edit && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    return save();
+  }
+  if (e.key === 'Escape') {
+    if (!$('#viewer-bar').hidden) return $('#viewer-bar').querySelector('.pv-keep').onclick();
+    return current?.edit ? cancelEdit() : requestClose();
+  }
+  if (current?.edit) return;
   const act = zoom && { '+': () => zoom.by(1.25), '=': () => zoom.by(1.25), '-': () => zoom.by(0.8), 0: () => zoom.fit() }[e.key];
   if (act) {
     e.preventDefault();

@@ -522,6 +522,25 @@ body.panel-hidden .layout { --right: 0px; }
 .pv .ln { color: #5b6072; text-align: right; padding-right: 12px; user-select: none; font-size: 11px; }
 .pv .code { white-space: pre-wrap; word-break: break-all; padding-right: 16px; color: var(--text-2); }
 .pv .flash { animation: flash 900ms var(--ease-out); }
+/* Editing: a plain text area with its line numbers, scrolled together. */
+.pv-edit { position: absolute; inset: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); font: 12px/1.6 var(--mono); }
+.pv-edit-lines {
+  margin: 0; padding: 10px 12px 10px 0; overflow: hidden; text-align: right; color: #5b6072; font: inherit; font-size: 11px;
+  line-height: calc(12px * 1.6); user-select: none;
+}
+.pv-edit-text {
+  resize: none; border: 0; outline: none; background: none; color: var(--text); padding: 10px 16px 10px 0;
+  font: inherit; white-space: pre; overflow: auto; tab-size: 2; caret-color: var(--accent);
+}
+.pv-dirty { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
+.pv-dirty[hidden] { display: none; }
+.pv-bar {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 18px; font-size: 13px;
+  box-shadow: inset 0 1px 0 var(--line); background: var(--bg-3); animation: slide-in 200ms var(--ease-out);
+}
+.pv-bar[hidden] { display: none; }
+.pv-bar-text { flex: 1; color: var(--text-2); }
+.pv-bar-text b { color: var(--text); font-weight: 600; }
 .html-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
 /* Images: fit the sheet, never upscaled; checkerboard shows transparency */
 .pv-image { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; overflow: auto; }
@@ -581,7 +600,7 @@ body.panel-hidden .layout { --right: 0px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
   .btn:active, .icon-btn:active, .ptab:active, .list li:active, .tabs button:active { transform: none; }
-  .pane, .viewer-card, .review-card, .modal-card, .toast, .menu, .search, .tip:not(.warm):not(.closing) { animation: fade-in 150ms linear !important; }
+  .pane, .viewer-card, .review-card, .modal-card, .toast, .menu, .search, .pv-bar, .tip:not(.warm):not(.closing) { animation: fade-in 150ms linear !important; }
   .gauge b, .tip-bar b, .search-thumb { transition: none; }
   .refresh.spin { animation: none; opacity: .5; }
 }
