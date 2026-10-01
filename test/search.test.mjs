@@ -33,3 +33,36 @@ test('si mostrano al massimo 200 risultati', () => {
   const files = Array.from({ length: 500 }, (_, i) => ({ path: `src/file${i}.js` }));
   assert.equal(rank('file', files).length, 200);
 });
+
+test('nel modo Testo conta solo la risposta all\'ultima ricerca', async () => {
+  const { openSearch, closeSearch } = await import('../src/renderer/search.js');
+  const pending = {};
+  window.work.fs = {
+    files: async () => ({ files: [], truncated: false }),
+    grep: (root, query) => new Promise((resolve) => { pending[query] = resolve; }),
+  };
+  const answer = (path, text) => ({ groups: [{ path, ignored: false, hits: [{ line: 3, col: 1, text }] }], truncated: false });
+  openSearch({ path: '/p', name: 'p' }, { mode: 'text' });
+  const list = document.body.children.find((c) => c.className === 'search');
+  const input = list.querySelector('.search-input');
+  const results = list.querySelector('.search-list');
+  const foot = list.querySelector('.search-foot');
+
+  input.value = 'DATA';
+  input.oninput();
+  await new Promise((r) => setTimeout(r, 150));
+  input.value = 'DATABASE';
+  input.oninput();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(foot.textContent, 'Cerco…');
+
+  pending.DATABASE(answer('db.js', 'DATABASE_URL'));
+  await new Promise((r) => setTimeout(r, 0));
+  pending.DATA(answer('vecchio.js', 'DATA'));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(results.innerHTML, /db\.js/);
+  assert.doesNotMatch(results.innerHTML, /vecchio\.js/, 'the late answer to "DATA" is dropped');
+  assert.match(results.innerHTML, /<b>DATABASE<\/b>_URL/);
+  assert.equal(foot.textContent, '1 risultato in 1 file');
+  closeSearch();
+});

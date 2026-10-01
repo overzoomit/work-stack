@@ -140,7 +140,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
   - File: `src/renderer/search.js` (nuovo), `src/renderer/bridge.js`, `src/renderer/index.html`,
     `src/renderer/app.js`, `src/renderer/style.css`, `test/search.test.mjs`
   - Dipende da: F1 · Scope: M
-- [ ] **F4: palette, modo Testo**
+- [x] **F4: palette, modo Testo**
   - Accettazione: `Ctrl/⌘+Shift+F` e `⇥`; richieste dopo 120 ms con numero progressivo (vecchie
     scartate); gruppi per file; piè di pagina "Cerco…" / "N risultati in M file" / troncato; `↵` apre
     alla riga con `flash`; vuoto ed errori nella palette.

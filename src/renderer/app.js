@@ -558,6 +558,7 @@ addEventListener('keydown', (e) => {
     B: () => togglePanel('left'),
     M: () => active?.focusedId && toggleMax(active.focusedId),
     P: () => openSearch(active),
+    F: () => openSearch(active, { mode: 'text' }),
   };
   const fn = actions[e.key.toUpperCase()];
   if (fn) {

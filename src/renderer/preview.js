@@ -101,7 +101,23 @@ function drawSource(body, text) {
   const lines = text.split('\n').map((l, i) => `<span class="ln">${i + 1}</span><span class="code">${esc(l) || '&nbsp;'}</span>`);
   body.innerHTML = '<div class="pv-source"></div>';
   const host = body.firstChild;
-  insertChunked(body, lines, { size: 500, className: 'pv', place: (el) => host.append(el) });
+  return insertChunked(body, lines, { size: 500, className: 'pv', place: (el) => host.append(el) });
+}
+
+// A line found by the search: centred, and marked by the flash. Off-screen
+// blocks have an estimated height, so the scroll is redone once laid out.
+async function jumpTo(line) {
+  const ln = $('#viewer-body').querySelectorAll('.pv .ln')[line - 1];
+  if (!ln) return;
+  for (let i = 0; i < 2; i++) {
+    ln.scrollIntoView({ block: 'center' });
+    await new Promise(requestAnimationFrame);
+  }
+  for (const el of [ln, ln.nextElementSibling]) {
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+  }
 }
 
 function markdownHtml(text, path) {
@@ -137,8 +153,9 @@ export function linkTarget(href, base) {
 
 function draw() {
   const { path, kind, text } = current;
-  // Raster images have no source to show; SVG keeps the toggle.
-  const view = text == null ? 'rendered' : getView(kind);
+  // Raster images have no source to show; SVG keeps the toggle. A line to
+  // show (from the search) is in the source.
+  const view = text == null ? 'rendered' : current.line ? 'source' : getView(kind);
   const body = $('#viewer-body');
   $('#viewer-mode').hidden = kind === 'text' || text == null;
   $$('#viewer-mode button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
@@ -149,7 +166,7 @@ function draw() {
   zoom = null;
   const zoomLabel = $('#pv-zoom');
   if (zoomLabel) zoomLabel.hidden = view !== 'rendered';
-  if (view === 'source') drawSource(body, text);
+  if (view === 'source') return drawSource(body, text);
   else if (kind === 'md') body.innerHTML = markdownHtml(text, path);
   else if (kind === 'image') {
     // Timestamp so an image edited since the last preview isn't served from cache.
@@ -165,7 +182,7 @@ function draw() {
   }
 }
 
-export async function previewFile(path, { onDiff } = {}) {
+export async function previewFile(path, { onDiff, line } = {}) {
   let r;
   try {
     r = await work.fs.read(path);
@@ -174,7 +191,7 @@ export async function previewFile(path, { onDiff } = {}) {
   }
   const kind = kindOf(path);
   const image = kind === 'image';
-  current = { path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff };
+  current = { path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff, line };
   $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
 
   const actions = $('#viewer-actions');
@@ -208,7 +225,16 @@ export async function previewFile(path, { onDiff } = {}) {
     $('#viewer-mode').hidden = true;
     $('#viewer-body').innerHTML = r.binary ? '<div class="d-empty">File binario.</div>'
       : `<div class="d-empty">File troppo grande per l'anteprima (${Math.round(r.size / 1024)} KB).</div>`;
-  } else draw();
+  } else {
+    const drawn = draw();
+    if (line) {
+      $('#viewer').hidden = false;
+      await drawn;
+      if (current?.path !== path) return; // closed or replaced meanwhile
+      current.line = null; // the view toggle shows the chosen view again
+      return jumpTo(line);
+    }
+  }
   $('#viewer').hidden = false;
 }
 
