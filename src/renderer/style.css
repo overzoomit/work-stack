@@ -539,6 +539,11 @@ body.panel-hidden .layout { --right: 0px; }
   box-shadow: inset 0 1px 0 var(--line); background: var(--bg-3); animation: slide-in 200ms var(--ease-out);
 }
 .pv-bar[hidden] { display: none; }
+.pv-conflict {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 18px; font-size: 13px;
+  background: rgba(255, 159, 10, .14); box-shadow: inset 0 -1px 0 var(--line); animation: slide-in 200ms var(--ease-out);
+}
+.pv-conflict[hidden] { display: none; }
 .pv-bar-text { flex: 1; color: var(--text-2); }
 .pv-bar-text b { color: var(--text); font-weight: 600; }
 .html-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
@@ -600,7 +605,7 @@ body.panel-hidden .layout { --right: 0px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
   .btn:active, .icon-btn:active, .ptab:active, .list li:active, .tabs button:active { transform: none; }
-  .pane, .viewer-card, .review-card, .modal-card, .toast, .menu, .search, .pv-bar, .tip:not(.warm):not(.closing) { animation: fade-in 150ms linear !important; }
+  .pane, .viewer-card, .review-card, .modal-card, .toast, .menu, .search, .pv-bar, .pv-conflict, .tip:not(.warm):not(.closing) { animation: fade-in 150ms linear !important; }
   .gauge b, .tip-bar b, .search-thumb { transition: none; }
   .refresh.spin { animation: none; opacity: .5; }
 }

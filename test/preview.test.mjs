@@ -156,3 +156,36 @@ test('Annulla senza modifiche torna subito all\'anteprima', async () => {
   assert.ok(actionsByLabel().Modifica);
   closeViewer();
 });
+
+test('un file cambiato su disco mostra la striscia: Sovrascrivi forza, Ricarica prende il disco', async () => {
+  const writes = [];
+  window.work.fs.write = async (file, text, mtime, force) => {
+    writes.push({ text, force });
+    if (!force) throw 'CHANGED'; // Tauri rejects with the command's error string
+    return { mtime: 9 };
+  };
+  files.set('/p/c.txt', { text: 'mio\n', size: 4, mtime: 1, utf8: true });
+  await previewFile('/p/c.txt');
+  actionsByLabel().Modifica.onclick();
+  const ta = $('#viewer-body').querySelector('.pv-edit-text');
+  ta.value = 'modificato\n';
+  ta.oninput();
+  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1].onclick();
+  assert.equal($('#viewer-conflict').hidden, false);
+  assert.match($('#viewer-conflict').innerHTML, /<b>c\.txt<\/b> è cambiato su disco/);
+  assert.equal(ta.value, 'modificato\n', 'the edits stay until the user chooses');
+
+  files.set('/p/c.txt', { text: 'dal terminale\n', size: 14, mtime: 5, utf8: true });
+  await $('#viewer-conflict').querySelector('.pv-reload').onclick();
+  assert.equal(ta.value, 'dal terminale\n');
+  assert.equal($('#viewer-conflict').hidden, true);
+
+  ta.value = 'di nuovo mio\n';
+  ta.oninput();
+  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1].onclick();
+  $('#viewer-conflict').querySelector('.pv-overwrite').onclick();
+  await tick();
+  assert.deepEqual(writes.at(-1), { text: 'di nuovo mio\n', force: true });
+  assert.ok(actionsByLabel().Modifica, 'saved: back to the preview');
+  closeViewer();
+});

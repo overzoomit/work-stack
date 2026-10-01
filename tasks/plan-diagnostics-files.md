@@ -170,7 +170,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     un file, `⌘S`, albero e git aggiornati.
   - File: `src/renderer/preview.js`, `src/renderer/style.css`, `test/preview.test.mjs`
   - Dipende da: E1 · Scope: M
-- [ ] **E3: conflitto su disco**
+- [x] **E3: conflitto su disco**
   - Accettazione: `CHANGED` → striscia con "Ricarica dal disco" e "Sovrascrivi"; modifiche tenute fino
     alla scelta; altri errori → toast, modifiche tenute.
   - Verifica: a mano, file cambiato da un terminale durante la modifica.

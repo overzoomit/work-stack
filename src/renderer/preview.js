@@ -230,6 +230,7 @@ function startEdit() {
 function stopEdit() {
   current.edit = null;
   hideBar();
+  hideConflict();
   $('#viewer-dirty').hidden = true;
   draw();
   drawActions();
@@ -247,8 +248,49 @@ async function save(force = false) {
     stopEdit();
     toast(`${basename(path)} salvato`);
   } catch (e) {
-    toastError(e); // the edits stay
+    if (String(e?.message ?? e) === 'CHANGED') showConflict();
+    else toastError(e); // the edits stay
   }
+}
+
+// Saved by someone else meanwhile (a terminal, git): the user picks which
+// version wins. The edits stay until then.
+function showConflict() {
+  const strip = $('#viewer-conflict');
+  strip.innerHTML = `<span class="pv-bar-text"><b>${esc(basename(current.path))}</b> è cambiato su disco da quando l'hai aperto.</span>
+    <button class="btn btn-small pv-reload">Ricarica dal disco</button><button class="btn btn-small pv-overwrite">Sovrascrivi</button>`;
+  strip.hidden = false;
+  strip.querySelector('.pv-reload').onclick = reload;
+  strip.querySelector('.pv-overwrite').onclick = () => {
+    hideConflict();
+    save(true);
+  };
+}
+
+function hideConflict() {
+  $('#viewer-conflict').hidden = true;
+}
+
+// The disk's version replaces the edits, still in the editor.
+async function reload() {
+  const { path } = current;
+  let r;
+  try {
+    r = await work.fs.read(path);
+  } catch (e) {
+    return toastError(e);
+  }
+  if (current?.path !== path || !current.edit || r.text == null) return;
+  hideConflict();
+  current.text = r.text;
+  current.mtime = r.mtime;
+  current.edit.crlf = r.text.includes('\r\n');
+  current.edit.orig = toLF(r.text);
+  const ta = editor();
+  ta.value = current.edit.orig;
+  lineNumbers(ta);
+  setDirty(false);
+  ta.focus();
 }
 
 // Unsaved edits are never dropped silently: a bar asks first. `then` runs
@@ -336,6 +378,7 @@ export async function previewFile(path, opts = {}) {
   $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;
   $('#viewer-dirty').hidden = true;
   hideBar();
+  hideConflict();
   drawActions();
 
   if (!image && (r.binary || r.tooBig)) {
@@ -364,6 +407,7 @@ export function closeViewer(then) {
   const v = $('#viewer');
   if (v.hidden) return;
   hideBar();
+  hideConflict();
   leave(v, () => {
     v.hidden = true;
     $('#viewer-body').innerHTML = ''; // unload iframes
