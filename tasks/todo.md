@@ -123,16 +123,19 @@ Prima: l'utente genera la chiave (`npx tauri signer generate -w ~/.tauri/work-up
 - File: `app.rs`, `main.rs`, `bridge.js`, `update.js`, `app.js`, `index.html`, `style.css`, `test/update.test.mjs`
 
 ### T10: Installa e riavvia (M)
-- [ ] `app_update_install()` scarica, verifica la firma, emette `app:update-progress` `[scaricati, totali]`, non riavvia
-- [ ] Barra continua nel popover con i MB; poi "Riavvia ora" / "Al prossimo avvio"
-- [ ] `app_update_restart()` solo dopo `may_quit`/modifiche non salvate; con terminali o agenti vivi, conferma che li nomina
-- [ ] Mai installare senza clic; mai riavviare senza conferma
+- [x] `app_update_install()` scarica, verifica la firma, emette `app:update-progress` `[scaricati, totali]`, non riavvia
+- [x] Barra continua nel popover con i MB; poi "Riavvia ora" / "Al prossimo avvio"
+- [x] `app_update_restart()` solo dopo `may_quit`/modifiche non salvate; con terminali o agenti vivi, conferma che li nomina
+- [x] Mai installare senza clic; mai riavviare senza conferma
 - Verifica: test JS ("Riavvia ora" chiede conferma con terminali vivi); a mano: 1.1.x → release di prova, macOS e AppImage; su `.deb`/`.rpm` solo avviso
+- Non provato end-to-end: serve una release firmata più nuova e un clic su Installa / Riavvia ora (su macOS e AppImage). `app.restart()` su macOS lancia il nuovo binario e chiude il vecchio: con il plugin single-instance (solo in release) c'è una piccola corsa, da guardare nella prova reale.
 - Dipende da: T9
 - File: `app.rs`, `main.rs`, `bridge.js`, `update.js`, `style.css`, `test/update.test.mjs`
 
 ### Checkpoint finale: pronto per la release
-- [ ] Tutti i criteri di successo di `SPEC-github-update.md`
-- [ ] `npm test`, clippy, fmt verdi; README aggiornato (GitHub, aggiornamenti, chiave)
-- [ ] Aggiornamento verificato su macOS e AppImage
+- [x] Criteri della spec verificati con test e prove reali, tranne quelli che chiedono una release firmata, i clic nell'interfaccia o azioni distruttive sul repository vero (vedi sotto)
+- [x] `npm test` (206 JS, 211 Rust) e clippy verdi; README aggiornato (GitHub, aggiornamenti, chiave)
+- [ ] `cargo fmt --check`: fallisce già su `HEAD` (codice non formattato prima di questo lavoro); i file nuovi (`github.rs`) sono formattati
+- [ ] Aggiornamento verificato su macOS e AppImage: dopo aver caricato i due secret, lanciare il workflow su una prerelease (`v1.1.1-test`) e aggiornare da 1.1.0
+- [ ] Da guardare a occhio in `npm run dev`: righe espandibili, tab GitHub, foglio dei secret, capsula e popover, `prefers-reduced-motion`
 - [ ] Revisione con l'utente

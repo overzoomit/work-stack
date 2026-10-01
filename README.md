@@ -54,11 +54,26 @@ Un wrapper e non un symlink: lanciato dal suo percorso reale, il binario trova i
   **Graph** di tutti i branch; il dettaglio di un commit mostra messaggio, autore, branch che lo
   contengono, l'albero dei file cambiati con +/− e il **diff affiancato** (o unificato) con le
   parole modificate evidenziate. Lo stesso viewer si apre dai file in "Modifiche".
-- **Agenti**: legge in tempo reale le sessioni di Claude Code (`~/.claude/projects/*/*.jsonl`) e mostra
-  cosa sta facendo ogni agente (prima quelli del progetto attivo), con "Riprendi sessione". Da
-  `~/.claude/sessions/<pid>.json` sa quali sessioni hanno ancora il processo aperto: quelle chiuse risultano
-  "Chiusa", quelle aperte hanno "Chiudi sessione" (dettaglio e tasto destro), che dopo una conferma termina
-  il processo di Claude Code (SIGTERM, poi SIGKILL dopo 3 s). La conversazione resta riprendibile.
+- **Agenti**: legge in tempo reale le sessioni di Claude Code (`~/.claude/projects/*/*.jsonl`) e le elenca
+  nella colonna sinistra con cosa sta facendo ognuna (prima quelle del progetto attivo). Un clic sulla riga
+  (o `Invio`) la apre e mostra i pulsanti: **Riprendi**, **Terminale**, **Apri progetto** e, se la sessione è
+  viva, **Chiudi**. Da `~/.claude/sessions/<pid>.json` Work sa quali sessioni hanno ancora il processo aperto:
+  quelle chiuse risultano "Chiusa"; "Chiudi" termina, dopo una conferma, il processo di Claude Code (SIGTERM,
+  poi SIGKILL dopo 3 s) e la conversazione resta riprendibile.
+- **GitHub** (tab del pannello destro, serve il CLI [`gh`](https://cli.github.com) ≥ 2.40 già autenticato:
+  Work non chiede né salva token). Un controllo segmentato sceglie la sezione, ricordata per progetto.
+  **Actions**: le ultime run con stato, branch, evento e durata; un clic apre la riga con i job e i pulsanti
+  Riesegui, Riesegui falliti, Annulla e Apri su GitHub; "Esegui workflow" avvia un workflow sul branch attuale
+  con gli input di default. Il tab ha un pallino rosso se l'ultima run del branch è fallita, blu se è in corso;
+  l'elenco si aggiorna ogni 10 s con una run in corso, ogni minuto altrimenti. **Secrets**: elenco, creazione,
+  aggiornamento ed eliminazione dei secret del repository (il valore, anche un certificato su più righe, passa
+  a `gh` da stdin e non si legge mai più). **Artifacts**: elenco, download in una cartella a scelta ed
+  eliminazione. Senza `gh`, senza login o senza un repository GitHub il tab spiega cosa fare.
+- **Aggiornamenti**: Work controlla all'avvio e ogni 6 ore se c'è una release più nuova. Se c'è, la versione
+  nella barra di stato diventa "Aggiorna a X": il popover mostra le note e **Installa**; poi **Riavvia ora**
+  (chiede prima delle modifiche non salvate e dei terminali che si chiuderebbero) o **Al prossimo avvio**.
+  Mai senza un clic. "Controlla aggiornamenti…" è nel menu Work (macOS) e in ⋯ (Linux). Vedi
+  [Rilascio e aggiornamenti](#rilascio-e-aggiornamenti).
 - **Run** (in alto a destra, come in WebStorm): rileva da solo i comandi del progetto (script npm/pnpm/yarn,
   target Make, Cargo, Django, Go, Docker Compose) e permette di aggiungerne di propri. ▶ avvia, ↻ riavvia,
   ■ ferma (con Ctrl+C, poi forzato dopo 3 s). Il processo gira in background, senza aprire terminali: il suo
@@ -140,7 +155,7 @@ rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'ap
 | ⌘S / Ctrl+S | Salva il file in modifica |
 | Ctrl+Shift+O | Apri un altro progetto |
 | Ctrl+Shift+B | Mostra/nascondi la colonna terminali e sessioni |
-| Ctrl+Alt+B | Mostra/nascondi il pannello Project / Modifiche / Graph / Agente |
+| Ctrl+Alt+B | Mostra/nascondi il pannello Project / Modifiche / Graph / GitHub / Run |
 | Ctrl+Shift+T | Nuovo terminale |
 | Ctrl+Shift+A | Avvia l'ultimo agente usato (il pulsante ✦ Agente apre la lista) |
 | Ctrl+Shift+W | Chiudi terminale |
@@ -158,10 +173,11 @@ rispettive correzioni. L'interfaccia (DOM, drag, menu) si verifica avviando l'ap
 src-tauri/        backend in Rust (Tauri 2)
   src/main.rs    avvio e collegamento dei comandi
   src/diag.rs    file di log, watchdog del main thread, esportazione del log
-  src/app.rs     finestra, menu, comandi di sistema (appunti, cartelle, link)
+  src/app.rs     finestra, menu, comandi di sistema (appunti, cartelle, link), aggiornamenti
   src/pty.rs     sessioni terminale (portable-pty), con controllo di flusso
   src/git.rs     operazioni git tramite la CLI
   src/gitwatch.rs  watcher della cartella .git
+  src/github.rs  GitHub tramite `gh`: run, secret, artifact
   src/agents.rs  watcher delle sessioni Claude Code (claudeprocs.rs: processi aperti)
   src/fsops.rs   operazioni sui file, limitate alle cartelle dei progetti aperti
   src/store.rs   progetti salvati tra un avvio e l'altro
@@ -172,6 +188,9 @@ src/renderer/    interfaccia (HTML/CSS/JS, xterm.js)
   terminals.js   pannelli terminale per progetto
   tree.js        albero Project
   gitpanel.js    modifiche, branch, graph
+  github.js      tab GitHub: Actions, Secrets, Artifacts
+  update.js      avviso e installazione degli aggiornamenti
+  agentsview.js  colonna degli agenti con le righe espandibili
   review.js      dettaglio commit / modifiche (stile WebStorm)
   diff.js        diff affiancato e unificato
   preview.js     anteprima file, Markdown e HTML, modifica
@@ -226,8 +245,7 @@ Tutto il lavoro in background è guidato da eventi, non da polling:
 - cartella corrente dei terminali: letta solo per le shell, dopo che hanno prodotto output, senza bloccare il processo principale.
 
 L'output dei terminali viaggia in blocchi (ogni 8 ms o 16 KB) con controllo di flusso: se xterm resta indietro
-di oltre 1 MB la shell viene messa in pausa. La lista degli agenti viene inviata senza eventi (la timeline si
-chiede solo per la sessione selezionata). Diff e anteprime di file grandi vengono inseriti a blocchi, e i blocchi
+di oltre 1 MB la shell viene messa in pausa. La lista degli agenti viene inviata senza gli eventi delle sessioni. Diff e anteprime di file grandi vengono inseriti a blocchi, e i blocchi
 fuori schermo non vengono impaginati.
 
 Nell'interfaccia non ci sono animazioni in loop, e la sfocatura (`backdrop-filter`) è usata solo per menu e
