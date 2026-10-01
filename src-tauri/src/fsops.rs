@@ -19,7 +19,7 @@ impl Roots {
         *self.0.write().unwrap() = real;
     }
 
-    fn get(&self) -> Vec<PathBuf> {
+    pub fn get(&self) -> Vec<PathBuf> {
         self.0.read().unwrap().clone()
     }
 }
@@ -75,7 +75,7 @@ fn inside(roots: &[PathBuf], real: &Path) -> bool {
 // inside a project can't be used to reach files outside it.
 //  follow: true  → the operation follows the link (read, list, open): check its target
 //  follow: false → the operation acts on the entry itself (rename, move, trash): check its folder
-fn guard(roots: &[PathBuf], p: &Path, follow: bool) -> Result<PathBuf, String> {
+pub fn guard(roots: &[PathBuf], p: &Path, follow: bool) -> Result<PathBuf, String> {
     let abs = resolve(p);
     let real = match (follow, abs.parent(), abs.file_name()) {
         (false, Some(dir), Some(name)) => real_of(dir).join(name),

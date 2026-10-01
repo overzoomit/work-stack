@@ -1,0 +1,360 @@
+// GitHub through the `gh` CLI the user already signed in with, like git above:
+// Work never asks for, receives or stores a token.
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+use tauri::State;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+
+use crate::diag::{log, Level};
+use crate::fsops::{guard, Roots};
+
+const TIMEOUT: Duration = Duration::from_secs(30);
+const MIN_VERSION: (u32, u32) = (2, 40);
+
+pub struct Run {
+    code: Option<i32>,
+    out: String,
+    err: String,
+}
+
+pub enum Spawn {
+    Missing,
+    Other(String),
+}
+
+// The line the log gets for a call. Only the subcommand ("secret set"): the
+// rest of the arguments can name a secret, and its value goes through stdin.
+fn log_line(cwd: &Path, args: &[&str], exit: Option<i32>, ms: u128) -> String {
+    let cmd = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
+    let exit = exit.map_or("-".to_string(), |c| c.to_string());
+    format!("gh {cmd} in {}: exit {exit} in {ms} ms", cwd.display())
+}
+
+// The one place that runs `gh`.
+pub async fn run_gh(cwd: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Run, Spawn> {
+    let start = Instant::now();
+    let res = tokio::time::timeout(TIMEOUT, exec("gh", cwd, args, input)).await;
+    let ms = start.elapsed().as_millis();
+    let res = res.unwrap_or_else(|_| {
+        Err(Spawn::Other(
+            "GitHub CLI non ha risposto entro 30 secondi.".into(),
+        ))
+    });
+    let exit = res.as_ref().ok().and_then(|r| r.code);
+    let line = log_line(cwd, args, exit, ms);
+    match &res {
+        Ok(r) if r.code == Some(0) && ms <= 10_000 => log(Level::Debug, "github", line),
+        // A secret's stderr stays out of the log, like a commit message in git.
+        Ok(r) if input.is_none() => log(
+            Level::Warn,
+            "github",
+            format!("{line}: {}", crate::git::tail(r.err.trim(), 300)),
+        ),
+        _ => log(Level::Warn, "github", line),
+    }
+    res
+}
+
+async fn exec(bin: &str, cwd: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Run, Spawn> {
+    let mut child = Command::new(bin)
+        .args(args)
+        .current_dir(cwd)
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("NO_COLOR", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Spawn::Missing
+            } else {
+                Spawn::Other(e.to_string())
+            }
+        })?;
+    if let (Some(mut stdin), Some(bytes)) = (child.stdin.take(), input) {
+        // A gh that exits without reading closes the pipe: its exit code says why.
+        let _ = stdin.write_all(bytes).await;
+    }
+    let o = child
+        .wait_with_output()
+        .await
+        .map_err(|e| Spawn::Other(e.to_string()))?;
+    Ok(Run {
+        code: o.status.code(),
+        out: String::from_utf8_lossy(&o.stdout).into_owned(),
+        err: String::from_utf8_lossy(&o.stderr).into_owned(),
+    })
+}
+
+// Italian message for what `gh` printed, so the panel never shows raw stderr
+// where the cause is known.
+fn explain(stderr: &str) -> String {
+    let s = stderr.to_lowercase();
+    // First: its message also suggests `gh auth login`.
+    if s.contains("no git remotes") || s.contains("none of the git remotes") {
+        "Questo progetto non ha un repository su GitHub.".into()
+    } else if s.contains("gh auth login") || s.contains("not logged in") {
+        "Non hai effettuato l'accesso a GitHub.".into()
+    } else if s.contains("http 403")
+        || s.contains("resource not accessible")
+        || s.contains("must have admin")
+    {
+        "Non hai i permessi per farlo su questo repository.".into()
+    } else if s.contains("error connecting")
+        || s.contains("could not resolve host")
+        || s.contains("timeout")
+    {
+        "Impossibile raggiungere GitHub: controlla la connessione.".into()
+    } else {
+        let msg = stderr.trim();
+        if msg.is_empty() {
+            "GitHub CLI ha restituito un errore.".into()
+        } else {
+            crate::git::tail(msg, 300).to_string()
+        }
+    }
+}
+
+// "gh version 2.40.1 (2024-01-01)" → (2, 40)
+fn parse_version(out: &str) -> Option<(u32, u32)> {
+    let v = out.split_whitespace().nth(2)?;
+    let mut it = v.split('.');
+    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+}
+
+// What the panel needs to pick its empty state or show the repository.
+// `repo`: Ok(json of `gh repo view`), Err(stderr).
+fn status_json(
+    version: Option<&str>,
+    authed: bool,
+    repo: Option<Result<&str, &str>>,
+) -> Result<Value, String> {
+    let Some(version) = version else {
+        return Ok(json!({ "installed": false }));
+    };
+    let old = parse_version(version).is_none_or(|v| v < MIN_VERSION);
+    if old {
+        return Ok(json!({ "installed": true, "old": true }));
+    }
+    if !authed {
+        return Ok(json!({ "installed": true, "authed": false }));
+    }
+    match repo {
+        Some(Ok(text)) => {
+            let v: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+            Ok(json!({
+                "installed": true, "authed": true,
+                "repo": v["nameWithOwner"], "url": v["url"], "branch": v["defaultBranchRef"]["name"],
+            }))
+        }
+        Some(Err(e)) if explain(e).starts_with("Questo progetto non ha") => {
+            Ok(json!({ "installed": true, "authed": true, "repo": null }))
+        }
+        Some(Err(e)) => Err(explain(e)),
+        None => Ok(json!({ "installed": true, "authed": true, "repo": null })),
+    }
+}
+
+// The folder must belong to an open project, like every fs_* command.
+pub fn project(roots: &Roots, cwd: &str) -> Result<PathBuf, String> {
+    guard(&roots.get(), Path::new(cwd), true)
+}
+
+#[tauri::command]
+pub async fn gh_status(roots: State<'_, Roots>, cwd: String) -> Result<Value, String> {
+    let dir = project(&roots, &cwd)?;
+    let version = match run_gh(&dir, &["--version"], None).await {
+        Ok(r) if r.code == Some(0) => r.out,
+        Ok(_) => return status_json(Some(""), false, None),
+        Err(Spawn::Missing) => return status_json(None, false, None),
+        Err(Spawn::Other(e)) => return Err(e),
+    };
+    let auth = run_gh(&dir, &["auth", "status"], None)
+        .await
+        .map_err(|e| match e {
+            Spawn::Missing => "GitHub CLI non trovato.".to_string(),
+            Spawn::Other(e) => e,
+        })?;
+    if auth.code != Some(0) {
+        let text = format!("{}{}", auth.out, auth.err);
+        // Offline, `auth status` fails too: that is not a missing login.
+        if explain(&text).starts_with("Impossibile raggiungere") {
+            return Err(explain(&text));
+        }
+        return status_json(Some(&version), false, None);
+    }
+    let repo = run_gh(
+        &dir,
+        &[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner,url,defaultBranchRef",
+        ],
+        None,
+    )
+    .await
+    .map_err(|e| match e {
+        Spawn::Missing => "GitHub CLI non trovato.".to_string(),
+        Spawn::Other(e) => e,
+    })?;
+    if repo.code == Some(0) {
+        status_json(Some(&version), true, Some(Ok(&repo.out)))
+    } else {
+        status_json(Some(&version), true, Some(Err(&repo.err)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VERSION: &str =
+        "gh version 2.65.0 (2025-01-06)\nhttps://github.com/cli/cli/releases/tag/v2.65.0\n";
+    const REPO: &str = r#"{"defaultBranchRef":{"name":"main"},"nameWithOwner":"overzoomit/work-stack","url":"https://github.com/overzoomit/work-stack"}"#;
+
+    #[test]
+    fn missing_gh_is_not_installed() {
+        assert_eq!(
+            status_json(None, false, None).unwrap(),
+            json!({ "installed": false })
+        );
+    }
+
+    #[test]
+    fn an_old_gh_asks_for_an_update() {
+        let old = "gh version 2.39.9 (2024-01-01)\n";
+        assert_eq!(
+            status_json(Some(old), true, None).unwrap(),
+            json!({ "installed": true, "old": true })
+        );
+        assert_eq!(parse_version(VERSION), Some((2, 65)));
+        assert_eq!(parse_version("boh"), None);
+    }
+
+    #[test]
+    fn without_login_the_status_says_so() {
+        assert_eq!(
+            status_json(Some(VERSION), false, None).unwrap(),
+            json!({ "installed": true, "authed": false })
+        );
+    }
+
+    #[test]
+    fn a_remote_that_is_not_github_means_no_repository() {
+        let err = "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`";
+        let s = status_json(Some(VERSION), true, Some(Err(err))).unwrap();
+        assert_eq!(
+            s,
+            json!({ "installed": true, "authed": true, "repo": null })
+        );
+        let none = "no git remotes found";
+        assert_eq!(
+            status_json(Some(VERSION), true, Some(Err(none))).unwrap()["repo"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn a_repository_gives_name_url_and_default_branch() {
+        let s = status_json(Some(VERSION), true, Some(Ok(REPO))).unwrap();
+        assert_eq!(s["repo"], "overzoomit/work-stack");
+        assert_eq!(s["url"], "https://github.com/overzoomit/work-stack");
+        assert_eq!(s["branch"], "main");
+    }
+
+    #[test]
+    fn another_failure_is_an_error_with_its_reason() {
+        let e = status_json(
+            Some(VERSION),
+            true,
+            Some(Err("error connecting to api.github.com")),
+        )
+        .unwrap_err();
+        assert!(e.starts_with("Impossibile raggiungere GitHub"));
+        let e = status_json(Some(VERSION), true, Some(Err("boom"))).unwrap_err();
+        assert_eq!(e, "boom");
+    }
+
+    #[test]
+    fn the_log_line_names_the_subcommand_and_never_a_secret() {
+        let line = log_line(
+            Path::new("/p"),
+            &["secret", "set", "NPM_TOKEN"],
+            Some(0),
+            12,
+        );
+        assert_eq!(line, "gh secret set in /p: exit 0 in 12 ms");
+        assert!(!line.contains("NPM_TOKEN"));
+    }
+
+    #[test]
+    fn a_folder_outside_the_open_projects_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = Roots::default();
+        roots.set(&[dir.path().to_string_lossy().into_owned()]);
+        assert!(project(&roots, &dir.path().to_string_lossy()).is_ok());
+        assert!(project(&roots, "/")
+            .unwrap_err()
+            .contains("fuori dai progetti"));
+    }
+
+    #[tokio::test]
+    async fn exec_passes_stdin_whole_sets_the_environment_and_reports_the_exit_code() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("gh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\ncat\necho \"$GH_PROMPT_DISABLED $NO_COLOR\" >&2\nexit 3\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let secret = b"-----BEGIN-----\nline two\n-----END-----\n";
+        let r = exec(
+            fake.to_str().unwrap(),
+            dir.path(),
+            &["secret", "set", "X"],
+            Some(secret),
+        )
+        .await
+        .ok()
+        .unwrap();
+        assert_eq!(
+            (r.code, r.out.as_bytes(), r.err.trim()),
+            (Some(3), &secret[..], "1 1")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_binary_is_reported_as_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            exec("gh-che-non-esiste", dir.path(), &[], None).await,
+            Err(Spawn::Missing)
+        ));
+    }
+
+    #[test]
+    fn explain_knows_the_common_causes() {
+        assert_eq!(
+            explain("To get started with GitHub CLI, please run:  gh auth login"),
+            "Non hai effettuato l'accesso a GitHub."
+        );
+        assert_eq!(
+            explain("HTTP 403: Resource not accessible by integration"),
+            "Non hai i permessi per farlo su questo repository."
+        );
+        assert_eq!(explain(""), "GitHub CLI ha restituito un errore.");
+    }
+}

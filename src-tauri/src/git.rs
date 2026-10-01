@@ -117,7 +117,7 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
 }
 
 // The last `n` characters: git's error is at the end of its stderr.
-fn tail(s: &str, n: usize) -> &str {
+pub fn tail(s: &str, n: usize) -> &str {
     let skip = s.chars().count().saturating_sub(n);
     s.char_indices().nth(skip).map_or("", |(i, _)| &s[i..])
 }

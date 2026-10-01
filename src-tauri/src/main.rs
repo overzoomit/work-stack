@@ -5,6 +5,7 @@ mod claudeprocs;
 mod diag;
 mod fsops;
 mod git;
+mod github;
 mod gitwatch;
 mod pty;
 mod runconfigs;
@@ -138,6 +139,7 @@ fn main() {
             git::git_containing,
             git::git_file_diff,
             git::git_action,
+            github::gh_status,
             gitwatch::git_watch,
             gitwatch::git_unwatch,
             fsops::fs_list,
