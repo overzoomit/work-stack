@@ -62,7 +62,61 @@ async fn read_capped(
     }
 }
 
+// Every git call is logged here: DEBUG always, start and end of the network
+// actions (a start without an end is a hung command), WARN on an error or
+// past 10 s. Commit messages go through stdin and never reach the log.
 async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, String> {
+    use crate::diag::{log, Level};
+    let cmd = args.join(" ");
+    let net = matches!(args.first(), Some(&("fetch" | "pull" | "push")));
+    if net {
+        log(Level::Info, "git", format!("{cmd} in {cwd}: inizio"));
+    }
+    let start = std::time::Instant::now();
+    let mut exit = None;
+    let res = run_git(cwd, args, o, &mut exit).await;
+    let ms = start.elapsed().as_millis();
+    let exit = exit.map_or("-".to_string(), |c: i32| c.to_string());
+    log(
+        Level::Debug,
+        "git",
+        format!("{cmd} in {cwd}: exit {exit} in {ms} ms"),
+    );
+    if net {
+        log(
+            Level::Info,
+            "git",
+            format!("{cmd} in {cwd}: fine, exit {exit} in {ms} ms"),
+        );
+    }
+    match &res {
+        Err(e) => log(
+            Level::Warn,
+            "git",
+            format!("{cmd} in {cwd}: exit {exit} dopo {ms} ms: {}", tail(e, 500)),
+        ),
+        Ok(_) if ms > 10_000 => log(
+            Level::Warn,
+            "git",
+            format!("{cmd} in {cwd}: exit {exit} dopo {ms} ms"),
+        ),
+        Ok(_) => {}
+    }
+    res
+}
+
+// The last `n` characters: git's error is at the end of its stderr.
+fn tail(s: &str, n: usize) -> &str {
+    let skip = s.chars().count().saturating_sub(n);
+    s.char_indices().nth(skip).map_or("", |(i, _)| &s[i..])
+}
+
+async fn run_git(
+    cwd: &str,
+    args: &[&str],
+    o: Opts<'_>,
+    exit: &mut Option<i32>,
+) -> Result<String, String> {
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -109,6 +163,7 @@ async fn git_with(cwd: &str, args: &[&str], o: Opts<'_>) -> Result<String, Strin
         }
     };
     let status = child.wait().await.map_err(|e| e.to_string())?;
+    *exit = status.code();
     if status.code().is_some_and(|c| o.ok_codes.contains(&c)) {
         return Ok(String::from_utf8_lossy(&out).into_owned());
     }
@@ -893,6 +948,37 @@ pub async fn git_action(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_failed_git_call_logs_a_warning_with_exit_and_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let res = rt.block_on(git(
+            dir.path().to_str().unwrap(),
+            &["rev-parse", "--verify", "ramo-che-non-esiste-qx"],
+        ));
+        assert!(res.is_err());
+        let logged = crate::diag::CAPTURED.lock().unwrap().join("");
+        let line = logged
+            .lines()
+            .find(|l| l.contains("ramo-che-non-esiste-qx"))
+            .expect(&logged);
+        assert!(
+            line.contains(" WARN  git ")
+                && line.contains("exit 128 dopo ")
+                && line.contains("fatal: "),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn the_tail_keeps_the_last_characters() {
+        assert_eq!(tail("abcdè", 2), "dè");
+        assert_eq!(tail("ab", 5), "ab");
+    }
+
     use super::*;
     use serde_json::json;
     use std::fs;

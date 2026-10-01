@@ -52,7 +52,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
     `env -i HOME=$HOME USER=$USER SHELL=/bin/zsh <build>/work` → ✦ elenca Claude Code.
   - File: `src-tauri/src/app.rs`, `src-tauri/src/agents.rs`
   - Dipende da: D1 · Scope: S
-- [ ] **D3: log di git in `git_with`**
+- [x] **D3: log di git in `git_with`**
   - Accettazione: `DEBUG` per ogni chiamata (argomenti, cartella, exit, ms); `INFO` inizio/fine di
     `fetch`/`pull`/`push`; `WARN` su errore o oltre 10 s con le ultime 500 battute di stderr.
   - Verifica: test in `git.rs`, una chiamata fallita scrive `WARN` con exit e stderr; a mano un pull
