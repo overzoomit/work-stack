@@ -94,7 +94,7 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
   background: transparent; border: 0; border-radius: var(--radius-s);
   padding: 3px 8px; color: var(--text-2); font-size: 14px; line-height: 1.2;
 }
-.icon-btn:hover { background: var(--bg-3-hover); color: var(--text); }
+.icon-btn:hover, #more.open { background: var(--bg-3-hover); color: var(--text); }
 .icon-btn span { font-size: 10px; margin-left: 2px; color: var(--orange); font-variant-numeric: tabular-nums; }
 .icon-btn.busy { color: var(--accent); animation: breathe 1s var(--ease-out) infinite; }
 .link { background: none; border: 0; color: var(--accent); font-size: 11px; padding: 0; text-transform: none; letter-spacing: 0; }

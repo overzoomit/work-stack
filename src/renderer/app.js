@@ -1,4 +1,7 @@
-import { $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu, clip, tooltip, refreshTip } from './ui.js';
+import {
+  $, $$, esc, basename, ask, toast, toastError, setHtml, contextMenu, closeMenu, clip, tooltip, refreshTip,
+  logExported, stalledToast, moreMenu,
+} from './ui.js';
 import { ProjectTree } from './tree.js';
 import { previewFile } from './preview.js';
 import { closeReview } from './review.js';
@@ -622,20 +625,29 @@ async function refreshStats() {
 
 // ── Log ─────────────────────────────────────────────────────
 
-// After an export, the toast offers to show the file where it landed.
-function logExported() {
-  const label = info.platform === 'darwin' ? 'Mostra nel Finder' : 'Mostra nella cartella';
-  toast('Log esportato', { action: { label, run: () => work.app.revealExport().catch(toastError) } });
-}
 // Aiuto › Esporta log… (macOS) exports in the backend, then tells the page.
 work.app.onLogExported(logExported);
 work.app.onLogExportFailed((msg) => toastError(msg));
+work.app.onStalled(stalledToast);
+
+// ⋯ opens on pointerdown, like a native menu; Enter or Space (a click with
+// no pointer) open it with the focus on the first item.
+const more = $('#more');
+more.onpointerdown = (e) => {
+  if (e.button !== 0) return;
+  if (more.classList.contains('open')) closeMenu();
+  else moreMenu(more);
+};
+more.onclick = (e) => {
+  if (e.detail === 0) moreMenu(more, { focus: true });
+};
 
 // ── Boot ────────────────────────────────────────────────────
 
 (async () => {
   info = await work.app.info();
   if (info.platform === 'darwin') document.body.classList.add('mac');
+  else $('#more').hidden = false;
 
   initTerminals({
     homeDir: info.home,

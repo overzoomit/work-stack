@@ -207,19 +207,29 @@ addEventListener('blur', hideTip);
 
 // ── Context menu ────────────────────────────────────────────
 // Grows out of the pointer position so the link to the click is obvious.
+// With an `anchor` (a menu button) it opens under it, aligned to its right
+// edge and growing from that corner; Esc gives the focus back to the button.
 let menuEl = null;
+let menuAnchor = null;
 
 export function closeMenu() {
   if (!menuEl) return;
   const el = menuEl;
-  menuEl = null;
+  const anchor = menuAnchor;
+  menuEl = menuAnchor = null;
+  if (anchor) {
+    anchor.classList.remove('open');
+    anchor.setAttribute('aria-expanded', 'false');
+    if (el.contains(document.activeElement)) anchor.focus();
+  }
   leave(el, () => el.remove());
 }
 
-export function contextMenu(x, y, items) {
+export function contextMenu(x, y, items, { anchor = null, focus = false } = {}) {
   closeMenu();
   const el = document.createElement('div');
   el.className = 'menu';
+  el.setAttribute('role', 'menu');
   for (const item of items) {
     if (item === '-') {
       el.insertAdjacentHTML('beforeend', '<div class="menu-sep"></div>');
@@ -230,6 +240,7 @@ export function contextMenu(x, y, items) {
       continue;
     }
     const b = document.createElement('button');
+    b.setAttribute('role', 'menuitem');
     b.className = `menu-item${item.danger ? ' danger' : ''}${item.checked !== undefined ? ' checkable' : ''}`;
     b.disabled = !!item.disabled;
     b.innerHTML = `${item.checked !== undefined ? `<i class="check">${item.checked ? '✓' : ''}</i>` : ''}<span></span>${item.detail ? `<small></small>` : ''}<kbd>${esc(item.hint || '')}</kbd>`;
@@ -243,16 +254,69 @@ export function contextMenu(x, y, items) {
   }
   document.body.appendChild(el);
   const r = el.getBoundingClientRect();
-  const left = Math.min(x, innerWidth - r.width - 8);
+  if (anchor) {
+    const a = anchor.getBoundingClientRect();
+    [x, y] = [a.right, a.bottom + 6];
+    anchor.classList.add('open');
+    anchor.setAttribute('aria-expanded', 'true');
+  }
+  const left = Math.max(8, Math.min(anchor ? x - r.width : x, innerWidth - r.width - 8));
   const top = Math.min(y, innerHeight - r.height - 8);
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   el.style.transformOrigin = `${x - left}px ${y - top}px`;
   menuEl = el;
+  menuAnchor = anchor;
+  if (focus) el.querySelector('.menu-item:not(:disabled)')?.focus();
+}
+
+// ↑↓ move between the items, wrapping around.
+function stepMenu(dir) {
+  const list = [...menuEl.querySelectorAll('.menu-item:not(:disabled)')];
+  const i = list.indexOf(document.activeElement);
+  const next = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+  list[next]?.focus();
 }
 
 addEventListener('pointerdown', (e) => {
-  if (menuEl && !menuEl.contains(e.target)) closeMenu();
+  // The menu button toggles the menu itself.
+  if (menuEl && !menuEl.contains(e.target) && !menuAnchor?.contains(e.target)) closeMenu();
 }, true);
-addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
+addEventListener('keydown', (e) => {
+  if (!menuEl) return;
+  if (e.key === 'Escape') closeMenu();
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    stepMenu(e.key === 'ArrowDown' ? 1 : -1);
+  }
+});
 addEventListener('blur', closeMenu);
+
+// ── Log export ──────────────────────────────────────────────
+
+// After an export, the toast offers to show the file where it landed.
+export function logExported() {
+  const label = document.body.classList.contains('mac') ? 'Mostra nel Finder' : 'Mostra nella cartella';
+  toast('Log esportato', { action: { label, run: () => window.work.app.revealExport().catch(toastError) } });
+}
+
+// Cancelled in the save panel: no toast.
+export async function exportLog() {
+  try {
+    if (await window.work.app.exportLog()) logExported();
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+// Offered by the toasts of a problem, when the log has something to tell.
+export const exportLogAction = { label: 'Esporta log', run: exportLog };
+
+export function stalledToast(ms) {
+  toast(`Work è rimasto bloccato per ${Math.round(ms / 1000)} s`, { error: true, action: exportLogAction });
+}
+
+// ⋯ in the top bar (Linux; macOS has Aiuto › Esporta log… in its menu bar).
+export function moreMenu(button, { focus = false } = {}) {
+  contextMenu(0, 0, [{ label: 'Esporta log…', run: exportLog }], { anchor: button, focus });
+}

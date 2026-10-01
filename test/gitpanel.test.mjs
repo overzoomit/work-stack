@@ -12,12 +12,14 @@ let actionGate = null;
 let branchesReply = [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }];
 let statusReply = { branch: { name: 'main', ahead: 0, behind: 0 }, staged: [], unstaged: [], ignored: [] };
 let failCheckout = false;
+let failPull = false;
 Object.assign(globalThis.window.work, {
     git: {
       action: async (repo, name, params) => {
         calls.push([name, params]);
         await actionGate;
         if (name === 'checkout' && failCheckout) throw new Error('local changes would be overwritten');
+        if (name === 'pull' && failPull) throw new Error('fatal: Not possible to fast-forward');
       },
       status: async (repo, opts) => {
         statusCalls.push(opts);
@@ -40,7 +42,7 @@ Object.assign(globalThis.window.work, {
     },
 });
 
-const { initGit, showGit, refreshGit, setGraphVisible } = await import('../src/renderer/gitpanel.js');
+const { initGit, showGit, refreshGit, setGraphVisible, runGit } = await import('../src/renderer/gitpanel.js');
 const $ = (sel) => document.querySelector(sel);
 
 test('se il checkout dal selettore fallisce, il selettore torna al ramo corrente (regressione)', async () => {
@@ -244,4 +246,22 @@ test('con HEAD staccato il selettore dei rami lo mostra come stato corrente, non
   assert.match(html, /<option selected disabled value="HEAD">HEAD staccato<\/option>/);
   assert.match(html, /<option >main<\/option>/);
   branchesReply = [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }];
+});
+
+test('un pull fallito offre "Esporta log" nel toast di errore; un checkout fallito no', async () => {
+  initGit({ statusChanged() {} });
+  await showGit({ path: '/r', root: '/r' });
+  const lastToast = () => document.querySelector('#toasts').children.at(-1);
+  const action = (t) => t.children.find((c) => c.className === 'toast-action');
+
+  failPull = true;
+  await runGit('pull');
+  failPull = false;
+  assert.equal(lastToast().firstChild.textContent, 'fatal: Not possible to fast-forward');
+  assert.equal(action(lastToast())?.textContent, 'Esporta log');
+
+  failCheckout = true;
+  await runGit('checkout', { branch: 'dev' });
+  failCheckout = false;
+  assert.equal(action(lastToast()), undefined);
 });

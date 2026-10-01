@@ -88,6 +88,7 @@
       onOpen: listen('app:open'),
       onLogExported: listen('log:exported'),
       onLogExportFailed: listen('log:export-failed'),
+      onStalled: listen('diag:stalled'),
     },
     projects: {
       load: call('projects_load'),

@@ -89,7 +89,7 @@ E1 fs_read/fs_write ── E2 Modifica + Salva + guardia ── E3 conflitto
   - File: `src-tauri/src/diag.rs`, `src-tauri/src/main.rs`, `src-tauri/src/app.rs`,
     `src/renderer/bridge.js`, `src/renderer/app.js`
   - Dipende da: D1 · Scope: M
-- [ ] **D7: ⋯ su Linux + "Esporta log" nei toast**
+- [x] **D7: ⋯ su Linux + "Esporta log" nei toast**
   - Accettazione: pulsante ⋯ (solo Linux) con `contextMenu`, una voce "Esporta log…", ancorato al
     bordo destro, tastiera come da spec; toast di `diag:stalled` con l'azione; i toast di errore di
     fetch/pull/push ricevono l'azione se non ne hanno una.

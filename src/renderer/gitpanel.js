@@ -1,5 +1,5 @@
 // Git side of the right panel: changes, commit box, branch actions, graph.
-import { $, $$, esc, ago, toast, toastError, ask, contextMenu } from './ui.js';
+import { $, $$, esc, ago, toast, toastError, ask, contextMenu, exportLogAction } from './ui.js';
 import { layout, renderSvg, refBadges, checkoutTarget } from './graph.js';
 import { openCommit, openWorking } from './review.js';
 
@@ -227,7 +227,9 @@ export async function runGit(name, params = {}, { quiet = false, button = null, 
     } else await refreshGit(project, true);
     return out ?? true;
   } catch (e) {
-    toastError(e);
+    // A failed network action may be a hung ssh or a credential helper: the log has the details.
+    if (['fetch', 'pull', 'push'].includes(name)) toast(e?.message || String(e), { error: true, action: exportLogAction });
+    else toastError(e);
     return null;
   } finally {
     button?.classList.remove('busy');
