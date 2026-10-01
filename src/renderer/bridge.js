@@ -124,6 +124,7 @@
     },
     github: {
       status: call('gh_status', 'cwd'),
+      runs: call('gh_runs', 'cwd'),
     },
     fs: {
       list: call('fs_list', 'dir'),

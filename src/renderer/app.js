@@ -11,7 +11,7 @@ import {
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
-import { initGithub, setGithubVisible, showGithub } from './github.js';
+import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPanelChanged, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { openAppearance } from './appearance.js';
@@ -488,6 +488,7 @@ function setPanel(side, open, persist = true) {
       // storage unavailable: keep the state for this session only
     }
   }
+  if (side === 'right') githubPanelChanged();
 }
 const panelOpen = (side) => !document.body.classList.contains(PANELS[side].cls);
 const togglePanel = (side) => setPanel(side, !panelOpen(side));
@@ -694,12 +695,14 @@ more.onclick = (e) => {
   // (commit, checkout, fetch…) also branches and graph.
   work.git.onChanged((repo, kind) => projects.filter((p) => p.root === repo).forEach((p) => refreshGit(p, kind !== 'index')));
   initGit({
+    pushed: githubPushed,
     statusChanged: (p) => {
       p.tree.setGitStatus(p.gitStatus, p.root);
       renderProjectTabs();
       if (p === active) {
         const n = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
         $('#toggle-panel').dataset.changes = n ? '1' : '';
+        updateGithubDot(); // the branch may have changed: so may the tab's dot
       }
     },
   });

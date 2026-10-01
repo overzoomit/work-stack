@@ -1159,3 +1159,24 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 .gh-empty p { margin: 0; max-width: 260px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .gh-head { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .gh-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.gh-list { overflow: visible; padding: 0; }
+.gh-item .gh-row { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border-radius: 8px; }
+.gh-time { display: flex; flex-direction: column; align-items: flex-end; flex: none; margin-top: 2px; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.gh-time b { font-weight: 400; }
+.gh-time i { font-style: normal; opacity: .8; }
+/* Run states: one grammar for rows, capsules and dots across the app. */
+.dot.g-success { background: var(--green); }
+.dot.g-failure { background: var(--red); }
+.dot.g-cancelled { background: #3d4150; }
+.dot.g-queued { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.dot.g-running { background: var(--accent); }
+/* In a row, a running dot carries an indeterminate ring: steady blue, no slow pulsing. */
+.gh-item .dot.g-running { position: relative; }
+.gh-item .dot.g-running::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  border: 1.5px solid transparent; border-top-color: var(--accent);
+  animation: spin 900ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gh-item .dot.g-running::after { animation: none; transform: rotate(45deg); }
+}

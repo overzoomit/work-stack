@@ -47,12 +47,13 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 - File: `src-tauri/src/github.rs`, `main.rs`, `bridge.js`, `github.js`, `index.html`, `app.js`, `style.css`, `test/github.test.mjs`
 
 ### T4: Actions, lista delle run con pallino e aggiornamento (M)
-- [ ] `gh_runs`; parsing e mappa `status`/`conclusion` → stato (in coda, in corso, riuscita, fallita, annullata)
-- [ ] Riga: pallino, titolo, workflow · branch · evento, tempo e durata; run in corso con anello indeterminato
-- [ ] Pallino sul tab: rosso se l'ultima run del branch attuale è fallita, blu se in corso, altrimenti niente
-- [ ] Aggiornamento: 10 s con run in corso, altrimenti 60 s; al focus; fermo con tab o pannello nascosti (il pallino ogni 60 s)
-- [ ] Le run compaiono in meno di 2 s su `work-stack`
+- [x] `gh_runs`; parsing e mappa `status`/`conclusion` → stato (in coda, in corso, riuscita, fallita, annullata)
+- [x] Riga: pallino, titolo, workflow · branch · evento, tempo e durata; run in corso con anello indeterminato
+- [x] Pallino sul tab: rosso se l'ultima run del branch attuale è fallita, blu se in corso, altrimenti niente
+- [x] Aggiornamento: 10 s con run in corso, altrimenti 60 s; al focus; fermo con tab o pannello nascosti (il pallino ogni 60 s)
+- [x] Le run compaiono in meno di 2 s su `work-stack`
 - Verifica: test Rust del parsing; test JS di pallino e intervalli; a mano su `work-stack`
+- Misurato a mano: `gh run list -L 30` su `work-stack` 0,03 s; stato + run in meno di 0,3 s.
 - Dipende da: T3
 - File: `github.rs`, `main.rs`, `bridge.js`, `github.js`, `style.css`, `test/github.test.mjs`
 

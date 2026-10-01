@@ -7,6 +7,7 @@ const { work } = window;
 
 let active = null;
 let onStatus = () => {};
+let onPushed = () => {};
 
 const ACTION_LABELS = {
   fetch: 'Fetch completato', pull: 'Pull completato', push: 'Push completato', stash: 'Modifiche messe in stash',
@@ -15,8 +16,9 @@ const ACTION_LABELS = {
   init: 'Repository inizializzato',
 };
 
-export function initGit({ statusChanged }) {
+export function initGit({ statusChanged, pushed = () => {} }) {
   onStatus = statusChanged;
+  onPushed = pushed;
 
   $$('[data-git]').forEach((b) => {
     b.onclick = async () => {
@@ -225,6 +227,7 @@ export async function runGit(name, params = {}, { quiet = false, button = null, 
       project.root = null;
       await showGit(project);
     } else await refreshGit(project, true);
+    if (name === 'push') onPushed();
     return out ?? true;
   } catch (e) {
     // A failed network action may be a hung ssh or a credential helper: the log has the details.
