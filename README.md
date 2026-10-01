@@ -86,6 +86,35 @@ Un wrapper e non un symlink: lanciato dal suo percorso reale, il binario trova i
   degli agenti (sinistra) o un pallino se ci sono modifiche git (destra).
 - **↻ Aggiorna** (F5) ricarica albero, git e comandi rilevati.
 
+## Rilascio e aggiornamenti
+
+Work si aggiorna da solo: controlla `latest.json` nell'ultima release di GitHub e, se c'è una versione più
+nuova, lo dice e la installa con un clic. I pacchetti devono essere firmati con una chiave nostra; la chiave
+pubblica sta in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`), quella privata non entra mai nel repository.
+
+Una volta sola, per attivare gli aggiornamenti:
+
+```bash
+npx tauri signer generate -w ~/.tauri/work-updater.key     # crea la chiave (e chiede una password)
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/work-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD           # la password scelta; vuota se non ne hai messa una
+```
+
+I due secret si possono caricare anche dal tab GitHub di Work (Secrets › Nuovo secret; per la chiave, incolla il
+contenuto del file). Con una nuova chiave, la pubkey in `tauri.conf.json` va aggiornata e le versioni già
+installate non si aggiornano più da sole: vanno reinstallate a mano.
+
+Senza i secret il workflow di rilascio funziona lo stesso, ma non produce `latest.json`: nessun aggiornamento
+viene proposto. Per provare i pacchetti di aggiornamento in locale:
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/work-updater.key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=... \
+  npm run build -- --config src-tauri/updater.conf.json
+```
+
+Su Linux l'installazione automatica funziona solo dall'AppImage; con `.deb` e `.rpm` Work avvisa e apre la pagina
+della release. Le build di sviluppo (`npm run dev`) non controllano gli aggiornamenti.
+
 ## Test
 
 ```bash

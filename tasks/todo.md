@@ -101,11 +101,13 @@ Riprendi · Terminale · Apri progetto · Chiudi (solo `live`, rosso). "Mostra a
 
 ### T8: Rilascio firmato (S, serve la chiave dell'utente)
 Prima: l'utente genera la chiave (`npx tauri signer generate -w ~/.tauri/work-updater.key`) e dà la chiave pubblica.
-- [ ] `tauri-plugin-updater` in `Cargo.toml`, registrato in `main.rs`; permesso in `capabilities/default.json` se serve
-- [ ] `tauri.conf.json`: `createUpdaterArtifacts`, `plugins.updater.pubkey` e `endpoints`
-- [ ] `release.yml`: `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` in entrambi gli step `tauri-action`; senza i secret il CI passa e non produce `latest.json`
-- [ ] README: come caricare la chiave e i due secret
+- [x] `tauri-plugin-updater` in `Cargo.toml`, registrato in `main.rs`; permesso in `capabilities/default.json` se serve
+- [x] `tauri.conf.json`: `plugins.updater.pubkey` e `endpoints`. `createUpdaterArtifacts` NON è nel file: con la chiave pubblica e senza privata `tauri build` fallisce (provato), quindi sta in `src-tauri/updater.conf.json`, passato con `--config` solo se la chiave c'è (`TAURI_CONFIG` come variabile d'ambiente non viene letta dal CLI)
+- [x] `release.yml`: `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` in entrambi gli step `tauri-action`; senza i secret il CI passa e non produce `latest.json`
+- [x] README: come caricare la chiave e i due secret
 - Verifica: `cargo build`, `npm test`, `npm run dev` parte; run manuale del workflow su una prerelease: `latest.json` e pacchetti firmati nella release
+- Provato in locale: `tauri build --debug --bundles app` con `--config` e una chiave di prova produce `Work.app.tar.gz` + `.sig` e avvisa se la chiave non corrisponde alla pubkey; senza chiave, con `--config`, fallisce; senza `--config` funziona. `npm run dev` parte col plugin.
+- Da fare dall'utente: caricare i due secret (vedi README) e lanciare il workflow su una prerelease (`v1.1.1-test`): non l'ho fatto, pubblicherebbe una release.
 - Dipende da: la chiave pubblica dell'utente
 - File: `Cargo.toml`, `main.rs`, `tauri.conf.json`, `capabilities/default.json`, `release.yml`, `README.md`
 
