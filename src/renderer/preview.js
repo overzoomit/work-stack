@@ -291,11 +291,11 @@ async function save(force = false) {
   edit.saving = true;
   ta.readOnly = true;
   try {
-    const r = await work.fs.write(path, text, current.mtime, force);
+    const r = await work.fs.write(path, text, current.mtime, force, current.size);
     if (current?.path !== path) return;
     current.mtime = r.mtime;
     current.text = text;
-    current.size = new TextEncoder().encode(text).length;
+    current.size = r.size ?? new TextEncoder().encode(text).length;
     current.hidden.clear(); // hidden by line number: lines may have moved
     stopEdit();
     toast(`${basename(path)} salvato`);
@@ -340,6 +340,7 @@ async function reload() {
   hideConflict();
   current.text = r.text;
   current.mtime = r.mtime;
+  current.size = r.size;
   current.edit.crlf = r.text.includes('\r\n');
   current.edit.orig = toLF(r.text);
   const ta = editor();

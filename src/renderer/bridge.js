@@ -125,7 +125,7 @@
     fs: {
       list: call('fs_list', 'dir'),
       read: call('fs_read', 'file'),
-      write: call('fs_write', 'file', 'text', 'mtime', 'force'),
+      write: call('fs_write', 'file', 'text', 'mtime', 'force', 'size'),
       files: call('fs_files', 'root'),
       grep: call('fs_grep', 'root', 'query'),
       create: call('fs_create', 'parent', 'name', 'dir'),

@@ -194,12 +194,13 @@ fn mtime_ms(m: &fs::Metadata) -> u64 {
 
 // Saves an edit from the preview: existing files only (new ones come from
 // fs_create), up to the preview's size. A file changed on disk since it was
-// read (another mtime) is refused with CHANGED, unless `force`.
+// read (another mtime or size: an mtime can be as coarse as 1-2 s on HFS+,
+// FAT or network shares) is refused with CHANGED, unless `force`.
 // fs::write rewrites the existing file: inode, permissions (.env in 600) and
 // links stay as they are.
 // ponytail: not atomic, a crash mid-write can truncate the file; temp file +
 // rename (copying mode and owner) if it ever matters.
-fn write(roots: &[PathBuf], file: &str, text: &str, mtime: u64, force: bool) -> Result<Value, String> {
+fn write(roots: &[PathBuf], file: &str, text: &str, mtime: u64, size: u64, force: bool) -> Result<Value, String> {
     let abs = guard(roots, Path::new(file), true)?;
     let st = fs::metadata(&abs).map_err(err)?;
     if !st.is_file() {
@@ -208,11 +209,12 @@ fn write(roots: &[PathBuf], file: &str, text: &str, mtime: u64, force: bool) -> 
     if text.len() as u64 > MAX_PREVIEW {
         return Err("Il testo supera 1 MB: modificalo con un editor.".into());
     }
-    if mtime_ms(&st) != mtime && !force {
+    if (mtime_ms(&st) != mtime || st.len() != size) && !force {
         return Err("CHANGED".into());
     }
     fs::write(&abs, text).map_err(err)?;
-    Ok(json!({ "mtime": mtime_ms(&fs::metadata(&abs).map_err(err)?) }))
+    let st = fs::metadata(&abs).map_err(err)?;
+    Ok(json!({ "mtime": mtime_ms(&st), "size": st.len() }))
 }
 
 // ── Project-wide search ──────────────────────────────────────
@@ -578,9 +580,9 @@ pub async fn fs_read(roots: State<'_, Roots>, file: String) -> Result<Value, Str
 }
 
 #[tauri::command]
-pub async fn fs_write(roots: State<'_, Roots>, file: String, text: String, mtime: u64, force: bool) -> Result<Value, String> {
+pub async fn fs_write(roots: State<'_, Roots>, file: String, text: String, mtime: u64, size: u64, force: bool) -> Result<Value, String> {
     let r = roots.get();
-    blocking(move || write(&r, &file, &text, mtime, force)).await
+    blocking(move || write(&r, &file, &text, mtime, size, force)).await
 }
 
 #[tauri::command]
@@ -867,32 +869,46 @@ mod tests {
         assert_eq!(read(&f.roots, &s(&f.project.join("latin1.txt"))).unwrap()["utf8"], false);
     }
 
-    fn mtime_of(f: &Fx, name: &str) -> u64 {
-        read(&f.roots, &s(&f.project.join(name))).unwrap()["mtime"].as_u64().unwrap()
+    // What the preview saw when it read the file: (mtime, size).
+    fn seen(f: &Fx, name: &str) -> (u64, u64) {
+        let r = read(&f.roots, &s(&f.project.join(name))).unwrap();
+        (r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap())
     }
 
     #[test]
     fn salva_un_file_e_restituisce_il_nuovo_mtime() {
         let f = fx();
         let file = s(&f.project.join("src/a.txt"));
-        let m = mtime_of(&f, "src/a.txt");
-        let r = write(&f.roots, &file, "nuovo\n", m, false).unwrap();
+        let (m, size) = seen(&f, "src/a.txt");
+        let r = write(&f.roots, &file, "nuovo\n", m, size, false).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "nuovo\n");
-        assert_eq!(r["mtime"].as_u64().unwrap(), mtime_of(&f, "src/a.txt"));
-        write(&f.roots, &file, "ancora\n", r["mtime"].as_u64().unwrap(), false).expect("the returned mtime saves again");
+        assert_eq!((r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap()), seen(&f, "src/a.txt"));
+        write(&f.roots, &file, "ancora\n", r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap(), false).expect("the returned mtime and size save again");
     }
 
     #[test]
     fn un_file_cambiato_su_disco_non_si_sovrascrive_senza_force() {
         let f = fx();
         let file = f.project.join("src/a.txt");
-        let m = mtime_of(&f, "src/a.txt");
+        let (m, size) = seen(&f, "src/a.txt");
         fs::write(&file, "da un terminale\n").unwrap();
         fs::File::options().write(true).open(&file).unwrap().set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
-        assert_eq!(write(&f.roots, &s(&file), "mio\n", m, false), Err("CHANGED".into()));
+        assert_eq!(write(&f.roots, &s(&file), "mio\n", m, size, false), Err("CHANGED".into()));
         assert_eq!(fs::read_to_string(&file).unwrap(), "da un terminale\n");
-        write(&f.roots, &s(&file), "mio\n", m, true).unwrap();
+        write(&f.roots, &s(&file), "mio\n", m, size, true).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "mio\n");
+    }
+
+    #[test]
+    fn un_cambio_nello_stesso_istante_si_vede_dalla_dimensione() {
+        let f = fx();
+        let file = f.project.join("src/a.txt");
+        let (m, size) = seen(&f, "src/a.txt");
+        let when = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "cambiato da fuori\n").unwrap();
+        fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+        assert_eq!(seen(&f, "src/a.txt").0, m, "same mtime, as on a coarse file system");
+        assert_eq!(write(&f.roots, &s(&file), "mio\n", m, size, false), Err("CHANGED".into()));
     }
 
     #[test]
@@ -902,7 +918,8 @@ mod tests {
         let env = f.project.join(".env");
         fs::write(&env, "A=1\n").unwrap();
         fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
-        write(&f.roots, &s(&env), "A=2\n", mtime_of(&f, ".env"), false).unwrap();
+        let (m, size) = seen(&f, ".env");
+        write(&f.roots, &s(&env), "A=2\n", m, size, false).unwrap();
         assert_eq!(fs::metadata(&env).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(fs::read_to_string(&env).unwrap(), "A=2\n");
     }
@@ -910,10 +927,10 @@ mod tests {
     #[test]
     fn non_salva_fuori_dal_progetto_ne_cartelle_ne_file_nuovi() {
         let f = fx();
-        rejects(write(&f.roots, &s(&f.outside.join("secret.txt")), "x", 0, true), "fuori dai progetti");
-        rejects(write(&f.roots, &s(&f.project.join("link-file")), "x", 0, true), "fuori dai progetti");
-        rejects(write(&f.roots, &s(&f.project.join("src")), "x", 0, true), "non è un file");
-        assert!(write(&f.roots, &s(&f.project.join("nuovo.txt")), "x", 0, true).is_err());
+        rejects(write(&f.roots, &s(&f.outside.join("secret.txt")), "x", 0, 0, true), "fuori dai progetti");
+        rejects(write(&f.roots, &s(&f.project.join("link-file")), "x", 0, 0, true), "fuori dai progetti");
+        rejects(write(&f.roots, &s(&f.project.join("src")), "x", 0, 0, true), "non è un file");
+        assert!(write(&f.roots, &s(&f.project.join("nuovo.txt")), "x", 0, 0, true).is_err());
         assert!(!f.project.join("nuovo.txt").exists());
         assert_eq!(fs::read_to_string(f.outside.join("secret.txt")).unwrap(), "segreto\n");
     }
