@@ -106,6 +106,7 @@ const ENV_LINE = /^(\s*(?:export\s+)?[A-Za-z_][\w.-]*)(\s*=\s*)(.*)$/;
 
 // { comment } for a comment, { key, eq, value } for NAME=value, null otherwise.
 export function envLine(line) {
+  line = line.replace(/\r$/, ''); // "." doesn't match \r: a CRLF .env would show no value to hide
   if (/^\s*#/.test(line)) return { comment: line };
   const m = ENV_LINE.exec(line);
   return m && { key: m[1], eq: m[2], value: m[3] };
@@ -225,6 +226,7 @@ function draw() {
 // The text is edited with \n line ends; a file written with \r\n gets them back.
 export const toLF = (text) => text.replaceAll('\r\n', '\n');
 export const fromLF = (text, crlf) => (crlf ? text.replaceAll('\n', '\r\n') : text);
+export const mixedEol = (text) => text.includes('\r\n') && /(^|[^\r])\n/.test(text);
 
 const editor = () => $('#viewer-body').querySelector('.pv-edit-text');
 
@@ -274,27 +276,37 @@ function stopEdit() {
   drawActions();
 }
 
+// The text area is read-only while the write runs: a key typed meanwhile
+// would be lost when the preview comes back, and a second ⌘S would race it.
 async function save(force = false) {
-  if (!current?.edit?.dirty) return;
-  const { path } = current;
-  const text = fromLF(editor().value, current.edit.crlf);
+  if (!current?.edit?.dirty || current.edit.saving) return;
+  const { path, edit } = current;
+  const ta = editor();
+  const text = fromLF(ta.value, edit.crlf);
+  edit.saving = true;
+  ta.readOnly = true;
   try {
     const r = await work.fs.write(path, text, current.mtime, force);
     if (current?.path !== path) return;
     current.mtime = r.mtime;
     current.text = text;
     current.size = new TextEncoder().encode(text).length;
+    current.hidden.clear(); // hidden by line number: lines may have moved
     stopEdit();
     toast(`${basename(path)} salvato`);
   } catch (e) {
     if (String(e?.message ?? e) === 'CHANGED') showConflict();
     else toastError(e); // the edits stay
+  } finally {
+    edit.saving = false;
+    ta.readOnly = false;
   }
 }
 
 // Saved by someone else meanwhile (a terminal, git): the user picks which
 // version wins. The edits stay until then.
 function showConflict() {
+  if (!current?.edit) return;
   const strip = $('#viewer-conflict');
   strip.innerHTML = `<span class="pv-bar-text"><b>${esc(basename(current.path))}</b> è cambiato su disco da quando l'hai aperto.</span>
     <button class="btn btn-small pv-reload">Ricarica dal disco</button><button class="btn btn-small pv-overwrite">Sovrascrivi</button>`;
@@ -420,7 +432,9 @@ export async function previewFile(path, opts = {}) {
   const image = kind === 'image';
   current = {
     path, kind: r.text != null || image ? kind : 'text', text: r.text ?? (image ? null : ''), onDiff, line,
-    mtime: r.mtime, editable: r.utf8 === true && r.text != null && !image, edit: null,
+    // Mixed line ends (\r\n and \n) can't round-trip through a text area,
+    // which reads them all as \n: such a file is not editable here.
+    mtime: r.mtime, editable: r.utf8 === true && r.text != null && !image && !mixedEol(r.text), edit: null,
     size: r.size, utf8: r.utf8, hideAll: false, hidden: new Set(),
   };
   $('#viewer-title').innerHTML = `<bdi>${esc(path)}</bdi>`;

@@ -217,3 +217,38 @@ test('un .env si apre con i valori visibili; "Nascondi valori" li copre tutti', 
   assert.match($('#viewer-foot').innerHTML, /<kbd>esc<\/kbd> Chiudi/);
   closeViewer();
 });
+
+test('righe .env con fine riga CRLF: i valori si possono coprire', async () => {
+  const { envLine, mixedEol } = await import('../src/renderer/preview.js');
+  assert.deepEqual(envLine('TOKEN=abc\r'), { key: 'TOKEN', eq: '=', value: 'abc' });
+  assert.ok(mixedEol('a\r\nb\nc'));
+  assert.ok(!mixedEol('a\r\nb\r\n') && !mixedEol('a\nb\n'));
+});
+
+test('un file con fine riga misti non si modifica (il campo di testo li renderebbe tutti \\n)', async () => {
+  files.set('/p/misto.txt', { text: 'a\r\nb\n', size: 5, mtime: 1, utf8: true });
+  await previewFile('/p/misto.txt');
+  assert.equal(actionsByLabel().Modifica, undefined);
+  closeViewer();
+});
+
+test('un secondo ⌘S durante il salvataggio non parte, e il testo resta bloccato finché scrive', async () => {
+  let release;
+  const writes = [];
+  window.work.fs.write = (file, text) => { writes.push(text); return new Promise((r) => { release = () => r({ mtime: 2 }); }); };
+  files.set('/p/lento.txt', { text: 'a\n', size: 2, mtime: 1, utf8: true });
+  await previewFile('/p/lento.txt');
+  actionsByLabel().Modifica.onclick();
+  const ta = $('#viewer-body').querySelector('.pv-edit-text');
+  ta.value = 'b\n';
+  ta.oninput();
+  const salva = Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1];
+  const first = salva.onclick();
+  assert.equal(ta.readOnly, true);
+  salva.onclick();
+  assert.equal(writes.length, 1);
+  release();
+  await first;
+  assert.equal($('#viewer-conflict').hidden, true);
+  closeViewer();
+});
