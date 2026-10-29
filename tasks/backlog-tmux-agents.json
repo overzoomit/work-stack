@@ -1,0 +1,27 @@
+[
+  {
+    "title": "BE: Modulo Rust tmux.rs e gestione sessioni/finestre tmux per progetto",
+    "description_html": "<h3>Obiettivo</h3><p>Implementare il modulo backend <code>src-tauri/src/tmux.rs</code> per orchestrare sessioni e finestre tmux dedicate a ciascun progetto aperto.</p><h3>Criteri di Accettazione</h3><ul><li>Verifica della presenza del comando <code>tmux</code> nel PATH di sistema con messaggio chiaro in italiano in caso di assenza.</li><li>Generazione deterministica del nome sessione per progetto basato su percorso o hash (es. <code>work_&lt;name&gt;_&lt;hash&gt;</code>).</li><li>Implementazione delle funzioni di gestione: <code>ensure_session</code>, <code>list_windows</code>, <code>new_window</code>, <code>kill_window</code>, <code>send_keys</code>.</li><li>Test unitari in Rust per la sanitizzazione dei nomi e il parsing dei formati di <code>tmux list-windows</code>.</li><li>Integrazione dei comandi IPC in <code>main.rs</code> ed esposizione tramite <code>bridge.js</code>.</li></ul>",
+    "priority": "urgent"
+  },
+  {
+    "title": "BE: Integrazione pty.rs con tmux attach e gestione lifecycle terminali",
+    "description_html": "<h3>Obiettivo</h3><p>Adattare <code>src-tauri/src/pty.rs</code> affinché i terminali aperti in Work Stack istanzino sessioni PTY collegate direttamente alle rispettive finestre tmux tramite <code>tmux attach-session</code>.</p><h3>Criteri di Accettazione</h3><ul><li>Ogni terminale del progetto esegue PTY con comando <code>tmux attach-session -t &lt;session&gt;:&lt;window_id&gt;</code>.</li><li>Ridimensionamento dinamico del terminale (righe e colonne) inoltrato via SIGWINCH e sincronizzato con tmux.</li><li>Controllo di flusso esistente di <code>pty.rs</code> mantenuto senza regressioni.</li><li>Chiusura corretta del terminale senza lasciare processi orfani o blocchi I/O.</li><li>Test di regressione Rust su <code>pty.rs</code> completati con successo.</li></ul>",
+    "priority": "high"
+  },
+  {
+    "title": "BE/FE: Riconoscimento sessioni esistenti e re-attach automatico all'avvio",
+    "description_html": "<h3>Obiettivo</h3><p>Consentire a Work Stack di riallacciarsi automaticamente alle sessioni e finestre tmux già attive per i progetti salvati, garantendo persistenza totale tra i riavvii dell'app.</p><h3>Criteri di Accettazione</h3><ul><li>All'apertura di un progetto (o al ripristino all'avvio), interrogazione di <code>tmux list_windows</code> per la sessione del progetto.</li><li>Creazione automatica dei pannelli terminale associati a ciascuna finestra attiva trovata, preservando titolo e CWD.</li><li>Se la sessione non esiste ancora, inizializzazione pulita di una nuova sessione con una prima finestra shell.</li><li>Sincronizzazione dello stato dell'interfaccia senza sfarfallii né duplicazioni di pannelli.</li><li>Test automatici frontend per il ripristino delle finestre tmux.</li></ul>",
+    "priority": "high"
+  },
+  {
+    "title": "FE: UI Squadra Agenti con avvio rapido PM, Dev1, Dev2, QA ed estensione dinamica",
+    "description_html": "<h3>Obiettivo</h3><p>Introdurre nell'interfaccia utente di Work Stack la funzionalità 'Squadra Agenti' per avviare con un solo clic il team completo di intelligenze artificiali collaborative su tmux.</p><h3>Criteri di Accettazione</h3><ul><li>Pulsante dedicato '👥 Squadra Agenti' nell'intestazione della colonna terminali con popover di controllo.</li><li>Azione rapida 'Inizializza Squadra' che crea le finestre: <code>pm</code> (Antigravity agy), <code>dev1</code> (OpenCode Ollama DeepSeek), <code>dev2</code> (OpenCode Ollama DeepSeek), <code>qa</code> (Codex).</li><li>Badge visivi con pillole colorate per i ruoli (<code>[PM]</code>, <code>[DEV]</code>, <code>[QA]</code>, <code>[SHELL]</code>) nell'intestazione di ciascun pannello terminale.</li><li>Pulsante '＋ Aggiungi Agente' per istanziare dinamicamente nuovi agenti al volo (Claude, Codex, Gemini, OpenCode, Aider, ecc.).</li><li>Test automatici Node per le azioni della UI e la corretta propagazione degli eventi.</li></ul>",
+    "priority": "high"
+  },
+  {
+    "title": "QA: Validazione end-to-end, test suite completa e verifica runtime",
+    "description_html": "<h3>Obiettivo</h3><p>Eseguire la validazione complessiva dell'architettura tmux, verificando l'integrità dei test, la robustezza del backend Rust e l'esperienza utente a runtime.</p><h3>Criteri di Accettazione</h3><ul><li>Esecuzione dell'intera suite di test con <code>npm test</code> (frontend <code>node --test</code> e backend <code>cargo test</code>) completamente verde.</li><li>Verifica del linting con <code>cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings</code> privo di warning.</li><li>Verifica della formattazione con <code>cargo fmt --manifest-path src-tauri/Cargo.toml -- --check</code>.</li><li>Verifica manuale a runtime (<code>npm run dev</code>) dell'avvio della squadra agenti e del riaggancio dopo riavvio.</li><li>Compatibilità bidirezionale confermata con <code>tmux attach</code> da terminale esterno di sistema.</li></ul>",
+    "priority": "high"
+  }
+]
