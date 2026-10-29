@@ -152,7 +152,13 @@ globalThis.window = {
       sessionForProject: async (path) => env.tmuxSession ?? 'work_test',
       listWindows: async (session) => env.tmuxWindows ?? [],
       ensureSession: async () => {},
-      newWindow: async () => '@1',
+      newWindow: async (session, name, command, cwd) => {
+        const id = `@${(env.tmuxWindows?.length || 0)}`;
+        const win = { id, name, active: false, path: cwd };
+        env.tmuxWindows = [...(env.tmuxWindows || []), win];
+        env.createdWindows = [...(env.createdWindows || []), { session, name, command, cwd }];
+        return id;
+      },
       killWindow: async () => {},
       sendKeys: async () => {},
     },

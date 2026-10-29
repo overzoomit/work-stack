@@ -859,12 +859,28 @@ body.panel-hidden .layout { --right: 0px; }
 #status-repo { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .statusbar > span:not(#status-repo) { flex: none; }
 
-/* Agent launcher */
+/* Agent launcher & Team */
 .btn-chev { font-size: 11px; margin-left: 2px; opacity: .8; display: inline-block; transform: translateY(-2px); }
+.btn-team {
+  background: rgba(139, 92, 246, .16); color: #c084fc; border: 1px solid rgba(139, 92, 246, .35);
+  transition: all var(--t-ui) var(--ease-out);
+}
+.btn-team:hover {
+  background: rgba(139, 92, 246, .26); border-color: rgba(139, 92, 246, .55); color: #e9d5ff;
+}
 .pane-badge {
   font: 600 10px var(--sans); letter-spacing: .02em; color: var(--orange);
   background: rgba(255, 159, 10, .14); box-shadow: inset 0 0 0 1px rgba(255, 159, 10, .35);
   padding: 1px 7px; border-radius: 5px; white-space: nowrap; flex: none;
+}
+.pane-badge.role-pm {
+  color: #c084fc; background: rgba(168, 85, 247, .18); box-shadow: inset 0 0 0 1px rgba(168, 85, 247, .45);
+}
+.pane-badge.role-dev1, .pane-badge.role-dev2, .pane-badge.role-dev {
+  color: #38bdf8; background: rgba(14, 165, 233, .18); box-shadow: inset 0 0 0 1px rgba(14, 165, 233, .45);
+}
+.pane-badge.role-qa {
+  color: #34d399; background: rgba(16, 185, 129, .18); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, .45);
 }
 
 /* ── Sidebar toggle ── */
@@ -996,6 +1012,70 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 }
 @media (prefers-reduced-transparency: reduce) {
   .agent-pop { background: var(--bg-solid-2); backdrop-filter: none; }
+}
+
+/* ── Agent team popover ── */
+#agent-team.open { filter: brightness(1.15); }
+#agent-team .btn-chev { transition: transform var(--t-ui) var(--ease-out); }
+#agent-team.open .btn-chev { transform: translateY(-2px) rotate(180deg); }
+.team-pop {
+  position: fixed; z-index: 80; width: 460px; max-height: min(640px, calc(100vh - 80px));
+  display: flex; flex-direction: column; border-radius: 16px; overflow: hidden;
+  background: rgba(30, 32, 41, .85); backdrop-filter: blur(44px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 28px 70px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .3);
+  animation: ap-in 260ms var(--ease-out);
+  will-change: transform, opacity;
+}
+.team-pop.closing { animation: ap-out 150ms var(--ease-in) forwards; pointer-events: none; }
+.tp-head { padding: 16px 18px 10px; }
+.tp-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; display: flex; align-items: center; justify-content: space-between; }
+.tp-sub { margin-top: 3px; font-size: 12px; color: var(--text-2); }
+.tp-actions { display: flex; gap: 8px; padding: 10px 18px 12px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+.tp-btn-primary {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 600; font-size: 12.5px;
+  padding: 8px 14px; border-radius: 8px; border: 0; cursor: pointer; transition: filter 120ms ease;
+}
+.tp-btn-primary:hover { filter: brightness(1.1); }
+.tp-btn-secondary {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: rgba(255, 255, 255, .08); color: var(--text); font-size: 12px; font-weight: 500;
+  padding: 8px 12px; border-radius: 8px; border: 0; cursor: pointer; transition: background 120ms ease;
+}
+.tp-btn-secondary:hover { background: rgba(255, 255, 255, .14); }
+.tp-list { overflow: auto; padding: 8px 12px; }
+.tp-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.tp-row:hover { background: rgba(255, 255, 255, .07); }
+.tp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.tp-status-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.tp-role-badge { font: 700 11px var(--mono); padding: 2px 7px; border-radius: 5px; flex: none; }
+.tp-role-pm { background: rgba(168, 85, 247, .2); color: #c084fc; border: 1px solid rgba(168, 85, 247, .4); }
+.tp-role-dev1, .tp-role-dev2, .tp-role-dev { background: rgba(14, 165, 233, .2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, .4); }
+.tp-role-qa { background: rgba(16, 185, 129, .2); color: #34d399; border: 1px solid rgba(16, 185, 129, .4); }
+.tp-info { flex: 1; min-width: 0; }
+.tp-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.tp-desc { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-cmd { font: 10px var(--mono); color: var(--muted); margin-top: 1px; }
+.tp-badge-status { font-size: 11px; color: var(--text-2); font-weight: 500; }
+.tp-badge-status.active { color: var(--green); }
+.tp-agent-picker { padding: 10px 14px; border-top: 1px solid rgba(255, 255, 255, .06); background: rgba(0, 0, 0, .15); }
+.tp-picker-title { font-size: 11.5px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.tp-agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tp-chip {
+  padding: 4px 9px; border-radius: 6px; font-size: 11px; background: rgba(255, 255, 255, .07);
+  color: var(--text); border: 1px solid rgba(255, 255, 255, .08); cursor: pointer; transition: all 120ms ease;
+}
+.tp-chip:hover { background: rgba(255, 255, 255, .15); border-color: rgba(255, 255, 255, .2); }
+@media (prefers-reduced-motion: reduce) {
+  .team-pop, .team-pop.closing { animation: fade-in 120ms linear; }
+  .team-pop.closing { opacity: 0; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .team-pop { background: var(--bg-solid-2); backdrop-filter: none; }
 }
 
 /* Collapse buttons sit in the panel headers; top-bar buttons only reopen. */

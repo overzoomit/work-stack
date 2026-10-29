@@ -16,6 +16,7 @@ import { initUpdate, check as checkUpdate } from './update.js';
 import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPanelChanged, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
+import { initTeam } from './team.js';
 import { openAppearance } from './appearance.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
@@ -724,6 +725,7 @@ more.onclick = (e) => {
     },
   });
   initLauncher({ activeProject: () => active });
+  initTeam({ activeProject: () => active });
   initGithub({
     activeProject: () => active,
     login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Accedi a GitHub' }),

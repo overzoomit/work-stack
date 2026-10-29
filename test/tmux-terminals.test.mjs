@@ -7,11 +7,11 @@ const T = await import('../src/renderer/terminals.js');
 T.initTerminals({ homeDir: '/home/u', changed() {} });
 
 test('roleBadgeFor returns proper labels for agent roles', () => {
-  assert.deepEqual(T.roleBadgeFor('pm'), { text: 'PM', title: 'Senior PM & Architect' });
-  assert.deepEqual(T.roleBadgeFor('dev1'), { text: 'DEV1', title: 'Senior Developer #1' });
-  assert.deepEqual(T.roleBadgeFor('dev2'), { text: 'DEV2', title: 'Senior Developer #2' });
-  assert.deepEqual(T.roleBadgeFor('qa'), { text: 'QA', title: 'QA Engineer' });
-  assert.deepEqual(T.roleBadgeFor('dev3'), { text: 'DEV3', title: 'Developer' });
+  assert.deepEqual(T.roleBadgeFor('pm'), { text: 'PM', title: 'Senior PM & Architect', role: 'pm' });
+  assert.deepEqual(T.roleBadgeFor('dev1'), { text: 'DEV1', title: 'Senior Developer #1', role: 'dev1' });
+  assert.deepEqual(T.roleBadgeFor('dev2'), { text: 'DEV2', title: 'Senior Developer #2', role: 'dev2' });
+  assert.deepEqual(T.roleBadgeFor('qa'), { text: 'QA', title: 'QA Engineer', role: 'qa' });
+  assert.deepEqual(T.roleBadgeFor('dev3'), { text: 'DEV3', title: 'Developer', role: 'dev' });
   assert.equal(T.roleBadgeFor('bash'), null);
   assert.equal(T.roleBadgeFor(null), null);
 });

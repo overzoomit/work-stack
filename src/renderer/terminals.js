@@ -167,11 +167,11 @@ function fitAll() {
 export function roleBadgeFor(name) {
   if (!name) return null;
   const n = String(name).toLowerCase();
-  if (n === 'pm') return { text: 'PM', title: 'Senior PM & Architect' };
-  if (n === 'dev1') return { text: 'DEV1', title: 'Senior Developer #1' };
-  if (n === 'dev2') return { text: 'DEV2', title: 'Senior Developer #2' };
-  if (n === 'qa') return { text: 'QA', title: 'QA Engineer' };
-  if (n.startsWith('dev')) return { text: name.toUpperCase(), title: 'Developer' };
+  if (n === 'pm') return { text: 'PM', title: 'Senior PM & Architect', role: 'pm' };
+  if (n === 'dev1') return { text: 'DEV1', title: 'Senior Developer #1', role: 'dev1' };
+  if (n === 'dev2') return { text: 'DEV2', title: 'Senior Developer #2', role: 'dev2' };
+  if (n === 'qa') return { text: 'QA', title: 'QA Engineer', role: 'qa' };
+  if (n.startsWith('dev')) return { text: name.toUpperCase(), title: 'Developer', role: 'dev' };
   return null;
 }
 
@@ -185,7 +185,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     <div class="pane-head">
       <span class="dot"></span>
       <span class="pane-title"></span>
-      ${effectiveBadge ? `<span class="pane-badge" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
+      ${effectiveBadge ? `<span class="pane-badge${effectiveBadge.role ? ' role-' + effectiveBadge.role : ''}" data-role="${effectiveBadge.role || ''}" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
       <button class="icon-btn pane-aa" data-act="look" title="Aspetto del terminale">Aa</button>
