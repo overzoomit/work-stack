@@ -164,16 +164,28 @@ function fitAll() {
   }
 }
 
+export function roleBadgeFor(name) {
+  if (!name) return null;
+  const n = String(name).toLowerCase();
+  if (n === 'pm') return { text: 'PM', title: 'Senior PM & Architect' };
+  if (n === 'dev1') return { text: 'DEV1', title: 'Senior Developer #1' };
+  if (n === 'dev2') return { text: 'DEV2', title: 'Senior Developer #2' };
+  if (n === 'qa') return { text: 'QA', title: 'QA Engineer' };
+  if (n.startsWith('dev')) return { text: name.toUpperCase(), title: 'Developer' };
+  return null;
+}
+
 // `container`: mount somewhere other than the terminal grid (e.g. the Run
 // console). Such panes stay out of the grid, the terminal list and drag.
-export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null } = {}) {
+export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null } = {}) {
+  const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
   const el = document.createElement('div');
   el.className = container ? 'pane console' : 'pane';
   el.innerHTML = `
     <div class="pane-head">
       <span class="dot"></span>
       <span class="pane-title"></span>
-      ${badge ? `<span class="pane-badge" title="${esc(badge.title || '')}">${esc(badge.text)}</span>` : ''}
+      ${effectiveBadge ? `<span class="pane-badge" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
       <button class="icon-btn pane-aa" data-act="look" title="Aspetto del terminale">Aa</button>
@@ -203,6 +215,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
 
   const t = {
     id: null, project, term, fit, el, kind, title: title || `Terminale ${++counter}`, cwd: cwd || project.path, exited: false, onOutput, onExit,
+    tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
   };
   el._t = t;
   t.console = !!container;
@@ -215,7 +228,21 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     // hidden (background project): default size until shown
   }
 
-  const id = await work.pty.create({ cwd: t.cwd, cols: term.cols, rows: term.rows, command });
+  let ptyOpts = { cwd: t.cwd, cols: term.cols, rows: term.rows, command };
+  if (!container && work?.tmux) {
+    const isTmux = await work.tmux.isAvailable().catch(() => false);
+    if (isTmux && project?.path) {
+      const session = tmuxSession || (await work.tmux.sessionForProject(project.path).catch(() => null));
+      if (session) {
+        ptyOpts.tmux_session = session;
+        if (tmuxWindow) ptyOpts.tmux_window = tmuxWindow;
+        if (tmuxName || title) ptyOpts.tmux_name = tmuxName || title;
+        t.tmuxSession = session;
+      }
+    }
+  }
+
+  const id = await work.pty.create(ptyOpts);
   pending.delete(t);
   t.id = id;
   all.set(id, t);
@@ -547,4 +574,35 @@ function startPaneDrag(t, e) {
   addEventListener('pointerup', end);
   addEventListener('pointercancel', end);
   addEventListener('keydown', esc, true);
+}
+
+// Interrogates tmux for the project's session windows and re-attaches them automatically.
+export async function syncProjectTerminals(project) {
+  if (!project || !work?.tmux) return [];
+  const available = await work.tmux.isAvailable().catch(() => false);
+  if (!available) return [];
+
+  const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+  if (!session) return [];
+
+  const windows = await work.tmux.listWindows(session).catch(() => []);
+  if (!windows || !windows.length) return [];
+
+  const existingPanes = terminalsOf(project);
+  const reattached = [];
+
+  for (const win of windows) {
+    const alreadyOpen = existingPanes.some((p) => p.tmuxWindow === win.id || p.title === win.name);
+    if (!alreadyOpen) {
+      const pane = await openTerminal(project, {
+        cwd: win.path || project.path,
+        title: win.name,
+        tmuxSession: session,
+        tmuxWindow: win.id,
+        tmuxName: win.name,
+      });
+      reattached.push(pane);
+    }
+  }
+  return reattached;
 }

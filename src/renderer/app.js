@@ -8,6 +8,7 @@ import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
+  syncProjectTerminals,
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
@@ -61,7 +62,10 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
   // Register the folder first: the main process only allows fs access inside open projects.
   await work.projects.save({ projects: serialize() });
   if (activate) await activateProject(p);
-  if (withTerminal) openTerminal(p);
+  if (withTerminal && !terminalsOf(p).length) {
+    const reattached = await syncProjectTerminals(p);
+    if (!reattached.length) openTerminal(p);
+  }
   renderProjectTabs();
   return p;
 }
@@ -71,6 +75,9 @@ async function activateProject(p) {
   save();
   closeReview();
   renderProjectTabs();
+  if (!terminalsOf(p).length) {
+    await syncProjectTerminals(p);
+  }
   showProject(p);
   renderTermList(p);
   p.tree.mount($('#tree'));

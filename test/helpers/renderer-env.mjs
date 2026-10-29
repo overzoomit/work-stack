@@ -147,6 +147,15 @@ globalThis.window = {
     },
     agents: { available: () => env.agentsReply, hasHistory: async (dir) => env.history.has(dir) },
     run: { detect: async () => env.detected || [] },
+    tmux: {
+      isAvailable: async () => env.tmuxAvailable ?? false,
+      sessionForProject: async (path) => env.tmuxSession ?? 'work_test',
+      listWindows: async (session) => env.tmuxWindows ?? [],
+      ensureSession: async () => {},
+      newWindow: async () => '@1',
+      killWindow: async () => {},
+      sendKeys: async () => {},
+    },
   },
 };
 
