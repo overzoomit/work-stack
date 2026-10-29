@@ -90,3 +90,13 @@ WORK_DEVTOOLS=1 npm run dev
   - Seguire rigorosamente lo standard Conventional Commits (`feat(...)`, `fix(...)`, `test(...)`, `chore(...)`, `docs(...)`).
 - **Integrità dei Test:**
   - Non indebolire né saltare mai i test preesistenti. Nuove funzionalità o correzioni devono essere sempre accompagnate da opportuni test di unità o regressione.
+
+## Agent skills
+
+### Issue tracker
+
+Plane, progetto WORKSTACK. Vedi `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context. Vedi `docs/agents/domain.md`.
