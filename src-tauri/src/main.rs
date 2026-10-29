@@ -11,6 +11,7 @@ mod pty;
 mod runconfigs;
 mod store;
 mod sysstats;
+mod tmux;
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -25,7 +26,12 @@ struct AppState {
 // ── Projects ─────────────────────────────────────────────────
 // The open projects are also what authorizes file access (see fsops).
 fn project_paths(state: &Value) -> Vec<String> {
-    state["projects"].as_array().into_iter().flatten().filter_map(|p| p["path"].as_str().map(String::from)).collect()
+    state["projects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p["path"].as_str().map(String::from))
+        .collect()
 }
 
 // ponytail: a closed project stays previewable (asset protocol) until restart;
@@ -72,9 +78,19 @@ fn main() {
             // Debug/tests: WORK_USER_DATA keeps state separate from the real profile.
             let (dir, legacy) = match std::env::var("WORK_USER_DATA") {
                 Ok(d) => (PathBuf::from(d), None),
-                Err(_) => (app.path().app_data_dir()?, app.path().config_dir().ok().map(|d| d.join("Work").join("state.json"))),
+                Err(_) => (
+                    app.path().app_data_dir()?,
+                    app.path()
+                        .config_dir()
+                        .ok()
+                        .map(|d| d.join("Work").join("state.json")),
+                ),
             };
-            let log = if std::env::var_os("WORK_USER_DATA").is_some() { dir.clone() } else { app.path().app_log_dir()? };
+            let log = if std::env::var_os("WORK_USER_DATA").is_some() {
+                dir.clone()
+            } else {
+                app.path().app_log_dir()?
+            };
             diag::init(&log.join("work.log"));
             app::log_start(app.handle());
             let handle = app.handle().clone();
@@ -92,7 +108,10 @@ fn main() {
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
             allow_projects(app.handle(), &state);
-            app.manage(AppState { state: Mutex::new(state), file });
+            app.manage(AppState {
+                state: Mutex::new(state),
+                file,
+            });
             app.manage(pty::PtyState::new());
             let handle = app.handle().clone();
             app.manage(gitwatch::GitWatcher::new(move |repo, kind| {
@@ -104,9 +123,13 @@ fn main() {
                 app.on_menu_event(app::on_menu);
             }
             let handle = app.handle().clone();
-            let agents = agents::AgentWatcher::new(agents::projects_dir(), claudeprocs::sessions_dir(), move |list| {
-                let _ = handle.emit("agents:update", [list]);
-            });
+            let agents = agents::AgentWatcher::new(
+                agents::projects_dir(),
+                claudeprocs::sessions_dir(),
+                move |list| {
+                    let _ = handle.emit("agents:update", [list]);
+                },
+            );
             agents.start();
             app.manage(agents);
             app::create_window(app.handle())?;
@@ -177,6 +200,14 @@ fn main() {
             agents::agents_has_history,
             agents::agents_stop,
             agents::agents_available,
+            tmux::tmux_is_available,
+            tmux::tmux_session_for_project,
+            tmux::tmux_ensure_session,
+            tmux::tmux_list_windows,
+            tmux::tmux_new_window,
+            tmux::tmux_kill_window,
+            tmux::tmux_send_keys,
+            tmux::tmux_capture_pane,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Work")

@@ -166,5 +166,15 @@
       available: call('agents_available', 'commands'),
       onUpdate: listen('agents:update'),
     },
+    tmux: {
+      isAvailable: call('tmux_is_available'),
+      sessionForProject: call('tmux_session_for_project', 'path'),
+      ensureSession: call('tmux_ensure_session', 'session', 'cwd'),
+      listWindows: call('tmux_list_windows', 'session'),
+      newWindow: call('tmux_new_window', 'session', 'name', 'cwd', 'command'),
+      killWindow: call('tmux_kill_window', 'session', 'windowId'),
+      sendKeys: call('tmux_send_keys', 'session', 'target', 'keys'),
+      capturePane: call('tmux_capture_pane', 'session', 'target', 'lines'),
+    },
   };
 })();

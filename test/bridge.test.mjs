@@ -50,3 +50,20 @@ test('a failed command is logged and still rejects', async () => {
   await assert.rejects(work.git.status('/x'), /non è un repository/);
   assert.deepEqual(logged, ['warn git_status fallito: non è un repository']);
 });
+
+test('work.tmux exposes tmux IPC commands', async () => {
+  const calls = [];
+  const { work } = load((cmd) => {
+    calls.push(cmd);
+    if (cmd === 'tmux_is_available') return true;
+    if (cmd === 'tmux_session_for_project') return 'work_test_123456';
+    if (cmd === 'tmux_list_windows') return [{ id: '@0', name: 'shell', active: true, path: '/tmp' }];
+    return null;
+  });
+  assert.equal(await work.tmux.isAvailable(), true);
+  assert.equal(await work.tmux.sessionForProject('/tmp'), 'work_test_123456');
+  const windows = await work.tmux.listWindows('work_test_123456');
+  assert.equal(windows.length, 1);
+  assert.equal(windows[0].name, 'shell');
+  assert.deepEqual(calls, ['tmux_is_available', 'tmux_session_for_project', 'tmux_list_windows']);
+});
