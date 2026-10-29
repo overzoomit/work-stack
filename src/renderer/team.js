@@ -1,6 +1,6 @@
 // Orchestrator for Multi-Agent Teams (PM, Dev1, Dev2..., QA1, QA2...) on tmux.
 import { $, esc, leave, toast } from './ui.js';
-import { openTerminal, terminalsOf, syncProjectTerminals } from './terminals.js';
+import { openTerminal, closeTerminal, focus, terminalsOf, syncProjectTerminals } from './terminals.js';
 import { AGENTS, commandFor } from './launcher.js';
 
 const { work } = window;
@@ -144,10 +144,58 @@ export function focusOrFindPane(project, name) {
   if (!project || !name) return null;
   const existing = terminalsOf(project).find((t) => t.tmuxName === name || t.title === name);
   if (existing) {
+    focus(existing.id);
     existing.term?.focus();
     return existing;
   }
   return null;
+}
+
+// Opens or focuses a specific team role window without opening all windows
+export async function openOrFocusRole(project, roleName) {
+  if (!project || !roleName) return null;
+  const existing = focusOrFindPane(project, roleName);
+  if (existing) return existing;
+
+  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  if (isTmux) {
+    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    if (session) {
+      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const win = windows.find((w) => w.name === roleName);
+      if (win) {
+        return openTerminal(project, {
+          cwd: win.path || project.path,
+          title: win.name,
+          tmuxSession: session,
+          tmuxWindow: win.id,
+          tmuxName: win.name,
+        });
+      }
+    }
+  }
+  return null;
+}
+
+// Terminates a team role window and closes its UI pane
+export async function killTeamRole(project, roleName) {
+  if (!project || !roleName) return;
+  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  if (isTmux) {
+    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    if (session) {
+      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const win = windows.find((w) => w.name === roleName);
+      if (win) {
+        await work.tmux.killWindow(session, win.id).catch(() => {});
+      }
+    }
+  }
+  const pane = terminalsOf(project).find((t) => t.tmuxName === roleName || t.title === roleName);
+  if (pane) {
+    closeTerminal(pane.id);
+  }
+  toast(`Ruolo [${roleName.toUpperCase()}] terminato.`);
 }
 
 // Creates and launches a team window for a specific role and selected agent
@@ -160,18 +208,22 @@ export async function createTeamMember(project, roleName, agent) {
   if (isTmux) {
     const session = await work.tmux.sessionForProject(project.path).catch(() => null);
     if (session) {
+      await work.tmux.ensureSession(session, project.path).catch(() => {});
       const windows = await work.tmux.listWindows(session).catch(() => []);
       const existingWin = windows.find((w) => w.name === roleName);
-      if (!existingWin) {
-        await work.tmux.newWindow(session, roleName, cmd, project.path);
+      if (existingWin) {
+        await work.tmux.killWindow(session, existingWin.id).catch(() => {});
       }
-      const updated = await work.tmux.listWindows(session).catch(() => []);
-      const win = updated.find((w) => w.name === roleName);
+      const existingPane = terminalsOf(project).find((t) => t.tmuxName === roleName || t.title === roleName);
+      if (existingPane) {
+        closeTerminal(existingPane.id);
+      }
+      const newWinId = await work.tmux.newWindow(session, roleName, cmd, project.path);
       const pane = await openTerminal(project, {
         cwd: project.path,
         title: roleName,
         tmuxSession: session,
-        tmuxWindow: win ? win.id : null,
+        tmuxWindow: newWinId || roleName,
         tmuxName: roleName,
       });
       toast(`Avviato [${roleName.toUpperCase()}] con ${agent.name} su tmux.`);
@@ -180,6 +232,10 @@ export async function createTeamMember(project, roleName, agent) {
   }
 
   // Fallback without tmux
+  const existingPane = terminalsOf(project).find((t) => t.tmuxName === roleName || t.title === roleName);
+  if (existingPane) {
+    closeTerminal(existingPane.id);
+  }
   const pane = await openTerminal(project, {
     cwd: project.path,
     title: roleName,
@@ -294,6 +350,10 @@ async function renderPopContent() {
               </div>
               <div class="tp-desc">Senior PM &amp; Architect · Clicca per visualizzare</div>
             </div>
+            <div class="tp-row-actions">
+              <button class="icon-btn tp-act-btn" data-act="reconfig-role" data-role="pm" title="Riconfigura o cambia agente per PM">⚙</button>
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="pm" title="Termina finestra PM">✕</button>
+            </div>
           </div>
         ` : `
           <button class="tp-add-btn pm" data-act="add-pm">
@@ -318,6 +378,9 @@ async function renderPopContent() {
               </div>
               <div class="tp-desc">Developer · Clicca per visualizzare</div>
             </div>
+            <div class="tp-row-actions">
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(devName)}" title="Termina finestra ${esc(devName)}">✕</button>
+            </div>
           </div>
         `).join('')}
         <button class="tp-add-btn dev" data-act="add-dev" data-next="${esc(nextDev)}">
@@ -340,6 +403,9 @@ async function renderPopContent() {
                 <span class="tp-badge-status active">Attivo</span>
               </div>
               <div class="tp-desc">QA Engineer · Clicca per visualizzare</div>
+            </div>
+            <div class="tp-row-actions">
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(qaName)}" title="Termina finestra ${esc(qaName)}">✕</button>
             </div>
           </div>
         `).join('')}
@@ -399,6 +465,26 @@ export async function openTeamMenu() {
       return;
     }
 
+    if (act === 'kill-role') {
+      const role = e.target.closest('[data-role]')?.dataset.role;
+      if (role) {
+        await killTeamRole(p, role);
+        await renderPopContent();
+      }
+      return;
+    }
+
+    if (act === 'reconfig-role') {
+      const role = e.target.closest('[data-role]')?.dataset.role || 'pm';
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: role,
+        targetRoleLabel: `Seleziona quale agente CLI riattivare per ${role.toUpperCase()}:`,
+      };
+      await renderPopContent();
+      return;
+    }
+
     if (act === 'add-pm') {
       const { names } = await getExistingNames(p);
       if (hasPm(names)) {
@@ -451,18 +537,13 @@ export async function openTeamMenu() {
       return;
     }
 
-    // Focus existing role pane
+    // Focus or open existing role pane
     const focusRow = e.target.closest('[data-focus-role]');
-    if (focusRow) {
+    if (focusRow && !e.target.closest('.tp-act-btn')) {
       const roleName = focusRow.dataset.focusRole;
-      const pane = focusOrFindPane(p, roleName);
-      if (pane) {
-        closeTeamMenu();
-      } else {
-        // Re-attach from tmux if needed
-        closeTeamMenu();
-        await syncProjectTerminals(p);
-      }
+      closeTeamMenu();
+      await openOrFocusRole(p, roleName);
+      return;
     }
   });
 

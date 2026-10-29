@@ -176,6 +176,32 @@ pub fn kill_window(session: &str, window_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+// Closes a tmux session.
+pub fn kill_session(session: &str) -> Result<(), String> {
+    run_tmux(&["kill-session", "-t", session])?;
+    Ok(())
+}
+
+// Creates an isolated grouped session linked to base_session and focused on window_id.
+pub fn attach_client_session(
+    base_session: &str,
+    client_session: &str,
+    window_id: &str,
+) -> Result<(), String> {
+    let _ = kill_session(client_session);
+    run_tmux(&[
+        "new-session",
+        "-d",
+        "-t",
+        base_session,
+        "-s",
+        client_session,
+    ])?;
+    let target = format!("{client_session}:{window_id}");
+    let _ = run_tmux(&["select-window", "-t", &target]);
+    Ok(())
+}
+
 // Sends keystrokes to a target window or pane, followed by Enter (C-m).
 pub fn send_keys(session: &str, target: &str, keys: &str) -> Result<(), String> {
     let full_target = format!("{session}:{target}");
@@ -239,6 +265,11 @@ pub fn tmux_kill_window(session: String, window_id: String) -> Result<(), String
 }
 
 #[tauri::command]
+pub fn tmux_kill_session(session: String) -> Result<(), String> {
+    kill_session(&session)
+}
+
+#[tauri::command]
 pub fn tmux_send_keys(session: String, target: String, keys: String) -> Result<(), String> {
     send_keys(&session, &target, &keys)
 }
@@ -257,6 +288,7 @@ pub fn tmux_capture_pane(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_session_name_is_deterministic_and_sanitized() {
@@ -314,5 +346,33 @@ mod tests {
         assert_eq!(parsed[0].name, "shell");
         assert!(!parsed[0].active);
         assert_eq!(parsed[0].path, "");
+    }
+
+    #[test]
+    fn test_tmux_availability_and_session_helpers() {
+        if !is_available() {
+            return;
+        }
+        let test_session = format!(
+            "test_tmux_unit_{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
+        let res = ensure_session(&test_session, &cwd);
+        assert!(res.is_ok());
+        assert!(has_session(&test_session));
+
+        let client = format!("{test_session}_client");
+        let attach_res = attach_client_session(&test_session, &client, "shell");
+        assert!(attach_res.is_ok());
+        assert!(has_session(&client));
+
+        let _ = kill_session(&client);
+        let _ = kill_session(&test_session);
+        assert!(!has_session(&client));
+        assert!(!has_session(&test_session));
     }
 }

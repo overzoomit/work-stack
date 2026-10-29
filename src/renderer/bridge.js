@@ -173,6 +173,7 @@
       listWindows: call('tmux_list_windows', 'session'),
       newWindow: call('tmux_new_window', 'session', 'name', 'cwd', 'command'),
       killWindow: call('tmux_kill_window', 'session', 'windowId'),
+      killSession: call('tmux_kill_session', 'session'),
       sendKeys: call('tmux_send_keys', 'session', 'target', 'keys'),
       capturePane: call('tmux_capture_pane', 'session', 'target', 'lines'),
     },

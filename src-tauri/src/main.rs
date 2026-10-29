@@ -206,6 +206,7 @@ fn main() {
             tmux::tmux_list_windows,
             tmux::tmux_new_window,
             tmux::tmux_kill_window,
+            tmux::tmux_kill_session,
             tmux::tmux_send_keys,
             tmux::tmux_capture_pane,
         ])

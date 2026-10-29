@@ -52,3 +52,30 @@ test('syncProjectTerminals re-attaches existing windows from tmux session withou
   await new Promise((r) => setTimeout(r, 700));
   env.tmuxAvailable = false;
 });
+
+test('ensureInitialTerminal only attaches the primary shell window and avoids exploding squad windows', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_work-stack_123456';
+  env.tmuxWindows = [
+    { id: '@0', name: 'shell', active: true, path: '/home/u/work-stack' },
+    { id: '@1', name: 'pm', active: false, path: '/home/u/work-stack' },
+    { id: '@2', name: 'dev1', active: false, path: '/home/u/work-stack' },
+  ];
+
+  const p = { path: '/home/u/work-stack', focusedId: null, maximizedId: null };
+  T.showProject(p);
+
+  const pane = await T.ensureInitialTerminal(p);
+  assert.ok(pane, 'should return the opened primary pane');
+
+  const panes = T.terminalsOf(p);
+  assert.equal(panes.length, 1, 'only exactly 1 pane is opened');
+  assert.equal(panes[0].title, 'shell');
+  assert.equal(panes[0].tmuxWindow, '@0');
+
+  for (const t of panes) {
+    T.closeTerminal(t.id);
+  }
+  await new Promise((r) => setTimeout(r, 700));
+  env.tmuxAvailable = false;
+});

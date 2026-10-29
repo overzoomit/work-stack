@@ -161,3 +161,34 @@ test('openTeamMenu allows selecting agent for PM and DEV', async () => {
   // Clean up
   env.tmuxAvailable = false;
 });
+
+test('openOrFocusRole and killTeamRole open and kill specific role windows', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_role_test';
+  env.tmuxWindows = [
+    { id: '@10', name: 'pm', active: false, path: '/home/u/role-proj' },
+  ];
+  env.createdWindows = [];
+  env.killedWindows = [];
+
+  const project = { path: '/home/u/role-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+
+  // openOrFocusRole should open only the requested role window
+  const pane = await Team.openOrFocusRole(project, 'pm');
+  assert.ok(pane);
+  assert.equal(pane.title, 'pm');
+  assert.equal(pane.tmuxWindow, '@10');
+
+  const panes = T.terminalsOf(project);
+  assert.equal(panes.length, 1);
+
+  // Now kill role
+  await Team.killTeamRole(project, 'pm');
+  await tick(50);
+
+  const panesAfter = T.terminalsOf(project);
+  assert.equal(panesAfter.length, 0, 'pane was closed');
+
+  env.tmuxAvailable = false;
+});

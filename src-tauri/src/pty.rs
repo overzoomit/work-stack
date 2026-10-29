@@ -51,6 +51,7 @@ struct Session {
     flow: Mutex<Flow>,
     resume: Condvar,
     tmux_target: Option<String>,
+    tmux_client_session: Option<String>,
 }
 
 enum Msg {
@@ -181,6 +182,10 @@ impl PtyManager {
     pub fn create(&self, opts: CreateOpts) -> u32 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         if self.spawn(id, &opts).is_err() {
+            if let Some(session) = &opts.tmux_session {
+                let client_session = format!("{session}_pty_{id}");
+                let _ = crate::tmux::kill_session(&client_session);
+            }
             // The shell could not start (missing, not executable): the terminal
             // ends like a shell that exits with 127. Reported a moment later, so
             // the renderer knows the id before its end arrives.
@@ -202,30 +207,43 @@ impl PtyManager {
             .filter(|d| d.is_dir())
             .unwrap_or_else(home);
 
-        let (mut cmd, tmux_target) = if let Some(session) = &opts.tmux_session {
+        let (mut cmd, tmux_target, tmux_client_session) = if let Some(session) = &opts.tmux_session
+        {
             let _ = crate::tmux::ensure_session(session, &cwd);
             let window_id = if let Some(win) = &opts.tmux_window {
                 win.clone()
             } else {
-                crate::tmux::new_window(
-                    session,
-                    opts.tmux_name.as_deref(),
-                    &cwd,
-                    opts.command.as_deref(),
-                )
-                .unwrap_or_else(|_| "0".into())
+                let existing = crate::tmux::list_windows(session).unwrap_or_default();
+                if opts.command.is_none()
+                    && existing.len() == 1
+                    && existing[0].name == "shell"
+                    && opts.tmux_name.as_deref().unwrap_or("shell") == "shell"
+                {
+                    existing[0].id.clone()
+                } else {
+                    crate::tmux::new_window(
+                        session,
+                        opts.tmux_name.as_deref(),
+                        &cwd,
+                        opts.command.as_deref(),
+                    )
+                    .unwrap_or_else(|_| "0".into())
+                }
             };
             let target = format!("{session}:{window_id}");
+            let client_session = format!("{session}_pty_{id}");
+            let _ = crate::tmux::attach_client_session(session, &client_session, &window_id);
+
             let mut c = CommandBuilder::new("tmux");
-            c.args(["attach-session", "-t", &target]);
-            (c, Some(target))
+            c.args(["attach-session", "-t", &client_session]);
+            (c, Some(target), Some(client_session))
         } else {
             let mut c = CommandBuilder::new(&self.shell);
             match &opts.command {
                 Some(cmd_str) => c.args(["-lc", cmd_str]),
                 None => c.arg("-l"),
             };
-            (c, None)
+            (c, None, None)
         };
 
         cmd.cwd(&cwd);
@@ -266,6 +284,7 @@ impl PtyManager {
             flow: Default::default(),
             resume: Condvar::new(),
             tmux_target,
+            tmux_client_session,
         });
         self.sessions.lock().unwrap().insert(id, session.clone());
 
@@ -301,6 +320,9 @@ impl PtyManager {
         );
         std::thread::spawn(move || {
             let code = pump(id, &session, rx, &on_data).unwrap_or(1);
+            if let Some(client) = &session.tmux_client_session {
+                let _ = crate::tmux::kill_session(client);
+            }
             sessions.lock().unwrap().remove(&id);
             on_exit(id, code);
         });
@@ -340,6 +362,9 @@ impl PtyManager {
         let Some(s) = self.get(id) else { return };
         s.flow.lock().unwrap().killed = true;
         s.resume.notify_all();
+        if let Some(client) = &s.tmux_client_session {
+            let _ = crate::tmux::kill_session(client);
+        }
         unsafe { libc::killpg(s.pid, libc::SIGHUP) }; // the shell leads its own session and process group
     }
 
