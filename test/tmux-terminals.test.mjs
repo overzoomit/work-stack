@@ -11,7 +11,9 @@ test('roleBadgeFor returns proper labels for agent roles', () => {
   assert.deepEqual(T.roleBadgeFor('dev1'), { text: 'DEV1', title: 'Senior Developer #1', role: 'dev1' });
   assert.deepEqual(T.roleBadgeFor('dev2'), { text: 'DEV2', title: 'Senior Developer #2', role: 'dev2' });
   assert.deepEqual(T.roleBadgeFor('qa'), { text: 'QA', title: 'QA Engineer', role: 'qa' });
-  assert.deepEqual(T.roleBadgeFor('dev3'), { text: 'DEV3', title: 'Developer', role: 'dev' });
+  assert.deepEqual(T.roleBadgeFor('dev3'), { text: 'DEV3', title: 'Developer #3', role: 'dev' });
+  assert.deepEqual(T.roleBadgeFor('qa1'), { text: 'QA1', title: 'QA Engineer #1', role: 'qa' });
+  assert.deepEqual(T.roleBadgeFor('qa2'), { text: 'QA2', title: 'QA Engineer #2', role: 'qa' });
   assert.equal(T.roleBadgeFor('bash'), null);
   assert.equal(T.roleBadgeFor(null), null);
 });

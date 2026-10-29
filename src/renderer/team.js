@@ -1,7 +1,7 @@
-// Orchestrator for Multi-Agent Teams (PM, Dev1, Dev2, QA) on tmux.
+// Orchestrator for Multi-Agent Teams (PM, Dev1, Dev2..., QA1, QA2...) on tmux.
 import { $, esc, leave, toast } from './ui.js';
 import { openTerminal, terminalsOf, syncProjectTerminals } from './terminals.js';
-import { AGENTS } from './launcher.js';
+import { AGENTS, commandFor } from './launcher.js';
 
 const { work } = window;
 
@@ -43,6 +43,57 @@ export const TEAM_ROLES = [
 ];
 
 let pop = null;
+let viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
+
+export function hasPm(existingNames = []) {
+  return existingNames.some((n) => String(n).toLowerCase() === 'pm');
+}
+
+export function nextDevName(existingNames = []) {
+  let highest = 0;
+  for (const name of existingNames) {
+    const m = String(name).match(/^dev(\d+)$/i);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (num > highest) highest = num;
+    }
+  }
+  return `dev${highest + 1}`;
+}
+
+export function nextQaName(existingNames = []) {
+  let highest = 0;
+  for (const name of existingNames) {
+    const m = String(name).match(/^qa(\d+)$/i);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (num > highest) highest = num;
+    } else if (String(name).toLowerCase() === 'qa') {
+      if (highest < 1) highest = 1;
+    }
+  }
+  return `qa${highest + 1}`;
+}
+
+export function getDevMembers(existingNames = []) {
+  return existingNames
+    .filter((n) => /^dev(\d+)?$/i.test(n))
+    .sort((a, b) => {
+      const numA = parseInt((a.match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((b.match(/\d+/) || [0])[0], 10);
+      return numA - numB;
+    });
+}
+
+export function getQaMembers(existingNames = []) {
+  return existingNames
+    .filter((n) => /^qa(\d+)?$/i.test(n))
+    .sort((a, b) => {
+      const numA = parseInt((a.match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((b.match(/\d+/) || [0])[0], 10);
+      return numA - numB;
+    });
+}
 
 export function initTeam({ activeProject }) {
   getProject = activeProject;
@@ -61,6 +112,7 @@ export function closeTeamMenu() {
   if (!pop) return;
   const el = pop;
   pop = null;
+  viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
   $('#agent-team')?.classList.remove('open');
   removeEventListener('keydown', onKey, true);
   removeEventListener('pointerdown', onOutside, true);
@@ -76,10 +128,233 @@ function onOutside(e) {
 function onKey(e) {
   if (!pop) return;
   if (e.key === 'Escape') {
-    closeTeamMenu();
+    if (viewState.mode === 'select-agent') {
+      viewState.mode = 'main';
+      renderPopContent();
+    } else {
+      closeTeamMenu();
+    }
     e.preventDefault();
     e.stopPropagation();
   }
+}
+
+// Launches or focuses an existing terminal pane by title/tmuxName
+export function focusOrFindPane(project, name) {
+  if (!project || !name) return null;
+  const existing = terminalsOf(project).find((t) => t.tmuxName === name || t.title === name);
+  if (existing) {
+    existing.term?.focus();
+    return existing;
+  }
+  return null;
+}
+
+// Creates and launches a team window for a specific role and selected agent
+export async function createTeamMember(project, roleName, agent) {
+  if (!project || !roleName || !agent) return null;
+
+  const cmd = commandFor(agent);
+  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+
+  if (isTmux) {
+    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    if (session) {
+      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const existingWin = windows.find((w) => w.name === roleName);
+      if (!existingWin) {
+        await work.tmux.newWindow(session, roleName, cmd, project.path);
+      }
+      const updated = await work.tmux.listWindows(session).catch(() => []);
+      const win = updated.find((w) => w.name === roleName);
+      const pane = await openTerminal(project, {
+        cwd: project.path,
+        title: roleName,
+        tmuxSession: session,
+        tmuxWindow: win ? win.id : null,
+        tmuxName: roleName,
+      });
+      toast(`Avviato [${roleName.toUpperCase()}] con ${agent.name} su tmux.`);
+      return pane;
+    }
+  }
+
+  // Fallback without tmux
+  const pane = await openTerminal(project, {
+    cwd: project.path,
+    title: roleName,
+    command: cmd,
+    tmuxName: roleName,
+  });
+  toast(`Avviato [${roleName.toUpperCase()}] con ${agent.name}.`);
+  return pane;
+}
+
+// Collect all existing window/pane names in project
+async function getExistingNames(project) {
+  const openPanes = terminalsOf(project);
+  const names = new Set();
+  openPanes.forEach((p) => {
+    if (p.tmuxName) names.add(p.tmuxName);
+    if (p.title) names.add(p.title);
+  });
+
+  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  let session = null;
+  let tmuxWindows = [];
+  if (isTmux) {
+    session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    if (session) {
+      tmuxWindows = await work.tmux.listWindows(session).catch(() => []);
+      tmuxWindows.forEach((w) => {
+        if (w.name) names.add(w.name);
+      });
+    }
+  }
+
+  return { isTmux, session, tmuxWindows, openPanes, names: [...names] };
+}
+
+// Renders the popover content based on current viewState
+async function renderPopContent() {
+  if (!pop) return;
+  const p = getProject();
+  if (!p) return;
+
+  if (viewState.mode === 'select-agent') {
+    const { targetRoleName, targetRoleLabel } = viewState;
+    pop.innerHTML = `
+      <header class="tp-head">
+        <div class="tp-title">
+          <div style="display:flex;align-items:center;">
+            <button class="icon-btn tp-back" data-act="back" title="Torna alla squadra">←</button>
+            <span>Attiva <b>${esc(targetRoleName.toUpperCase())}</b></span>
+          </div>
+          <button class="icon-btn" data-act="close" title="Chiudi (Esc)">✕</button>
+        </div>
+        <div class="tp-sub">
+          ${esc(targetRoleLabel || 'Scegli con quale agente attivare questa finestra:')}
+        </div>
+      </header>
+      <div class="tp-select-list">
+        ${AGENTS.map((a) => `
+          <div class="tp-agent-row" data-agent-id="${esc(a.id)}">
+            <span class="ap-tile" style="--t1:${esc(a.tint[0])};--t2:${esc(a.tint[1])}">${esc(a.mono)}</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>${esc(a.name)}</span>
+                <span style="font-size:10.5px;color:var(--text-2);">${esc(a.by)}</span>
+              </div>
+              <div class="tp-desc">${esc(a.desc)}</div>
+              <div class="tp-cmd">${esc(commandFor(a))}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    return;
+  }
+
+  // Main squad view
+  const { isTmux, session, tmuxWindows, openPanes, names } = await getExistingNames(p);
+
+  const pmActive = hasPm(names);
+  const devList = getDevMembers(names);
+  const qaList = getQaMembers(names);
+
+  const nextDev = nextDevName(names);
+  const nextQa = nextQaName(names);
+
+  pop.innerHTML = `
+    <header class="tp-head">
+      <div class="tp-title">
+        <span>👥 Squadra Agenti</span>
+        <button class="icon-btn" data-act="close" title="Chiudi (Esc)">✕</button>
+      </div>
+      <div class="tp-sub">
+        ${isTmux ? `Sessione tmux: <b>${esc(session || 'non attiva')}</b> · ${tmuxWindows.length} finestre` : 'Modalità terminali standard (tmux non disponibile)'}
+      </div>
+    </header>
+
+    <div class="tp-list">
+      <!-- Sezione PM: 1 solo -->
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>👑 Project Manager (PM - 1 solo)</span>
+          <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assegnato' : 'Non configurato'}</span>
+        </div>
+        ${pmActive ? `
+          <div class="tp-row" data-focus-role="pm" title="Clicca per aprire il terminale PM">
+            <span class="tp-status-dot active"></span>
+            <span class="tp-role-badge tp-role-pm">[PM]</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>pm</span>
+                <span class="tp-badge-status active">Attivo</span>
+              </div>
+              <div class="tp-desc">Senior PM &amp; Architect · Clicca per visualizzare</div>
+            </div>
+          </div>
+        ` : `
+          <button class="tp-add-btn pm" data-act="add-pm">
+            ＋ Configura PM (chiede quale agente)
+          </button>
+        `}
+      </div>
+
+      <!-- Sezione Dev: multipli (dev1, dev2...) -->
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>💻 Sviluppatori (${devList.length} attivi)</span>
+        </div>
+        ${devList.map((devName) => `
+          <div class="tp-row" data-focus-role="${esc(devName)}" title="Clicca per aprire il terminale ${esc(devName)}">
+            <span class="tp-status-dot active"></span>
+            <span class="tp-role-badge tp-role-dev">[${esc(devName.toUpperCase())}]</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>${esc(devName)}</span>
+                <span class="tp-badge-status active">Attivo</span>
+              </div>
+              <div class="tp-desc">Developer · Clicca per visualizzare</div>
+            </div>
+          </div>
+        `).join('')}
+        <button class="tp-add-btn dev" data-act="add-dev" data-next="${esc(nextDev)}">
+          ＋ Aggiungi Dev (${esc(nextDev)})
+        </button>
+      </div>
+
+      <!-- Sezione QA: multipli (qa1, qa2...) -->
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>🛡️ Controllo Qualità (${qaList.length} attivi)</span>
+        </div>
+        ${qaList.map((qaName) => `
+          <div class="tp-row" data-focus-role="${esc(qaName)}" title="Clicca per aprire il terminale ${esc(qaName)}">
+            <span class="tp-status-dot active"></span>
+            <span class="tp-role-badge tp-role-qa">[${esc(qaName.toUpperCase())}]</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>${esc(qaName)}</span>
+                <span class="tp-badge-status active">Attivo</span>
+              </div>
+              <div class="tp-desc">QA Engineer · Clicca per visualizzare</div>
+            </div>
+          </div>
+        `).join('')}
+        <button class="tp-add-btn qa" data-act="add-qa" data-next="${esc(nextQa)}">
+          ＋ Aggiungi QA (${esc(nextQa)})
+        </button>
+      </div>
+    </div>
+
+    <div class="tp-actions">
+      <button class="tp-btn-secondary" data-act="sync-team" style="flex:1;">
+        ↻ Sincronizza finestre tmux
+      </button>
+    </div>
+  `;
 }
 
 export async function openTeamMenu() {
@@ -91,65 +366,10 @@ export async function openTeamMenu() {
 
   closeTeamMenu();
 
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
-  const session = isTmux ? await work.tmux.sessionForProject(p.path).catch(() => null) : null;
-  const tmuxWindows = session ? await work.tmux.listWindows(session).catch(() => []) : [];
-  const openPanes = terminalsOf(p);
-
   pop = document.createElement('div');
   pop.className = 'team-pop';
-  pop.innerHTML = `
-    <header class="tp-head">
-      <div class="tp-title">
-        <span>👥 Squadra Agenti Multi-Ruolo</span>
-        <button class="icon-btn" data-act="close" title="Chiudi (Esc)">✕</button>
-      </div>
-      <div class="tp-sub">
-        ${isTmux ? `Sessione tmux: <b>${esc(session || 'non attiva')}</b> · ${tmuxWindows.length} finestre` : 'Modalità terminali standard (tmux non disponibile)'}
-      </div>
-    </header>
-    <div class="tp-actions">
-      <button class="tp-btn-primary" data-act="init-team">
-        🚀 Inizializza Squadra (PM + 2 Dev + QA)
-      </button>
-      <button class="tp-btn-secondary" data-act="sync-team" title="Rileva finestre tmux esistenti">
-        ↻ Sincronizza
-      </button>
-    </div>
-    <div class="tp-list">
-      ${TEAM_ROLES.map((r) => {
-        const isOpen = openPanes.some((pane) => pane.tmuxName === r.name || pane.title === r.name);
-        const inTmux = tmuxWindows.some((w) => w.name === r.name);
-        const active = isOpen || inTmux;
-        return `
-          <div class="tp-row" data-role-id="${esc(r.id)}" data-role-name="${esc(r.name)}" title="${active ? 'Finestra attiva - clicca per aprire' : 'Clicca per avviare questo agente'}">
-            <span class="tp-status-dot${active ? ' active' : ''}"></span>
-            <span class="tp-role-badge tp-role-${esc(r.id)}">[${esc(r.role)}]</span>
-            <div class="tp-info">
-              <div class="tp-name">
-                <span>${esc(r.title)}</span>
-                <span class="tp-badge-status${active ? ' active' : ''}">${active ? 'Attivo' : 'Non avviato'}</span>
-              </div>
-              <div class="tp-desc">${esc(r.agent)}</div>
-              <div class="tp-cmd">${esc(r.command)}</div>
-            </div>
-          </div>
-        `;
-      }).join('')}
-    </div>
-    <div class="tp-agent-picker">
-      <div class="tp-picker-title">＋ Aggiungi Agente al volo:</div>
-      <div class="tp-agent-chips">
-        ${AGENTS.map((a) => `
-          <button class="tp-chip" data-agent-id="${esc(a.id)}" data-agent-bin="${esc(a.bin)}" data-agent-name="${esc(a.name)}" data-agent-cmd="${esc(a.command)}">
-            ${esc(a.name)}
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
   document.body.appendChild(pop);
+
   const btn = $('#agent-team');
   if (btn) {
     const b = btn.getBoundingClientRect();
@@ -159,42 +379,89 @@ export async function openTeamMenu() {
     btn.classList.add('open');
   }
 
+  await renderPopContent();
+
   pop.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'close') {
       closeTeamMenu();
       return;
     }
-    if (act === 'init-team') {
-      closeTeamMenu();
-      await initializeTeam(p);
+    if (act === 'back') {
+      viewState.mode = 'main';
+      await renderPopContent();
       return;
     }
     if (act === 'sync-team') {
-      closeTeamMenu();
       const reattached = await syncProjectTerminals(p);
       toast(reattached.length ? `Ricollegate ${reattached.length} finestre tmux.` : 'Tutte le finestre sono già sincronizzate.');
+      await renderPopContent();
       return;
     }
 
-    const row = e.target.closest('.tp-row');
-    if (row) {
-      const roleName = row.dataset.roleName;
-      const role = TEAM_ROLES.find((r) => r.name === roleName);
-      if (role) {
+    if (act === 'add-pm') {
+      const { names } = await getExistingNames(p);
+      if (hasPm(names)) {
+        toast('Il PM è già presente nella squadra (il PM è uno solo).');
+        return;
+      }
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: 'pm',
+        targetRoleLabel: 'Seleziona quale agente CLI attivare per il ruolo PM:',
+      };
+      await renderPopContent();
+      return;
+    }
+
+    if (act === 'add-dev') {
+      const { names } = await getExistingNames(p);
+      const devName = nextDevName(names);
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: devName,
+        targetRoleLabel: `Seleziona quale agente CLI attivare per lo sviluppatore ${devName.toUpperCase()}:`,
+      };
+      await renderPopContent();
+      return;
+    }
+
+    if (act === 'add-qa') {
+      const { names } = await getExistingNames(p);
+      const qaName = nextQaName(names);
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: qaName,
+        targetRoleLabel: `Seleziona quale agente CLI attivare per il verificatore ${qaName.toUpperCase()}:`,
+      };
+      await renderPopContent();
+      return;
+    }
+
+    // In agent selection mode: clicking an agent row
+    const agentRow = e.target.closest('.tp-agent-row');
+    if (agentRow && viewState.mode === 'select-agent') {
+      const agentId = agentRow.dataset.agentId;
+      const agent = AGENTS.find((a) => a.id === agentId);
+      const target = viewState.targetRoleName;
+      if (agent && target) {
         closeTeamMenu();
-        await launchTeamMember(p, role);
+        await createTeamMember(p, target, agent);
       }
       return;
     }
 
-    const chip = e.target.closest('.tp-chip');
-    if (chip) {
-      const agentId = chip.dataset.agentId;
-      const agent = AGENTS.find((a) => a.id === agentId);
-      if (agent) {
+    // Focus existing role pane
+    const focusRow = e.target.closest('[data-focus-role]');
+    if (focusRow) {
+      const roleName = focusRow.dataset.focusRole;
+      const pane = focusOrFindPane(p, roleName);
+      if (pane) {
         closeTeamMenu();
-        await addAgentWindow(p, agent);
+      } else {
+        // Re-attach from tmux if needed
+        closeTeamMenu();
+        await syncProjectTerminals(p);
       }
     }
   });
@@ -286,33 +553,5 @@ export async function initializeTeam(project) {
 export async function addAgentWindow(project, agent, customName = null) {
   if (!project || !agent) return null;
   const name = customName || agent.id;
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
-
-  if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
-    if (session) {
-      await work.tmux.newWindow(session, name, agent.command, project.path);
-      const windows = await work.tmux.listWindows(session).catch(() => []);
-      const win = windows.find((w) => w.name === name);
-      const pane = await openTerminal(project, {
-        cwd: project.path,
-        title: name,
-        tmuxSession: session,
-        tmuxWindow: win ? win.id : null,
-        tmuxName: name,
-      });
-      toast(`Aggiunto agente ${agent.name} alla sessione tmux.`);
-      return pane;
-    }
-  }
-
-  // Fallback
-  const pane = await openTerminal(project, {
-    cwd: project.path,
-    title: name,
-    command: agent.command,
-    tmuxName: name,
-  });
-  toast(`Avviato agente ${agent.name}.`);
-  return pane;
+  return createTeamMember(project, name, agent);
 }

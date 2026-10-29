@@ -1,0 +1,7 @@
+[
+  {
+    "title": "FE: Selezione interattiva agente per PM unico, Dev incrementali (dev1, dev2...) e QA multipli (qa1, qa2...)",
+    "description_html": "<h3>Obiettivo</h3><p>Consentire all'utente di selezionare interattivamente quale agente CLI attivare per il PM (singolo) e aggiungere dinamicamente sviluppatori con numerazione incrementale automatica (dev1, dev2, dev3...) e verificatori di qualità (qa1, qa2, qa3...), ciascuno con richiesta di scelta dell'agente.</p><h3>Criteri di Accettazione</h3><ul><li>Il PM è unico (finestra 'pm'): all'apertura/configurazione richiede con quale agente CLI attivarlo tra quelli configurati (Claude, Antigravity, Codex, Gemini, OpenCode, Ollama, ecc.).</li><li>Gli sviluppatori (Dev) sono multipli e denominati progressivamente: 'dev1' per il primo, 'dev2' per il secondo, 'dev3' e così via, con popup/selettore per scegliere l'agente ad ogni aggiunta.</li><li>I controllori di qualità (QA) sono anch'essi multipli e denominati progressivamente ('qa1', 'qa2', 'qa3'...), con richiesta dell'agente prescelto.</li><li>Badge di ruolo dinamici nei terminali per tutti i dev ('[DEV1]', '[DEV2]'...) e qa ('[QA1]', '[QA2]'...).</li><li>Interfaccia grafica aggiornata nel popover Squadra Agenti con sezioni distinte e pulsanti dedicati: '+ Configura PM', '+ Aggiungi Dev', '+ Aggiungi QA'.</li><li>Test automatici Node aggiornati per la corretta numerazione incrementale e selezione degli agenti.</li></ul>",
+    "priority": "high"
+  }
+]

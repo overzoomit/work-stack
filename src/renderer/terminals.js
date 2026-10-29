@@ -171,7 +171,16 @@ export function roleBadgeFor(name) {
   if (n === 'dev1') return { text: 'DEV1', title: 'Senior Developer #1', role: 'dev1' };
   if (n === 'dev2') return { text: 'DEV2', title: 'Senior Developer #2', role: 'dev2' };
   if (n === 'qa') return { text: 'QA', title: 'QA Engineer', role: 'qa' };
-  if (n.startsWith('dev')) return { text: name.toUpperCase(), title: 'Developer', role: 'dev' };
+  const devMatch = n.match(/^dev(\d+)?$/);
+  if (devMatch) {
+    const num = devMatch[1] || '';
+    return { text: num ? `DEV${num}` : 'DEV', title: num ? `Developer #${num}` : 'Developer', role: 'dev' };
+  }
+  const qaMatch = n.match(/^qa(\d+)?$/);
+  if (qaMatch) {
+    const num = qaMatch[1] || '';
+    return { text: num ? `QA${num}` : 'QA', title: num ? `QA Engineer #${num}` : 'QA Engineer', role: 'qa' };
+  }
   return null;
 }
 

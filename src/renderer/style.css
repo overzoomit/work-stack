@@ -1070,6 +1070,39 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
   color: var(--text); border: 1px solid rgba(255, 255, 255, .08); cursor: pointer; transition: all 120ms ease;
 }
 .tp-chip:hover { background: rgba(255, 255, 255, .15); border-color: rgba(255, 255, 255, .2); }
+
+/* Sections for PM, Dev, QA in Team popover */
+.tp-section { margin-bottom: 10px; }
+.tp-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); padding: 4px 8px 4px;
+}
+.tp-add-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 6px 10px; margin-top: 4px; border-radius: 8px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer; border: 1px dashed rgba(255, 255, 255, .15);
+  background: rgba(255, 255, 255, .03); color: var(--text-2); transition: all 120ms ease;
+}
+.tp-add-btn:hover {
+  background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .25); color: var(--text);
+}
+.tp-add-btn.pm { border-color: rgba(168, 85, 247, .3); color: #c084fc; background: rgba(168, 85, 247, .05); }
+.tp-add-btn.pm:hover { background: rgba(168, 85, 247, .12); border-color: rgba(168, 85, 247, .5); }
+.tp-add-btn.dev { border-color: rgba(14, 165, 233, .3); color: #38bdf8; background: rgba(14, 165, 233, .05); }
+.tp-add-btn.dev:hover { background: rgba(14, 165, 233, .12); border-color: rgba(14, 165, 233, .5); }
+.tp-add-btn.qa { border-color: rgba(16, 185, 129, .3); color: #34d399; background: rgba(16, 185, 129, .05); }
+.tp-add-btn.qa:hover { background: rgba(16, 185, 129, .12); border-color: rgba(16, 185, 129, .5); }
+
+/* Agent selector subview */
+.tp-select-list { max-height: 420px; overflow-y: auto; padding: 4px 8px 8px; }
+.tp-agent-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+  cursor: pointer; transition: background 120ms ease;
+}
+.tp-agent-row:hover { background: rgba(255, 255, 255, .08); }
+.tp-back { font-size: 14px; margin-right: 6px; padding: 2px 6px; border-radius: 6px; }
+.tp-back:hover { background: rgba(255, 255, 255, .1); }
 @media (prefers-reduced-motion: reduce) {
   .team-pop, .team-pop.closing { animation: fade-in 120ms linear; }
   .team-pop.closing { opacity: 0; }

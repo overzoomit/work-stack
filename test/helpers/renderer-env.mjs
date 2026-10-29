@@ -53,6 +53,18 @@ export class El {
   setSelectionRange(a, b) { this.selection = [a, b]; }
   scrollIntoView() {}
   contains() { return false; }
+  closest(s) {
+    let cur = this;
+    while (cur) {
+      if (s.startsWith('.') && cur.classList?.contains(s.slice(1))) return cur;
+      if (s.startsWith('[data-') && s.endsWith(']')) {
+        const key = s.slice(6, -1);
+        if (cur.dataset && cur.dataset[key] !== undefined) return cur;
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
 }
 
 const nodes = new Map();
