@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 const FLUSH_MS: u64 = 8;
 const FLUSH_SIZE: usize = 16 * 1024; // larger chunks make xterm block the UI longer per write
-// Counted in UTF-16 units, like the string lengths the renderer acknowledges.
+                                     // Counted in UTF-16 units, like the string lengths the renderer acknowledges.
 const HIGH_WATER: usize = 1024 * 1024;
 const LOW_WATER: usize = 256 * 1024;
 // After the shell exits, output still in flight is collected until the pty is
@@ -23,12 +23,15 @@ const DRAIN_MS: u64 = 30;
 pub type OnData = Arc<dyn Fn(u32, String) + Send + Sync>;
 pub type OnExit = Arc<dyn Fn(u32, i32) + Send + Sync>;
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub struct CreateOpts {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
     pub command: Option<String>,
+    pub tmux_session: Option<String>,
+    pub tmux_window: Option<String>,
+    pub tmux_name: Option<String>,
 }
 
 #[derive(Default)]
@@ -47,6 +50,7 @@ struct Session {
     cwd: PathBuf,
     flow: Mutex<Flow>,
     resume: Condvar,
+    tmux_target: Option<String>,
 }
 
 enum Msg {
@@ -74,12 +78,19 @@ pub fn shell_env(vars: impl Iterator<Item = (String, String)>) -> Vec<(String, S
         return vars;
     }
     vars.into_iter()
-        .filter(|(k, _)| !k.to_ascii_lowercase().starts_with("npm_") && !["INIT_CWD", "NODE", "COLOR", "EDITOR"].contains(&k.as_str()))
+        .filter(|(k, _)| {
+            !k.to_ascii_lowercase().starts_with("npm_")
+                && !["INIT_CWD", "NODE", "COLOR", "EDITOR"].contains(&k.as_str())
+        })
         .map(|(k, v)| {
             if k != "PATH" {
                 return (k, v);
             }
-            let path = v.split(':').filter(|d| !d.ends_with("/node_modules/.bin") && !d.ends_with("node-gyp-bin")).collect::<Vec<_>>().join(":");
+            let path = v
+                .split(':')
+                .filter(|d| !d.ends_with("/node_modules/.bin") && !d.ends_with("node-gyp-bin"))
+                .collect::<Vec<_>>()
+                .join(":");
             (k, path)
         })
         .collect()
@@ -135,21 +146,36 @@ pub fn user_shell() -> String {
     }
     let pw = unsafe { libc::getpwuid(libc::getuid()) };
     if !pw.is_null() {
-        let sh = unsafe { std::ffi::CStr::from_ptr((*pw).pw_shell) }.to_string_lossy().into_owned();
+        let sh = unsafe { std::ffi::CStr::from_ptr((*pw).pw_shell) }
+            .to_string_lossy()
+            .into_owned();
         if !sh.is_empty() {
             return sh;
         }
     }
-    if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.into()
+    if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/bash"
+    }
+    .into()
 }
 
 fn home() -> PathBuf {
-    std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| "/".into())
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| "/".into())
 }
 
 impl PtyManager {
     pub fn new(on_data: OnData, on_exit: OnExit) -> Self {
-        Self { shell: user_shell(), sessions: Default::default(), next_id: AtomicU32::new(1), on_data, on_exit }
+        Self {
+            shell: user_shell(),
+            sessions: Default::default(),
+            next_id: AtomicU32::new(1),
+            on_data,
+            on_exit,
+        }
     }
 
     pub fn create(&self, opts: CreateOpts) -> u32 {
@@ -168,13 +194,40 @@ impl PtyManager {
     }
 
     fn spawn(&self, id: u32, opts: &CreateOpts) -> Result<(), Box<dyn std::error::Error>> {
-        let mut cmd = CommandBuilder::new(&self.shell);
-        match &opts.command {
-            Some(c) => cmd.args(["-lc", c]),
-            None => cmd.arg("-l"),
-        }
         // A folder deleted since (a removed worktree…) would make the spawn fail: open in home.
-        let cwd = opts.cwd.as_deref().map(PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(home);
+        let cwd = opts
+            .cwd
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|d| d.is_dir())
+            .unwrap_or_else(home);
+
+        let (mut cmd, tmux_target) = if let Some(session) = &opts.tmux_session {
+            let _ = crate::tmux::ensure_session(session, &cwd);
+            let window_id = if let Some(win) = &opts.tmux_window {
+                win.clone()
+            } else {
+                crate::tmux::new_window(
+                    session,
+                    opts.tmux_name.as_deref(),
+                    &cwd,
+                    opts.command.as_deref(),
+                )
+                .unwrap_or_else(|_| "0".into())
+            };
+            let target = format!("{session}:{window_id}");
+            let mut c = CommandBuilder::new("tmux");
+            c.args(["attach-session", "-t", &target]);
+            (c, Some(target))
+        } else {
+            let mut c = CommandBuilder::new(&self.shell);
+            match &opts.command {
+                Some(cmd_str) => c.args(["-lc", cmd_str]),
+                None => c.arg("-l"),
+            };
+            (c, None)
+        };
+
         cmd.cwd(&cwd);
         cmd.env_clear();
         for (k, v) in shell_env(std::env::vars()) {
@@ -184,7 +237,12 @@ impl PtyManager {
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "Work");
 
-        let pair = native_pty_system().openpty(PtySize { rows: opts.rows, cols: opts.cols, pixel_width: 0, pixel_height: 0 })?;
+        let pair = native_pty_system().openpty(PtySize {
+            rows: opts.rows,
+            cols: opts.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave); // only the shell holds the terminal: its end closes it
         let pid = child.process_id().ok_or("no pid")? as i32;
@@ -207,6 +265,7 @@ impl PtyManager {
             cwd,
             flow: Default::default(),
             resume: Condvar::new(),
+            tmux_target,
         });
         self.sessions.lock().unwrap().insert(id, session.clone());
 
@@ -227,11 +286,19 @@ impl PtyManager {
         std::thread::spawn(move || {
             let _child = child; // reaped here, with waitpid, to read the raw status
             let mut status = 0;
-            let code = if unsafe { libc::waitpid(pid, &mut status, 0) } == pid { exit_code(status) } else { 1 };
+            let code = if unsafe { libc::waitpid(pid, &mut status, 0) } == pid {
+                exit_code(status)
+            } else {
+                1
+            };
             let _ = tx.send(Msg::Exit(code));
         });
 
-        let (sessions, on_data, on_exit) = (self.sessions.clone(), self.on_data.clone(), self.on_exit.clone());
+        let (sessions, on_data, on_exit) = (
+            self.sessions.clone(),
+            self.on_data.clone(),
+            self.on_exit.clone(),
+        );
         std::thread::spawn(move || {
             let code = pump(id, &session, rx, &on_data).unwrap_or(1);
             sessions.lock().unwrap().remove(&id);
@@ -258,7 +325,12 @@ impl PtyManager {
 
     pub fn resize(&self, id: u32, cols: u16, rows: u16) {
         if let Some(s) = self.get(id) {
-            let _ = s.master.lock().unwrap().resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+            let _ = s.master.lock().unwrap().resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
         }
     }
 
@@ -279,7 +351,26 @@ impl PtyManager {
     // Current working directory of the shell; the session's start folder if it can't be read.
     pub fn cwd(&self, id: u32) -> Option<String> {
         let s = self.get(id)?;
-        Some(process_cwd(s.pid).unwrap_or_else(|| s.cwd.clone()).to_string_lossy().into_owned())
+        if let Some(target) = &s.tmux_target {
+            if let Ok(out) = crate::tmux::run_tmux(&[
+                "display-message",
+                "-p",
+                "-t",
+                target,
+                "#{pane_current_path}",
+            ]) {
+                let trimmed = out.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+        Some(
+            process_cwd(s.pid)
+                .unwrap_or_else(|| s.cwd.clone())
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 
     #[cfg(test)]
@@ -352,7 +443,8 @@ pub struct PtyState {
 
 impl PtyState {
     pub fn new() -> Self {
-        let channel: Arc<Mutex<Option<tauri::ipc::Channel<serde_json::Value>>>> = Default::default();
+        let channel: Arc<Mutex<Option<tauri::ipc::Channel<serde_json::Value>>>> =
+            Default::default();
         let (data, exit) = (channel.clone(), channel.clone());
         let send = |slot: &Mutex<Option<tauri::ipc::Channel<serde_json::Value>>>, msg| {
             if let Some(c) = slot.lock().unwrap().as_ref() {
@@ -412,7 +504,15 @@ fn process_cwd(pid: i32) -> Option<PathBuf> {
     use std::ffi::CStr;
     let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
-    let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDVNODEPATHINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+    let n = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        )
+    };
     if n != size {
         return None;
     }
@@ -447,7 +547,13 @@ mod tests {
     }
 
     fn opts(command: &str) -> CreateOpts {
-        CreateOpts { cwd: Some("/tmp".into()), cols: 80, rows: 24, command: Some(command.into()) }
+        CreateOpts {
+            cwd: Some("/tmp".into()),
+            cols: 80,
+            rows: 24,
+            command: Some(command.into()),
+            ..Default::default()
+        }
     }
 
     // Output and exit code of a command, acknowledging everything it prints.
@@ -464,7 +570,10 @@ mod tests {
         m.create(opts(command));
         let mut out = String::new();
         loop {
-            match rx.recv_timeout(Duration::from_secs(10)).expect("the command ends") {
+            match rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the command ends")
+            {
                 Ev::Data(id, s) => {
                     m.ack(id, s.encode_utf16().count());
                     out += &s;
@@ -498,20 +607,33 @@ mod tests {
     #[test]
     fn exit_code_is_reported() {
         assert_eq!(run("exit 3").1, 3);
-        assert_eq!(run("kill -TERM $$").1, 128 + 15, "killed by a signal: shell convention");
+        assert_eq!(
+            run("kill -TERM $$").1,
+            128 + 15,
+            "killed by a signal: shell convention"
+        );
     }
 
     #[test]
     fn terminal_has_the_requested_size_and_is_an_xterm() {
         assert_eq!(run("stty size").0.trim(), "24 80");
-        assert_eq!(run("echo \"$TERM $COLORTERM\"").0.trim(), "xterm-256color truecolor");
+        assert_eq!(
+            run("echo \"$TERM $COLORTERM\"").0.trim(),
+            "xterm-256color truecolor"
+        );
     }
 
     #[test]
     fn cwd_reads_the_shell_folder() {
         let (m, _rx) = manager();
         let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
-        let id = m.create(CreateOpts { cwd: Some(dir.to_string_lossy().into()), cols: 80, rows: 24, command: None });
+        let id = m.create(CreateOpts {
+            cwd: Some(dir.to_string_lossy().into()),
+            cols: 80,
+            rows: 24,
+            command: None,
+            ..Default::default()
+        });
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(m.cwd(id).map(PathBuf::from), Some(dir));
         m.kill_all();
@@ -540,7 +662,9 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 Ev::Data(_, s) => received += s.len(),
-                Ev::Exit(..) => panic!("~14 MB in total: it must stop a little past the 1 MB high-water mark"),
+                Ev::Exit(..) => {
+                    panic!("~14 MB in total: it must stop a little past the 1 MB high-water mark")
+                }
             }
         }
         assert!(received < 2 * 1024 * 1024, "ricevuti {received}");
@@ -566,7 +690,10 @@ mod tests {
         m.kill(id);
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("the session ends") {
+            match rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("the session ends")
+            {
                 Ev::Exit(..) => break,
                 Ev::Data(..) => {}
             }
@@ -613,7 +740,13 @@ mod tests {
     #[test]
     fn a_folder_that_no_longer_exists_opens_in_home_regression() {
         let (m, rx) = manager();
-        m.create(CreateOpts { cwd: Some("/cartella/che/non/esiste".into()), cols: 80, rows: 24, command: Some("pwd".into()) });
+        m.create(CreateOpts {
+            cwd: Some("/cartella/che/non/esiste".into()),
+            cols: 80,
+            rows: 24,
+            command: Some("pwd".into()),
+            ..Default::default()
+        });
         let mut out = String::new();
         let code = loop {
             match rx.recv_timeout(Duration::from_secs(10)).unwrap() {
@@ -622,7 +755,10 @@ mod tests {
             }
         };
         assert_eq!(code, 0);
-        assert_eq!(PathBuf::from(out.trim()), std::fs::canonicalize(home()).unwrap());
+        assert_eq!(
+            PathBuf::from(out.trim()),
+            std::fs::canonicalize(home()).unwrap()
+        );
     }
 
     #[test]
@@ -670,9 +806,29 @@ mod tests {
         let started = Instant::now();
         let (out, code) = run_in(Some("/bin/bash"), "set -m; sleep 6 & echo avviato; exit 4");
         let elapsed = started.elapsed();
-        let _ = std::process::Command::new("pkill").args(["-f", "^sleep 6$"]).status();
-        assert!(out.contains("avviato"), "output written before the exit is not lost");
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", "^sleep 6$"])
+            .status();
+        assert!(
+            out.contains("avviato"),
+            "output written before the exit is not lost"
+        );
         assert_eq!(code, 4);
-        assert!(elapsed < Duration::from_secs(3), "exit reported after {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "exit reported after {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn test_create_opts_deserialization_with_tmux() {
+        let json = r#"{"cols": 80, "rows": 24, "cwd": "/tmp", "tmux_session": "work_test", "tmux_window": "@1", "tmux_name": "pm"}"#;
+        let opts: CreateOpts = serde_json::from_str(json).unwrap();
+        assert_eq!(opts.cols, 80);
+        assert_eq!(opts.rows, 24);
+        assert_eq!(opts.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(opts.tmux_session.as_deref(), Some("work_test"));
+        assert_eq!(opts.tmux_window.as_deref(), Some("@1"));
+        assert_eq!(opts.tmux_name.as_deref(), Some("pm"));
     }
 }
