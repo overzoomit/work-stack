@@ -130,8 +130,10 @@ fn main() {
                     let _ = handle.emit("agents:update", [list]);
                 },
             );
-            agents.start();
             app.manage(agents);
+            // The first scan reads every transcript ever saved: not before the window.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || handle.state::<agents::AgentWatcher>().start());
             app::create_window(app.handle())?;
             Ok(())
         })

@@ -85,6 +85,28 @@ test('la lista mostra solo le sessioni del progetto attivo e ne riassume gli sta
   assert.equal(agentStateFor('/home/u/app2'), 'working', 'not a prefix match');
 });
 
+test('le sessioni più vecchie di 24 ore restano in lista, dalla più recente', async () => {
+  const day = 24 * 3600 * 1000;
+  push([
+    agent('n1', '/home/u/app', 'idle'),
+    agent('o2', '/home/u/app', 'idle', { mtime: Date.now() - 2 * day }),
+    agent('o3', '/home/u/app/api', 'idle', { mtime: Date.now() - 30 * day }),
+  ]);
+  assert.deepEqual(list.querySelectorAll('li[data-id]').map((r) => r.dataset.id), ['n1', 'o2', 'o3']);
+  assert.equal($('#agent-count').textContent, 3);
+});
+
+test('una sessione in un git worktree collegato appartiene al progetto principale', async () => {
+  push([
+    agent('w1', '/home/u/app-feature/src', 'working', { repo: '/home/u/app' }),
+    agent('w2', '/home/u/app2-feature', 'working', { repo: '/home/u/app2' }),
+  ]);
+  assert.deepEqual(list.querySelectorAll('li[data-id]').map((r) => r.dataset.id), ['w1']);
+  assert.equal(agentStateFor('/home/u/app'), 'working');
+  assert.equal(agentStateFor('/home/u/app2'), 'working');
+  assert.equal(agentStateFor('/home/u/app-feature'), 'working', 'the worktree folder opened as a project lists it too');
+});
+
 test('senza progetto attivo la lista è vuota e i contatori a zero', async () => {
   active = null;
   push([agent('a1', '/home/u/altro', 'blocked'), agent('c3', '/home/u/app', 'working')]);

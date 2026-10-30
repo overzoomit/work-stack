@@ -8,6 +8,8 @@ let selected = null;
 let hooks = {}; // { activeProject(), resume(agent), shellAt(cwd), openRepo(cwd), changed() }
 
 export const inside = (cwd, path) => !!cwd && (cwd === path || cwd.startsWith(`${path}/`));
+// repo: the main checkout when the session ran in a linked git worktree.
+const ofProject = (a, path) => inside(a.cwd, path) || inside(a.repo, path);
 
 export function initAgents(opts) {
   hooks = opts;
@@ -26,7 +28,7 @@ function setAgents(list) {
 // Most urgent state among the agents working inside a folder.
 export function agentStateFor(path) {
   const order = ['blocked', 'waiting', 'working'];
-  const states = agents.filter((a) => inside(a.cwd, path)).map((a) => a.status.state);
+  const states = agents.filter((a) => ofProject(a, path)).map((a) => a.status.state);
   return order.find((s) => states.includes(s)) || null;
 }
 
@@ -58,7 +60,7 @@ function toggle(id) {
 
 export function renderAgentList() {
   const project = hooks.activeProject();
-  const mine = project ? agents.filter((a) => inside(a.cwd, project.path)) : [];
+  const mine = project ? agents.filter((a) => ofProject(a, project.path)) : [];
   const list = $('#agent-list');
   $('#agent-count').textContent = mine.length;
   $('#agent-empty').hidden = mine.length > 0;

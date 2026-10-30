@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const WINDOW_MS: f64 = 24.0 * 3600.0 * 1000.0; // sessions touched in the last 24h
 const TAIL_BYTES: u64 = 256 * 1024;
 const MAX_EVENTS: usize = 60;
 
@@ -38,6 +37,21 @@ pub fn is_session_file(name: &str) -> bool {
 
 fn now_ms() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
+
+// The main checkout of the linked git worktree a folder is in, so that its
+// sessions belong to the project; None outside a linked worktree.
+fn main_worktree(cwd: &Path) -> Option<String> {
+    let top = cwd.ancestors().find(|d| d.join(".git").exists())?;
+    let (git_dir, common_dir) = crate::gitwatch::git_dirs(top)?;
+    if git_dir == common_dir {
+        return None;
+    }
+    let common_dir = fs::canonicalize(common_dir).ok()?;
+    if common_dir.file_name()? != ".git" {
+        return None;
+    }
+    Some(common_dir.parent()?.to_string_lossy().into_owned())
 }
 
 fn mtime_ms(m: &fs::Metadata) -> f64 {
@@ -225,6 +239,7 @@ pub struct Session {
     events: Vec<Event>,
     event_seq: u64, // grows with every event, even once the list is capped
     cwd: Option<String>,
+    repo: Option<String>,
     title: Option<String>,
     agent_name: Option<String>,
     ai_title: Option<String>,
@@ -247,6 +262,7 @@ impl Session {
             events: Vec::new(),
             event_seq: 0,
             cwd: None,
+            repo: None,
             title: None,
             agent_name: None,
             ai_title: None,
@@ -341,7 +357,8 @@ impl Session {
     }
 
     fn ingest(&mut self, e: &Value) {
-        if let Some(cwd) = text(e, "cwd") {
+        if let Some(cwd) = text(e, "cwd").filter(|c| self.cwd.as_deref() != Some(*c)) {
+            self.repo = main_worktree(Path::new(cwd));
             self.cwd = Some(cwd.into());
         }
         // "permission-mode" entries (and user messages) carry the session's mode.
@@ -461,6 +478,7 @@ impl Session {
         json!({
             "id": self.id,
             "cwd": self.cwd,
+            "repo": self.repo,
             "project": project,
             "title": self.agent_name.as_ref().or(self.ai_title.as_ref()).or(self.title.as_ref()).map_or("Sessione", String::as_str),
             "mtime": num(self.mtime),
@@ -495,9 +513,8 @@ struct Shared {
 impl Shared {
     fn list(&self) -> Vec<Value> {
         let open = claudeprocs::tracked(&self.sessions_dir).then(|| claudeprocs::live(&self.sessions_dir));
-        let cutoff = now_ms() - WINDOW_MS;
         let st = self.state.lock().unwrap();
-        let mut list: Vec<&Session> = st.sessions.values().filter(|s| !s.events.is_empty() && s.mtime >= cutoff).collect();
+        let mut list: Vec<&Session> = st.sessions.values().filter(|s| !s.events.is_empty()).collect();
         // The path breaks ties so the order doesn't flicker between updates.
         list.sort_by(|a, b| b.mtime.total_cmp(&a.mtime).then_with(|| a.file.cmp(&b.file)));
         list.iter().map(|s| s.to_json(open.as_ref().map(|o| o.contains_key(&s.id)))).collect()
@@ -536,11 +553,10 @@ impl Shared {
         }
     }
 
-    // Sessions untouched for longer than the window are dropped, so the map
-    // (and the list sent to the UI) doesn't grow while the app stays open.
+    // Old sessions stay (the whole history is listed); only those whose
+    // transcript is gone are dropped, in case the delete event was missed.
     fn prune(&self) {
-        let cutoff = now_ms() - WINDOW_MS;
-        self.state.lock().unwrap().sessions.retain(|_, s| s.mtime == 0.0 || s.mtime >= cutoff);
+        self.state.lock().unwrap().sessions.retain(|file, _| file.exists());
     }
 }
 
@@ -637,8 +653,7 @@ impl Worker {
 
     fn scan(&mut self) {
         self.root = real(&self.shared.projects);
-        let now = now_ms();
-        let (mut dirs, mut sessions, mut recent, mut unreadable) = (0, 0, 0, 0);
+        let (mut dirs, mut sessions, mut unreadable) = (0, 0, 0);
         let failed_before = self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed);
         for d in fs::read_dir(&self.root).into_iter().flatten().flatten() {
             let Ok(files) = fs::read_dir(d.path()) else { continue };
@@ -648,21 +663,13 @@ impl Worker {
                     continue;
                 }
                 sessions += 1;
-                let file = f.path();
-                match fs::metadata(&file) {
-                    Ok(m) if now - mtime_ms(&m) <= WINDOW_MS => {
-                        recent += 1;
-                        self.shared.read_file(&file);
-                    }
-                    Ok(_) => {}
-                    Err(_) => unreadable += 1,
-                }
+                self.shared.read_file(&f.path());
             }
         }
         unreadable += self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed) - failed_before;
         // The first scan always, the ones every 60 s only with WORK_DEBUG.
         let level = if self.started { Level::Debug } else { Level::Info };
-        log(level, "agents", format!("scansione: {dirs} cartelle progetto, {sessions} sessioni ({recent} recenti), {unreadable} illeggibili"));
+        log(level, "agents", format!("scansione: {dirs} cartelle progetto, {sessions} sessioni, {unreadable} illeggibili"));
         self.watch_dirs();
     }
 
@@ -1034,24 +1041,48 @@ mod tests {
     }
 
     #[test]
-    fn sessions_older_than_24_hours_leave_the_list_regression() {
+    fn sessions_older_than_24_hours_are_listed_most_recent_first() {
         let root = tempfile::tempdir().unwrap();
-        let other = "22222222-2222-2222-2222-222222222222";
-        project(root.path(), "-proj-b", other, &user("recente"));
+        let (old, recent) = ("22222222-2222-2222-2222-222222222222", "33333333-3333-3333-3333-333333333333");
+        let file = project(root.path(), "-proj-b", old, &user("di un mese fa"));
+        let month_ago = SystemTime::now() - Duration::from_secs(30 * 24 * 3600);
+        File::options().write(true).open(&file).unwrap().set_modified(month_ago).unwrap();
+        project(root.path(), "-proj-b", recent, &user("di oggi"));
         let w = watcher(root.path());
-        set_mtime(&w, other, ago(25.0 * 3600.0 * 1000.0));
-        assert!(!ids(&w.list()).contains(&other));
+        assert_eq!(ids(&w.list()), [recent, old], "the first scan reads old transcripts too");
     }
 
     #[test]
-    fn sessions_older_than_24_hours_are_dropped_from_memory_regression() {
+    fn prune_keeps_old_sessions_and_drops_those_whose_file_is_gone() {
         let root = tempfile::tempdir().unwrap();
-        let other = "33333333-3333-3333-3333-333333333333";
-        project(root.path(), "-proj-c", other, &user("recente"));
+        let (old, gone) = ("33333333-3333-3333-3333-333333333333", "55555555-5555-5555-5555-555555555555");
+        project(root.path(), "-proj-c", old, &user("vecchia"));
+        let file = project(root.path(), "-proj-c", gone, &user("cancellata"));
         let w = watcher(root.path());
-        set_mtime(&w, other, ago(25.0 * 3600.0 * 1000.0));
+        w.stop(); // no delete event: only prune can notice
+        set_mtime(&w, old, ago(25.0 * 3600.0 * 1000.0));
+        fs::remove_file(file).unwrap();
         w.shared.prune();
-        assert!(!w.shared.state.lock().unwrap().sessions.values().any(|s| s.id == other));
+        assert_eq!(ids(&w.list()), [old]);
+    }
+
+    #[test]
+    fn a_session_in_a_linked_git_worktree_names_its_main_checkout() {
+        let d = tempfile::tempdir().unwrap();
+        let main = d.path().join("main");
+        let wt = d.path().join("main-feature");
+        fs::create_dir_all(main.join(".git/worktrees/wt")).unwrap();
+        fs::create_dir_all(wt.join("src")).unwrap();
+        fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
+        fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+        let main = fs::canonicalize(main).unwrap().to_string_lossy().into_owned();
+        assert_eq!(main_worktree(&wt.join("src")).as_deref(), Some(main.as_str()), "from a subfolder too");
+        assert_eq!(main_worktree(Path::new(&main)), None, "the main checkout is not a linked worktree");
+        assert_eq!(main_worktree(d.path()), None, "outside git");
+
+        let (_t, mut s) = transcript(&[line(json!({ "type": "user", "cwd": wt.to_string_lossy(), "message": { "role": "user", "content": "ciao" } }))]);
+        s.read().unwrap();
+        assert_eq!(s.to_json(None)["repo"], main.as_str());
     }
 
     #[test]
@@ -1324,7 +1355,7 @@ mod tests {
         s.read().unwrap();
         let v = s.to_json(None);
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["id", "cwd", "project", "title", "mtime", "tokens", "status", "live", "eventSeq"]);
+        assert_eq!(keys, ["id", "cwd", "repo", "project", "title", "mtime", "tokens", "status", "live", "eventSeq"]);
         assert_eq!(v["project"], "proj");
         assert_eq!(serde_json::to_value(&s.events[0]).unwrap(), json!({ "ts": 1790683200000i64, "kind": "user", "text": "ciao" }));
         assert_eq!(serde_json::to_value(&s.events[1]).unwrap(), json!({ "ts": 1790683200000i64, "kind": "tool", "text": "ls", "tool": "Bash" }));

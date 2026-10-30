@@ -20,7 +20,7 @@ fn ignored(name: &str) -> bool {
 // A repository's own git folder and the one holding shared refs. In a linked
 // worktree `.git` is a file ("gitdir: <main>/.git/worktrees/<name>"): HEAD and
 // index live there, branches in the main repository (see its "commondir").
-fn git_dirs(repo: &Path) -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn git_dirs(repo: &Path) -> Option<(PathBuf, PathBuf)> {
     let dot_git = repo.join(".git");
     if fs::metadata(&dot_git).ok()?.is_dir() {
         return Some((dot_git.clone(), dot_git));
