@@ -52,8 +52,7 @@ test('"cerca di nuovo gli agenti" non riapre il menu se nel frattempo è stato c
   const L = await import('../src/renderer/launcher.js');
   const p = { path: '/p', name: 'p', focusedId: null, maximizedId: null };
   L.initLauncher({ activeProject: () => p });
-  const button = document.querySelector('#new-agent');
-  const press = () => button.onpointerdown({ button: 0, stopPropagation() {} });
+  const press = () => L.toggleMenu();
   press(); // open
   await new Promise((r) => setTimeout(r, 10));
   const pops = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing'));
@@ -74,7 +73,7 @@ test('il flag bypass accanto al nome decide come parte ogni agente: Claude acces
   const p = { path: '/p', name: 'p', focusedId: null, maximizedId: null };
   T.showProject(p);
   L.initLauncher({ activeProject: () => p });
-  const press = () => document.querySelector('#new-agent').onpointerdown({ button: 0, stopPropagation() {} });
+  const press = () => L.toggleMenu();
   const menu = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing')).at(-1);
   const open = async () => {
     env.agentsReply = Promise.resolve(['claude', 'codex', 'opencode']);
@@ -254,7 +253,7 @@ test('menu agenti: ↓ e Invio avviano l\'agente evidenziato; "Installa" scrive 
   const menu = () => document.body.children.filter((c) => c.className === 'agent-pop' && !c.classList.contains('closing')).at(-1);
   const open = async () => {
     env.agentsReply = Promise.resolve(['claude', 'opencode']);
-    document.querySelector('#new-agent').onpointerdown({ button: 0, stopPropagation() {} });
+    L.toggleMenu();
     await tick();
   };
 

@@ -95,6 +95,23 @@ export function getQaMembers(existingNames = []) {
     });
 }
 
+// Generic members: agent1, agent2…; a window named "generico" counts too.
+const GENERIC = /^(agent(\d+)|generico)$/i;
+
+export function nextAgentName(existingNames = []) {
+  const nums = existingNames.map((n) => Number(String(n).match(GENERIC)?.[2] || 0));
+  return `agent${Math.max(0, ...nums) + 1}`;
+}
+
+export function getAgentMembers(existingNames = []) {
+  const num = (n) => Number(n.match(GENERIC)[2] || 0);
+  return existingNames.filter((n) => GENERIC.test(n)).sort((a, b) => num(a) - num(b));
+}
+
+// Alias names used by the ticket: generic = ad-hoc agent outside the fixed roles.
+export const nextGenericName = nextAgentName;
+export const getGenericMembers = getAgentMembers;
+
 export function initTeam({ activeProject }) {
   getProject = activeProject;
   const btn = $('#agent-team');
@@ -317,9 +334,11 @@ async function renderPopContent() {
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
   const qaList = getQaMembers(names);
+  const agentList = getAgentMembers(names);
 
   const nextDev = nextDevName(names);
   const nextQa = nextQaName(names);
+  const nextAgent = nextAgentName(names);
 
   pop.innerHTML = `
     <header class="tp-head">
@@ -413,6 +432,32 @@ async function renderPopContent() {
           ＋ Aggiungi QA (${esc(nextQa)})
         </button>
       </div>
+
+      <!-- Sezione Generico: membri ad-hoc (agent1, agent2...) con agente CLI a scelta -->
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>🤖 Generico (${agentList.length} attivi)</span>
+        </div>
+        ${agentList.map((agentName) => `
+          <div class="tp-row" data-focus-role="${esc(agentName)}" title="Clicca per aprire il terminale ${esc(agentName)}">
+            <span class="tp-status-dot active"></span>
+            <span class="tp-role-badge tp-role-generic">[${esc(agentName.toUpperCase())}]</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>${esc(agentName)}</span>
+                <span class="tp-badge-status active">Attivo</span>
+              </div>
+              <div class="tp-desc">Agente generico · Clicca per visualizzare</div>
+            </div>
+            <div class="tp-row-actions">
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(agentName)}" title="Termina finestra ${esc(agentName)}">✕</button>
+            </div>
+          </div>
+        `).join('')}
+        <button class="tp-add-btn generic" data-act="add-generic" data-next="${esc(nextAgent)}">
+          ＋ Aggiungi Generico (${esc(nextAgent)})
+        </button>
+      </div>
     </div>
 
     <div class="tp-actions">
@@ -431,6 +476,8 @@ export async function openTeamMenu() {
   }
 
   closeTeamMenu();
+  // A previous interaction may have left the agent-selection view behind.
+  viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
 
   pop = document.createElement('div');
   pop.className = 'team-pop';
@@ -519,6 +566,18 @@ export async function openTeamMenu() {
         mode: 'select-agent',
         targetRoleName: qaName,
         targetRoleLabel: `Seleziona quale agente CLI attivare per il verificatore ${qaName.toUpperCase()}:`,
+      };
+      await renderPopContent();
+      return;
+    }
+
+    if (act === 'add-generic') {
+      const { names } = await getExistingNames(p);
+      const agentName = nextAgentName(names);
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: agentName,
+        targetRoleLabel: `Seleziona quale agente CLI attivare per il membro generico ${agentName.toUpperCase()}:`,
       };
       await renderPopContent();
       return;

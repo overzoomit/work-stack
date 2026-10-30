@@ -1,4 +1,4 @@
-// "✦ Agente" menu: launch any installed agent CLI in the active project.
+// Agent menu: launch any installed agent CLI in the active project.
 import { $, esc, leave } from './ui.js';
 import { openTerminal, sendInput } from './terminals.js';
 
@@ -96,12 +96,11 @@ function refreshInstalled() {
 export function initLauncher({ activeProject }) {
   getProject = activeProject;
   refreshInstalled();
-  $('#new-agent').onpointerdown = (e) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    if (pop) closePop();
-    else openMenu();
-  };
+}
+
+export function toggleMenu() {
+  if (pop) closePop();
+  else openMenu();
 }
 
 export function launch(agent, project = getProject(), extra = {}) {
@@ -142,19 +141,20 @@ export function resumeClaude(project, cwd, sessionId, title) {
 // ── Popover ──────────────────────────────────────────────────
 let pop = null;
 let hi = 0; // highlighted row (shared by pointer and keyboard)
+// The topbar button the menu grows out of (the agent button is gone: the squad one).
+const anchor = () => $('#agent-team');
 
 function closePop() {
   if (!pop) return;
   const el = pop;
   pop = null;
-  $('#new-agent').classList.remove('open');
   removeEventListener('keydown', onKey, true);
   removeEventListener('pointerdown', onOutside, true);
   leave(el, () => el.remove());
 }
 
 function onOutside(e) {
-  if (pop && !pop.contains(e.target) && !$('#new-agent').contains(e.target)) closePop();
+  if (pop && !pop.contains(e.target)) closePop();
 }
 
 function rows() {
@@ -273,11 +273,12 @@ async function openMenu() {
   document.body.appendChild(pop);
 
   // Anchor under the trigger, right-aligned; grow out of the button.
-  const b = $('#new-agent').getBoundingClientRect();
-  pop.style.top = `${b.bottom + 8}px`;
-  pop.style.right = `${Math.max(8, innerWidth - b.right)}px`;
-  pop.style.transformOrigin = `calc(100% - ${b.width / 2}px) -8px`;
-  $('#new-agent').classList.add('open');
+  const b = anchor()?.getBoundingClientRect();
+  if (b) {
+    pop.style.top = `${b.bottom + 8}px`;
+    pop.style.right = `${Math.max(8, innerWidth - b.right)}px`;
+    pop.style.transformOrigin = `calc(100% - ${b.width / 2}px) -8px`;
+  }
 
   pop.addEventListener('click', (e) => {
     const r = e.target.closest('.ap-row');

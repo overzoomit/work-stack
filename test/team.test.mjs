@@ -124,7 +124,7 @@ test('openTeamMenu mounts the popover and closes with closeTeamMenu', async () =
   Team.initTeam({ activeProject: () => project });
 
   await Team.openTeamMenu();
-  const pop = document.body.children.find((c) => c.className?.includes('team-pop'));
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
   assert.ok(pop, 'popover mounted in DOM');
 
   Team.closeTeamMenu();
@@ -143,7 +143,7 @@ test('openTeamMenu allows selecting agent for PM and DEV', async () => {
   Team.initTeam({ activeProject: () => project });
 
   await Team.openTeamMenu();
-  const pop = document.body.children.find((c) => c.className?.includes('team-pop'));
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
   assert.ok(pop);
 
   // Click "+ Configura PM"
@@ -214,6 +214,61 @@ test('launchTeamMember creates a missing role window with cwd before the command
   assert.equal(pane.tmuxWindow, '@0');
 
   T.closeTerminal(pane.id);
+  await tick(50);
+  env.tmuxAvailable = false;
+});
+
+test('nextAgentName increments generic members and ignores the fixed roles', () => {
+  assert.equal(Team.nextAgentName([]), 'agent1');
+  assert.equal(Team.nextAgentName(['pm', 'dev1', 'qa1']), 'agent1');
+  assert.equal(Team.nextAgentName(['agent1']), 'agent2');
+  assert.equal(Team.nextAgentName(['agent1', 'agent3']), 'agent4');
+  assert.equal(Team.nextAgentName(['generico']), 'agent1');
+  assert.equal(Team.nextGenericName, Team.nextAgentName, 'alias usato dal ticket');
+});
+
+test('getAgentMembers lists only generic members, in numeric order', () => {
+  assert.deepEqual(Team.getAgentMembers([]), []);
+  assert.deepEqual(Team.getAgentMembers(['pm', 'dev1', 'qa1']), []);
+  assert.deepEqual(Team.getAgentMembers(['agent2', 'pm', 'agent1', 'dev1']), ['agent1', 'agent2']);
+  assert.deepEqual(Team.getAgentMembers(['generico', 'agent2']), ['generico', 'agent2']);
+  assert.equal(Team.getGenericMembers, Team.getAgentMembers, 'alias usato dal ticket');
+});
+
+test('la sezione Generico elenca i membri e avvia l\'agente scelto come agentN', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_generic_test';
+  env.tmuxWindows = [{ id: '@7', name: 'agent1', active: false, path: '/home/u/generic-proj' }];
+  env.createdWindows = [];
+
+  const project = { path: '/home/u/generic-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  Team.initTeam({ activeProject: () => project });
+
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  assert.ok(pop);
+  assert.match(pop.innerHTML, /Generico \(1 attivi\)/);
+  assert.match(pop.innerHTML, /AGENT1/, 'badge del membro generico esistente');
+  assert.match(pop.innerHTML, /data-act="kill-role" data-role="agent1"/, 'pulsante per terminarlo');
+  assert.match(pop.innerHTML, /Aggiungi Generico \(agent2\)/);
+
+  // "＋ Aggiungi Generico" apre la scelta dell'agente CLI.
+  await pop.listeners.click[0]({
+    target: { closest: (sel) => (sel === '[data-act]' ? { dataset: { act: 'add-generic' } } : null) },
+  });
+  assert.match(pop.innerHTML, /membro generico AGENT2/);
+  assert.match(pop.innerHTML, /data-agent-id="claude"/, 'la vista di selezione usa AGENTS');
+
+  // Scegliendo Claude il membro generico parte con il comando dell'agente.
+  await pop.listeners.click[0]({
+    target: { closest: (sel) => (sel === '.tp-agent-row' ? { dataset: { agentId: 'claude' } } : null) },
+  });
+  assert.equal(env.createdWindows.at(-1).name, 'agent2');
+  assert.equal(env.createdWindows.at(-1).cwd, '/home/u/generic-proj');
+  assert.ok(env.createdWindows.at(-1).command.includes('claude'));
+
+  for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
   await tick(50);
   env.tmuxAvailable = false;
 });
