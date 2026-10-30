@@ -66,36 +66,36 @@ export function openAppearance(button) {
   pop.className = 'term-pop';
   pop.innerHTML = `
     <header class="ap-head">
-      <div class="ap-title">Aspetto del terminale</div>
-      <div class="ap-sub">Vale per tutti i terminali · passa sopra un tema per provarlo</div>
+      <div class="ap-title">Terminal appearance</div>
+      <div class="ap-sub">Applies to all terminals · hover a theme to preview it</div>
     </header>
     <div class="tp-grid">${THEMES.map(swatch).join('')}</div>
     <div class="tp-rows">
       <div class="tp-row">
-        <span class="tp-label">Dimensione testo</span>
+        <span class="tp-label">Text size</span>
         <div class="tp-stepper">
-          <button data-size="-1" title="Più piccolo (Ctrl −)">−</button>
+          <button data-size="-1" title="Smaller (Ctrl −)">−</button>
           <span class="tp-size-value"></span>
-          <button data-size="1" title="Più grande (Ctrl +)">+</button>
+          <button data-size="1" title="Larger (Ctrl +)">+</button>
         </div>
       </div>
       <div class="tp-row">
-        <span class="tp-label">Cursore</span>
+        <span class="tp-label">Cursor</span>
         <div class="segmented">
-          <button data-cursor="bar"><i class="cur bar"></i>Barra</button>
-          <button data-cursor="block"><i class="cur block"></i>Blocco</button>
-          <button data-cursor="underline"><i class="cur underline"></i>Linea</button>
+          <button data-cursor="bar"><i class="cur bar"></i>Bar</button>
+          <button data-cursor="block"><i class="cur block"></i>Block</button>
+          <button data-cursor="underline"><i class="cur underline"></i>Underline</button>
         </div>
       </div>
       <div class="tp-row">
-        <span class="tp-label">Cursore lampeggiante</span>
+        <span class="tp-label">Blinking cursor</span>
         <button class="tp-blink switch" role="switch" aria-checked="true"><i></i></button>
       </div>
     </div>
     <footer class="ap-foot">
-      <span><kbd>Ctrl</kbd><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> dimensione</span>
+      <span><kbd>Ctrl</kbd><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> size</span>
       <div class="spacer"></div>
-      <button class="link tp-reset">Ripristina</button>
+      <button class="link tp-reset">Reset</button>
     </footer>`;
   document.body.appendChild(pop);
 

@@ -54,7 +54,7 @@ test('nel modo Testo conta solo la risposta all\'ultima ricerca', async () => {
   input.value = 'DATABASE';
   input.oninput();
   await new Promise((r) => setTimeout(r, 150));
-  assert.equal(foot.textContent, 'Cerco…');
+  assert.equal(foot.textContent, 'Searching…');
 
   pending.DATABASE(answer('db.js', 'DATABASE_URL'));
   await new Promise((r) => setTimeout(r, 0));
@@ -63,7 +63,7 @@ test('nel modo Testo conta solo la risposta all\'ultima ricerca', async () => {
   assert.match(results.innerHTML, /db\.js/);
   assert.doesNotMatch(results.innerHTML, /vecchio\.js/, 'the late answer to "DATA" is dropped');
   assert.match(results.innerHTML, /<b>DATABASE<\/b>_URL/);
-  assert.equal(foot.textContent, '1 risultato in 1 file');
+  assert.equal(foot.textContent, '1 result in 1 file');
   closeSearch();
 });
 
@@ -87,7 +87,7 @@ test('a campo vuoto il modo File mostra gli ultimi 8 file aperti dalla palette, 
   openSearch(project);
   await new Promise((r) => setTimeout(r, 0));
   const list = document.body.children.filter((c) => c.className === 'search').at(-1).querySelector('.search-list').innerHTML;
-  assert.match(list, /Aperti di recente/);
+  assert.match(list, /Recently opened/);
   assert.ok(list.indexOf('f3') < list.indexOf('f9'));
   closeSearch();
 

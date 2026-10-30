@@ -110,7 +110,7 @@ export function initTerminals({ homeDir, changed, openAppearance, activity, menu
     const t = all.get(id);
     if (!t) return;
     t.exited = true;
-    t.term.write(`\r\n\x1b[90m── processo terminato${code ? ` (codice ${code})` : ''} ──\x1b[0m\r\n`);
+    t.term.write(`\r\n\x1b[90m── process exited${code ? ` (code ${code})` : ''} ──\x1b[0m\r\n`);
     paintHead(t);
     t.onExit?.(code);
   });
@@ -182,7 +182,7 @@ export function roleBadgeFor(name) {
     return { text: num ? `QA${num}` : 'QA', title: num ? `QA Engineer #${num}` : 'QA Engineer', role: 'qa' };
   }
   const agentMatch = n.match(/^agent(\d+)$/);
-  if (agentMatch) return { text: `AGENT${agentMatch[1]}`, title: `Agente generico #${agentMatch[1]}`, role: 'agent' };
+  if (agentMatch) return { text: `AGENT${agentMatch[1]}`, title: `Generic agent #${agentMatch[1]}`, role: 'agent' };
   return null;
 }
 
@@ -199,9 +199,9 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
       ${effectiveBadge ? `<span class="pane-badge${effectiveBadge.role ? ' role-' + effectiveBadge.role : ''}" data-role="${effectiveBadge.role || ''}" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
-      <button class="icon-btn pane-aa" data-act="look" title="Aspetto del terminale">Aa</button>
-      <button class="icon-btn" data-act="max" title="Ingrandisci (Ctrl+Shift+M)">⤢</button>
-      <button class="icon-btn" data-act="close" title="Chiudi (Ctrl+Shift+W)">✕</button>
+      <button class="icon-btn pane-aa" data-act="look" title="Terminal appearance">Aa</button>
+      <button class="icon-btn" data-act="max" title="Maximize (Ctrl+Shift+M)">⤢</button>
+      <button class="icon-btn" data-act="close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
     <div class="pane-body"></div>`;
   (container || $('#terminals')).appendChild(el);
@@ -225,7 +225,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   term.open(el.querySelector('.pane-body'));
 
   const t = {
-    id: null, project, term, fit, el, kind, title: title || `Terminale ${++counter}`, cwd: cwd || project.path, exited: false, onOutput, onExit,
+    id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || project.path, exited: false, onOutput, onExit,
     tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
   };
   el._t = t;

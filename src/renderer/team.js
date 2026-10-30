@@ -212,7 +212,7 @@ export async function killTeamRole(project, roleName) {
   if (pane) {
     closeTerminal(pane.id);
   }
-  toast(`Ruolo [${roleName.toUpperCase()}] terminato.`);
+  toast(`Role [${roleName.toUpperCase()}] terminated.`);
 }
 
 // Creates and launches a team window for a specific role and selected agent
@@ -243,7 +243,7 @@ export async function createTeamMember(project, roleName, agent) {
         tmuxWindow: newWinId || roleName,
         tmuxName: roleName,
       });
-      toast(`Avviato [${roleName.toUpperCase()}] con ${agent.name} su tmux.`);
+      toast(`Started [${roleName.toUpperCase()}] with ${agent.name} on tmux.`);
       return pane;
     }
   }
@@ -259,7 +259,7 @@ export async function createTeamMember(project, roleName, agent) {
     command: cmd,
     tmuxName: roleName,
   });
-  toast(`Avviato [${roleName.toUpperCase()}] con ${agent.name}.`);
+  toast(`Started [${roleName.toUpperCase()}] with ${agent.name}.`);
   return pane;
 }
 
@@ -300,13 +300,13 @@ async function renderPopContent() {
       <header class="tp-head">
         <div class="tp-title">
           <div style="display:flex;align-items:center;">
-            <button class="icon-btn tp-back" data-act="back" title="Torna alla squadra">←</button>
-            <span>Attiva <b>${esc(targetRoleName.toUpperCase())}</b></span>
+            <button class="icon-btn tp-back" data-act="back" title="Back to team">←</button>
+            <span>Activate <b>${esc(targetRoleName.toUpperCase())}</b></span>
           </div>
-          <button class="icon-btn" data-act="close" title="Chiudi (Esc)">✕</button>
+          <button class="icon-btn" data-act="close" title="Close (Esc)">✕</button>
         </div>
         <div class="tp-sub">
-          ${esc(targetRoleLabel || 'Scegli con quale agente attivare questa finestra:')}
+          ${esc(targetRoleLabel || 'Choose which CLI agent to activate:')}
         </div>
       </header>
       <div class="tp-select-list">
@@ -343,126 +343,126 @@ async function renderPopContent() {
   pop.innerHTML = `
     <header class="tp-head">
       <div class="tp-title">
-        <span>👥 Squadra Agenti</span>
-        <button class="icon-btn" data-act="close" title="Chiudi (Esc)">✕</button>
+        <span>👥 Agent Team</span>
+        <button class="icon-btn" data-act="close" title="Close (Esc)">✕</button>
       </div>
       <div class="tp-sub">
-        ${isTmux ? `Sessione tmux: <b>${esc(session || 'non attiva')}</b> · ${tmuxWindows.length} finestre` : 'Modalità terminali standard (tmux non disponibile)'}
+        ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows` : 'Standard terminal mode (tmux not available)'}
       </div>
     </header>
 
     <div class="tp-list">
-      <!-- Sezione PM: 1 solo -->
+      <!-- PM section: only one -->
       <div class="tp-section">
         <div class="tp-section-head">
-          <span>👑 Project Manager (PM - 1 solo)</span>
-          <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assegnato' : 'Non configurato'}</span>
+          <span>👑 Project Manager (PM - 1 only)</span>
+          <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assigned' : 'Not configured'}</span>
         </div>
         ${pmActive ? `
-          <div class="tp-row" data-focus-role="pm" title="Clicca per aprire il terminale PM">
+          <div class="tp-row" data-focus-role="pm" title="Click to open the PM terminal">
             <span class="tp-status-dot active"></span>
             <span class="tp-role-badge tp-role-pm">[PM]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>pm</span>
-                <span class="tp-badge-status active">Attivo</span>
+                <span class="tp-badge-status active">Active</span>
               </div>
-              <div class="tp-desc">Senior PM &amp; Architect · Clicca per visualizzare</div>
+              <div class="tp-desc">Senior PM &amp; Architect · Click to view</div>
             </div>
             <div class="tp-row-actions">
-              <button class="icon-btn tp-act-btn" data-act="reconfig-role" data-role="pm" title="Riconfigura o cambia agente per PM">⚙</button>
-              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="pm" title="Termina finestra PM">✕</button>
+              <button class="icon-btn tp-act-btn" data-act="reconfig-role" data-role="pm" title="Reconfigure or change agent for PM">⚙</button>
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="pm" title="Terminate PM window">✕</button>
             </div>
           </div>
         ` : `
           <button class="tp-add-btn pm" data-act="add-pm">
-            ＋ Configura PM (chiede quale agente)
+            ＋ Add PM (choose agent)
           </button>
         `}
       </div>
 
-      <!-- Sezione Dev: multipli (dev1, dev2...) -->
+      <!-- Dev section: multiple (dev1, dev2...) -->
       <div class="tp-section">
         <div class="tp-section-head">
-          <span>💻 Sviluppatori (${devList.length} attivi)</span>
+          <span>💻 Developers (${devList.length} active)</span>
         </div>
         ${devList.map((devName) => `
-          <div class="tp-row" data-focus-role="${esc(devName)}" title="Clicca per aprire il terminale ${esc(devName)}">
+          <div class="tp-row" data-focus-role="${esc(devName)}" title="Click to open the ${esc(devName)} terminal">
             <span class="tp-status-dot active"></span>
             <span class="tp-role-badge tp-role-dev">[${esc(devName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(devName)}</span>
-                <span class="tp-badge-status active">Attivo</span>
+                <span class="tp-badge-status active">Active</span>
               </div>
-              <div class="tp-desc">Developer · Clicca per visualizzare</div>
+              <div class="tp-desc">Developer · Click to view</div>
             </div>
             <div class="tp-row-actions">
-              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(devName)}" title="Termina finestra ${esc(devName)}">✕</button>
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(devName)}" title="Terminate window ${esc(devName)}">✕</button>
             </div>
           </div>
         `).join('')}
         <button class="tp-add-btn dev" data-act="add-dev" data-next="${esc(nextDev)}">
-          ＋ Aggiungi Dev (${esc(nextDev)})
+          ＋ Add Dev (${esc(nextDev)})
         </button>
       </div>
 
-      <!-- Sezione QA: multipli (qa1, qa2...) -->
+      <!-- QA section: multiple (qa1, qa2...) -->
       <div class="tp-section">
         <div class="tp-section-head">
-          <span>🛡️ Controllo Qualità (${qaList.length} attivi)</span>
+          <span>🛡️ Quality Assurance (${qaList.length} active)</span>
         </div>
         ${qaList.map((qaName) => `
-          <div class="tp-row" data-focus-role="${esc(qaName)}" title="Clicca per aprire il terminale ${esc(qaName)}">
+          <div class="tp-row" data-focus-role="${esc(qaName)}" title="Click to open the ${esc(qaName)} terminal">
             <span class="tp-status-dot active"></span>
             <span class="tp-role-badge tp-role-qa">[${esc(qaName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(qaName)}</span>
-                <span class="tp-badge-status active">Attivo</span>
+                <span class="tp-badge-status active">Active</span>
               </div>
-              <div class="tp-desc">QA Engineer · Clicca per visualizzare</div>
+              <div class="tp-desc">QA Engineer · Click to view</div>
             </div>
             <div class="tp-row-actions">
-              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(qaName)}" title="Termina finestra ${esc(qaName)}">✕</button>
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(qaName)}" title="Terminate window ${esc(qaName)}">✕</button>
             </div>
           </div>
         `).join('')}
         <button class="tp-add-btn qa" data-act="add-qa" data-next="${esc(nextQa)}">
-          ＋ Aggiungi QA (${esc(nextQa)})
+          ＋ Add QA (${esc(nextQa)})
         </button>
       </div>
 
-      <!-- Sezione Generico: membri ad-hoc (agent1, agent2...) con agente CLI a scelta -->
+      <!-- Generic section: ad-hoc members (agent1, agent2...) with a CLI agent of choice -->
       <div class="tp-section">
         <div class="tp-section-head">
-          <span>🤖 Generico (${agentList.length} attivi)</span>
+          <span>🤖 Generic (${agentList.length} active)</span>
         </div>
         ${agentList.map((agentName) => `
-          <div class="tp-row" data-focus-role="${esc(agentName)}" title="Clicca per aprire il terminale ${esc(agentName)}">
+          <div class="tp-row" data-focus-role="${esc(agentName)}" title="Click to open the ${esc(agentName)} terminal">
             <span class="tp-status-dot active"></span>
             <span class="tp-role-badge tp-role-generic">[${esc(agentName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(agentName)}</span>
-                <span class="tp-badge-status active">Attivo</span>
+                <span class="tp-badge-status active">Active</span>
               </div>
-              <div class="tp-desc">Agente generico · Clicca per visualizzare</div>
+              <div class="tp-desc">Generic agent · Click to view</div>
             </div>
             <div class="tp-row-actions">
-              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(agentName)}" title="Termina finestra ${esc(agentName)}">✕</button>
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(agentName)}" title="Terminate window ${esc(agentName)}">✕</button>
             </div>
           </div>
         `).join('')}
         <button class="tp-add-btn generic" data-act="add-generic" data-next="${esc(nextAgent)}">
-          ＋ Aggiungi Generico (${esc(nextAgent)})
+          ＋ Add Generic (${esc(nextAgent)})
         </button>
       </div>
     </div>
 
     <div class="tp-actions">
       <button class="tp-btn-secondary" data-act="sync-team" style="flex:1;">
-        ↻ Sincronizza finestre tmux
+        ↻ Sync tmux windows
       </button>
     </div>
   `;
@@ -471,7 +471,7 @@ async function renderPopContent() {
 export async function openTeamMenu() {
   const p = getProject();
   if (!p) {
-    toast('Apri prima un progetto per gestire la squadra agenti.');
+    toast('Open a project first to manage the agent team.');
     return;
   }
 
@@ -507,7 +507,7 @@ export async function openTeamMenu() {
     }
     if (act === 'sync-team') {
       const reattached = await syncProjectTerminals(p);
-      toast(reattached.length ? `Ricollegate ${reattached.length} finestre tmux.` : 'Tutte le finestre sono già sincronizzate.');
+      toast(reattached.length ? `Reattached ${reattached.length} tmux windows.` : 'All windows are already in sync.');
       await renderPopContent();
       return;
     }
@@ -526,7 +526,7 @@ export async function openTeamMenu() {
       viewState = {
         mode: 'select-agent',
         targetRoleName: role,
-        targetRoleLabel: `Seleziona quale agente CLI riattivare per ${role.toUpperCase()}:`,
+        targetRoleLabel: `Choose which CLI agent to reactivate for ${role.toUpperCase()}:`,
       };
       await renderPopContent();
       return;
@@ -535,13 +535,13 @@ export async function openTeamMenu() {
     if (act === 'add-pm') {
       const { names } = await getExistingNames(p);
       if (hasPm(names)) {
-        toast('Il PM è già presente nella squadra (il PM è uno solo).');
+        toast('The team already has a PM (only one PM allowed).');
         return;
       }
       viewState = {
         mode: 'select-agent',
         targetRoleName: 'pm',
-        targetRoleLabel: 'Seleziona quale agente CLI attivare per il ruolo PM:',
+        targetRoleLabel: 'Choose which CLI agent to activate for the PM role:',
       };
       await renderPopContent();
       return;
@@ -553,7 +553,7 @@ export async function openTeamMenu() {
       viewState = {
         mode: 'select-agent',
         targetRoleName: devName,
-        targetRoleLabel: `Seleziona quale agente CLI attivare per lo sviluppatore ${devName.toUpperCase()}:`,
+        targetRoleLabel: `Choose which CLI agent to activate for developer ${devName.toUpperCase()}:`,
       };
       await renderPopContent();
       return;
@@ -565,7 +565,7 @@ export async function openTeamMenu() {
       viewState = {
         mode: 'select-agent',
         targetRoleName: qaName,
-        targetRoleLabel: `Seleziona quale agente CLI attivare per il verificatore ${qaName.toUpperCase()}:`,
+        targetRoleLabel: `Choose which CLI agent to activate for QA ${qaName.toUpperCase()}:`,
       };
       await renderPopContent();
       return;
@@ -577,7 +577,7 @@ export async function openTeamMenu() {
       viewState = {
         mode: 'select-agent',
         targetRoleName: agentName,
-        targetRoleLabel: `Seleziona quale agente CLI attivare per il membro generico ${agentName.toUpperCase()}:`,
+        targetRoleLabel: `Choose which CLI agent to activate for generic member ${agentName.toUpperCase()}:`,
       };
       await renderPopContent();
       return;
@@ -675,7 +675,7 @@ export async function initializeTeam(project) {
       }
       const reattached = await syncProjectTerminals(project);
       panes.push(...reattached);
-      toast(`Squadra Agenti inizializzata su tmux (${TEAM_ROLES.length} ruoli).`);
+      toast(`Agent team initialized on tmux (${TEAM_ROLES.length} roles).`);
       return panes;
     }
   }
@@ -685,7 +685,7 @@ export async function initializeTeam(project) {
     const p = await launchTeamMember(project, role);
     if (p) panes.push(p);
   }
-  toast(`Squadra Agenti avviata (${panes.length} terminali).`);
+  toast(`Agent team started (${panes.length} terminals).`);
   return panes;
 }
 

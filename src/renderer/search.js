@@ -1,7 +1,7 @@
 // Search palette, two modes. File: the active project's files by name (fuzzy,
 // in the page, no backend call per key); the file list comes from fs_files at
 // every opening, the previous list of the same project shows meanwhile.
-// Testo: the text in the files (fs_grep), 120 ms after the last key.
+// Text: the text in the files (fs_grep), 120 ms after the last key.
 import { $, esc, leave } from './ui.js';
 import { previewFile } from './preview.js';
 
@@ -92,7 +92,7 @@ function textAt(text, query) {
 
 const lists = new Map(); // project path -> { files, truncated } of the last opening
 // The open palette: { project, mode, el, input, list, foot, rows, sel, back, error, grep }.
-// In Testo `rows` are the hits of `grep`, the last answer, kept on screen while
+// In Text `rows` are the hits of `grep`, the last answer, kept on screen while
 // the next one is `searching`.
 let s = null;
 let grepSeq = 0; // answers to an older query are dropped
@@ -115,7 +115,7 @@ function groupHead(g) {
   return `<li class="sr-group${g.ignored ? ' ignored' : ''}" role="presentation">
     <span class="ico file" data-ext="${esc(extOf(nameOf(g.path)))}"></span>
     <span class="sr-name">${esc(nameOf(g.path))}</span><span class="sr-dir">${esc(dirOf(g.path))}</span>
-    ${g.ignored ? '<span class="sr-tag">ignorato</span>' : ''}<span class="sr-count">${g.hits.length}</span>
+    ${g.ignored ? '<span class="sr-tag">ignored</span>' : ''}<span class="sr-count">${g.hits.length}</span>
   </li>`;
 }
 
@@ -126,12 +126,12 @@ function renderText() {
   s.sel = Math.min(s.sel, Math.max(0, s.rows.length - 1));
   let i = 0;
   if (s.error) s.list.innerHTML = `<li class="sr-empty">${esc(s.error)}</li>`;
-  else if (query && r && !s.rows.length) s.list.innerHTML = `<li class="sr-empty">Nessun risultato per “${esc(query)}”.</li>`;
+  else if (query && r && !s.rows.length) s.list.innerHTML = `<li class="sr-empty">No results for “${esc(query)}”.</li>`;
   else s.list.innerHTML = (r?.groups || []).map((g) => groupHead(g) + g.hits.map((h) => hitRow(h, i++, query)).join('')).join('');
-  s.foot.textContent = !query ? 'Scrivi il testo da cercare'
-    : s.searching || !r ? 'Cerco…'
-      : r.truncated ? 'Più di 2000 risultati: restringi la ricerca'
-        : `${s.rows.length} ${s.rows.length === 1 ? 'risultato' : 'risultati'} in ${r.groups.length} file`;
+  s.foot.textContent = !query ? 'Type the text to search for'
+    : s.searching || !r ? 'Searching…'
+      : r.truncated ? 'More than 2000 results: narrow the search'
+        : `${s.rows.length} ${s.rows.length === 1 ? 'result' : 'results'} in ${r.groups.length} ${r.groups.length === 1 ? 'file' : 'files'}`;
 }
 
 // One request per pause in typing; only the answer to the latest one counts.
@@ -173,14 +173,14 @@ function row(f, i) {
     <span class="ico file" data-ext="${esc(ext)}"></span>
     <span class="sr-name">${highlight(name, pos.filter((p) => p >= nameAt), nameAt)}</span>
     <span class="sr-dir">${highlight(dir, pos.filter((p) => p < nameAt))}</span>
-    ${f.ignored ? '<span class="sr-tag">ignorato</span>' : ''}
+    ${f.ignored ? '<span class="sr-tag">ignored</span>' : ''}
   </li>`;
 }
 
 function render() {
   s.el.querySelectorAll('.search-modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === s.mode)));
   s.el.dataset.mode = s.mode;
-  s.input.placeholder = s.mode === 'text' ? `Cerca un testo in ${s.project.name}` : `Cerca un file in ${s.project.name}`;
+  s.input.placeholder = s.mode === 'text' ? `Search text in ${s.project.name}` : `Search files in ${s.project.name}`;
   if (s.mode === 'text') renderText();
   else renderFiles();
   s.input.setAttribute('aria-activedescendant', s.rows.length ? `sr-${s.sel}` : '');
@@ -197,11 +197,11 @@ function renderFiles() {
   }
   s.sel = Math.min(s.sel, Math.max(0, s.rows.length - 1));
   if (s.error) s.list.innerHTML = `<li class="sr-empty">${esc(s.error)}</li>`;
-  else if (query && cached && !s.rows.length) s.list.innerHTML = `<li class="sr-empty">Nessun file con “${esc(query)}”. ⇥ per cercarlo nel testo.</li>`;
-  else s.list.innerHTML = (!query && s.rows.length ? '<li class="sr-label" role="presentation">Aperti di recente</li>' : '') + s.rows.map(row).join('');
-  s.foot.textContent = !cached ? 'Carico i file…'
-    : cached.truncated ? `Elenco parziale: oltre ${cached.files.length.toLocaleString('it')} file`
-      : query ? `${s.rows.length}${s.rows.length === MAX_ROWS ? '+' : ''} file` : `${cached.files.length.toLocaleString('it')} file`;
+  else if (query && cached && !s.rows.length) s.list.innerHTML = `<li class="sr-empty">No files matching “${esc(query)}”. ⇥ to search the text.</li>`;
+  else s.list.innerHTML = (!query && s.rows.length ? '<li class="sr-label" role="presentation">Recently opened</li>' : '') + s.rows.map(row).join('');
+  s.foot.textContent = !cached ? 'Loading files…'
+    : cached.truncated ? `Partial list: over ${cached.files.length.toLocaleString('en-US')} files`
+      : query ? `${s.rows.length}${s.rows.length === MAX_ROWS ? '+' : ''} ${s.rows.length === 1 ? 'file' : 'files'}` : `${cached.files.length.toLocaleString('en-US')} ${cached.files.length === 1 ? 'file' : 'files'}`;
 }
 
 function select(i) {
@@ -267,17 +267,17 @@ export function openSearch(project, { mode = 'files' } = {}) {
   const el = document.createElement('div');
   el.className = 'search';
   el.setAttribute('role', 'dialog');
-  el.setAttribute('aria-label', 'Cerca nel progetto');
+  el.setAttribute('aria-label', 'Search in project');
   el.innerHTML = `
     <div class="search-head">
-      <div class="search-modes" role="tablist" aria-label="Cerca per">
+      <div class="search-modes" role="tablist" aria-label="Search by">
         <span class="search-thumb"></span>
-        <button role="tab" data-mode="files" tabindex="-1">File</button><button role="tab" data-mode="text" tabindex="-1">Testo</button>
+        <button role="tab" data-mode="files" tabindex="-1">Files</button><button role="tab" data-mode="text" tabindex="-1">Text</button>
       </div>
-      <span class="search-hint">⇥ cambia</span>
+      <span class="search-hint">⇥ switch</span>
     </div>
     <input class="search-input" role="combobox" aria-expanded="true" aria-controls="search-list" aria-autocomplete="list"
-      spellcheck="false" autocomplete="off" placeholder="Cerca un file in ${esc(project.name)}">
+      spellcheck="false" autocomplete="off" placeholder="Search files in ${esc(project.name)}">
     <ul class="search-list" id="search-list" role="listbox"></ul>
     <footer class="search-foot"></footer>`;
   document.body.appendChild(veil);

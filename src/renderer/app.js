@@ -94,11 +94,11 @@ async function closeProject(p) {
   const runs = runningCount(p);
   if (shells || runs) {
     const parts = [];
-    if (shells) parts.push(shells === 1 ? 'il terminale aperto' : `i ${shells} terminali aperti`);
-    if (runs) parts.push(runs === 1 ? 'il processo in esecuzione' : `i ${runs} processi in esecuzione`);
+    if (shells) parts.push(shells === 1 ? 'the open terminal' : `the ${shells} open terminals`);
+    if (runs) parts.push(runs === 1 ? 'the running process' : `the ${runs} running processes`);
     const ok = await ask({
-      text: `Chiudere ${p.name}? Verranno chiusi ${parts.join(' e ')}.`,
-      okLabel: 'Chiudi progetto', danger: true, input: false,
+      text: `Close ${p.name}? This will close ${parts.join(' and ')}.`,
+      okLabel: 'Close project', danger: true, input: false,
     });
     if (!ok) return;
   }
@@ -135,18 +135,18 @@ function showWelcome() {
 
 function renderProjectTabs() {
   $('#search-field').hidden = !active;
-  if (active) $('#search-field .search-field-text').textContent = `Cerca in ${active.name}`;
+  if (active) $('#search-field .search-field-text').textContent = `Search in ${active.name}`;
   const box = $('#project-tabs');
   const changed = setHtml(box, projects.map((p, i) => {
     const agent = agentStateFor(p.path);
     const branch = p.gitStatus?.branch.name;
     const changes = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
     return `<div class="ptab${p === active ? ' active' : ''}" data-i="${i}" data-path="${esc(p.path)}" title="${esc(p.path)}">
-      ${runningIn(p) ? '<span class="ptab-run" title="In esecuzione"></span>' : ''}
+      ${runningIn(p) ? '<span class="ptab-run" title="Running"></span>' : ''}
       ${agent ? `<span class="dot ${agent}"></span>` : ''}
       <span class="ptab-name">${esc(p.name)}</span>
       ${branch ? `<span class="ptab-branch">${esc(branch)}${changes ? '<i>•</i>' : ''}</span>` : ''}
-      <button class="ptab-close" title="Chiudi progetto">✕</button>
+      <button class="ptab-close" title="Close project">✕</button>
     </div>`;
   }).join(''));
   if (changed) for (const el of box.children) {
@@ -167,8 +167,8 @@ function renderProjectTabs() {
     };
     el.querySelector('.ptab-close').onclick = () => closeProject(p);
   }
-  $('#empty-text').textContent = active ? 'Nessun terminale aperto' : 'Apri un progetto per iniziare';
-  $('#empty-new-term').textContent = active ? '＋ Apri un terminale' : '＋ Apri progetto…';
+  $('#empty-text').textContent = active ? 'No open terminals' : 'Open a project to get started';
+  $('#empty-new-term').textContent = active ? '＋ Open a terminal' : '＋ Open project…';
 }
 
 // ── Project tabs: drag to reorder ───────────────────────────
@@ -263,9 +263,9 @@ function terminalMenu(t, x, y) {
   if (t.console) {
     // Run console: output only.
     contextMenu(x, y, [
-      { label: 'Copia', hint: 'Ctrl+Shift+C', disabled: !t.term.getSelection(), run: () => copySelection(t) },
-      { label: 'Seleziona tutto', run: () => t.term.selectAll() },
-      { label: 'Pulisci output', run: () => t.term.clear() },
+      { label: 'Copy', hint: 'Ctrl+Shift+C', disabled: !t.term.getSelection(), run: () => copySelection(t) },
+      { label: 'Select all', run: () => t.term.selectAll() },
+      { label: 'Clear output', run: () => t.term.clear() },
     ]);
     return;
   }
@@ -273,24 +273,24 @@ function terminalMenu(t, x, y) {
   const hasSel = !!t.term.getSelection();
   const isMax = t.project.maximizedId === t.id;
   contextMenu(x, y, [
-    { label: 'Copia', hint: 'Ctrl+Shift+C', disabled: !hasSel, run: () => copySelection(t) },
-    { label: 'Incolla', hint: 'Ctrl+Shift+V', disabled: t.exited, run: () => pasteInto(t) },
-    { label: 'Seleziona tutto', run: () => t.term.selectAll() },
-    { label: 'Pulisci schermo', run: () => t.term.clear() },
+    { label: 'Copy', hint: 'Ctrl+Shift+C', disabled: !hasSel, run: () => copySelection(t) },
+    { label: 'Paste', hint: 'Ctrl+Shift+V', disabled: t.exited, run: () => pasteInto(t) },
+    { label: 'Select all', run: () => t.term.selectAll() },
+    { label: 'Clear screen', run: () => t.term.clear() },
     '-',
-    { label: 'Nuovo terminale nella stessa cartella', run: () => openTerminal(t.project, { cwd: t.cwd }) },
+    { label: 'New terminal in the same folder', run: () => openTerminal(t.project, { cwd: t.cwd }) },
     {
-      label: 'Rinomina…',
+      label: 'Rename…',
       run: async () => {
-        const name = await ask({ text: 'Nome del terminale', value: t.title, okLabel: 'Rinomina' });
+        const name = await ask({ text: 'Terminal name', value: t.title, okLabel: 'Rename' });
         if (name) renameTerminal(t, name);
       },
     },
-    { label: isMax ? 'Ripristina dimensione' : 'Ingrandisci', hint: 'Ctrl+Shift+M', run: () => toggleMax(t.id) },
-    { label: 'Copia percorso della cartella', run: () => work.app.copy(t.cwd) },
-    ...(others.length ? ['-', { header: 'Sposta nel progetto' }, ...others.map((p) => ({ label: p.name, run: () => moveTerminal(t, p) }))] : []),
+    { label: isMax ? 'Restore size' : 'Maximize', hint: 'Ctrl+Shift+M', run: () => toggleMax(t.id) },
+    { label: 'Copy folder path', run: () => work.app.copy(t.cwd) },
+    ...(others.length ? ['-', { header: 'Move to project' }, ...others.map((p) => ({ label: p.name, run: () => moveTerminal(t, p) }))] : []),
     '-',
-    { label: t.exited ? 'Chiudi' : 'Chiudi terminale', hint: 'Ctrl+Shift+W', run: () => closeTerminal(t.id) },
+    { label: t.exited ? 'Close' : 'Close terminal', hint: 'Ctrl+Shift+W', run: () => closeTerminal(t.id) },
   ]);
 }
 
@@ -299,8 +299,8 @@ function moveTerminal(t, p) {
   moveToProject(t, p);
   save();
   renderTermList(active);
-  toast(`${t.title} spostato in ${p.name}`, {
-    action: { label: 'Annulla', run: () => { moveToProject(t, from); renderTermList(active); } },
+  toast(`${t.title} moved to ${p.name}`, {
+    action: { label: 'Undo', run: () => { moveToProject(t, from); renderTermList(active); } },
   });
 }
 
@@ -310,15 +310,15 @@ function projectMenu(p, x, y) {
     if (p !== active) await activateProject(p);
   };
   contextMenu(x, y, [
-    { label: 'Nuovo terminale', run: async () => { await open(); openTerminal(p); } },
-    { label: 'Nuovo agente (ultimo usato)', hint: 'Ctrl+Shift+A', run: async () => { await open(); launchDefault(); } },
+    { label: 'New terminal', run: async () => { await open(); openTerminal(p); } },
+    { label: 'New agent (last used)', hint: 'Ctrl+Shift+A', run: async () => { await open(); launchDefault(); } },
     '-',
-    { label: 'Aggiorna', hint: 'F5', run: async () => { await open(); refreshAll(); } },
-    { label: 'Mostra nel file manager', run: () => work.fs.openPath(p.path) },
-    { label: 'Copia percorso', run: () => work.app.copy(p.path) },
+    { label: 'Refresh', hint: 'F5', run: async () => { await open(); refreshAll(); } },
+    { label: 'Show in file manager', run: () => work.fs.openPath(p.path) },
+    { label: 'Copy path', run: () => work.app.copy(p.path) },
     '-',
-    { label: 'Chiudi gli altri progetti', disabled: !others.length, run: async () => { for (const o of others) await closeProject(o); } },
-    { label: 'Chiudi progetto', run: () => closeProject(p) },
+    { label: 'Close other projects', disabled: !others.length, run: async () => { for (const o of others) await closeProject(o); } },
+    { label: 'Close project', run: () => closeProject(p) },
   ]);
 }
 
@@ -345,10 +345,10 @@ $('#terminals').addEventListener('contextmenu', (e) => {
   if (e.target.closest('.pane') || !active) return;
   e.preventDefault();
   contextMenu(e.clientX, e.clientY, [
-    { label: 'Nuovo terminale', hint: 'Ctrl+Shift+T', run: () => openTerminal(active) },
-    { label: 'Nuovo agente (ultimo usato)', hint: 'Ctrl+Shift+A', run: () => launchDefault() },
+    { label: 'New terminal', hint: 'Ctrl+Shift+T', run: () => openTerminal(active) },
+    { label: 'New agent (last used)', hint: 'Ctrl+Shift+A', run: () => launchDefault() },
     '-',
-    { label: 'Apri un altro progetto…', hint: 'Ctrl+Shift+O', run: pickProject },
+    { label: 'Open another project…', hint: 'Ctrl+Shift+O', run: pickProject },
   ]);
 });
 
@@ -595,14 +595,14 @@ const pct = (x) => `${Math.round(x * 100)}%`;
 let stats = null;
 
 const SHORTCUTS = [
-  ['Nuovo terminale', 'Ctrl+Shift+T'],
-  ['Nuovo agente', 'Ctrl+Shift+A'],
-  ['Apri progetto', 'Ctrl+Shift+O'],
-  ['Chiudi terminale', 'Ctrl+Shift+W'],
-  ['Ingrandisci terminale', 'Ctrl+Shift+M'],
-  ['Pannello sinistro', 'Ctrl+Shift+B'],
-  ['Avvia / ferma', 'Shift+F10', 'Ctrl+F2'],
-  ['Aggiorna', 'F5'],
+  ['New terminal', 'Ctrl+Shift+T'],
+  ['New agent', 'Ctrl+Shift+A'],
+  ['Open project', 'Ctrl+Shift+O'],
+  ['Close terminal', 'Ctrl+Shift+W'],
+  ['Maximize terminal', 'Ctrl+Shift+M'],
+  ['Left panel', 'Ctrl+Shift+B'],
+  ['Run / stop', 'Shift+F10', 'Ctrl+F2'],
+  ['Refresh', 'F5'],
 ];
 const kbd = (k) => `<span class="tip-combo">${k.split('+').map((x) => `<kbd>${esc(x)}</kbd>`).join('')}</span>`;
 const OS_NAMES = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
@@ -611,29 +611,29 @@ const row = (label, value) => `<dt>${label}</dt><dd>${value}</dd>`;
 const bar = (v) => `<i class="tip-bar${v > 0.85 ? ' high' : ''}"><b style="--v:${v.toFixed(3)}"></b></i>`;
 
 function statsTip() {
-  if (!stats) return '<div class="tip-note">Lettura in corso…</div>';
+  if (!stats) return '<div class="tip-note">Loading…</div>';
   const s = stats;
   const mb = (b) => `${Math.round(b / 1024 ** 2)} MB`;
-  return `<h4>Sistema</h4><dl>
+  return `<h4>System</h4><dl>
       ${row('CPU', `${pct(s.cpu)} ${bar(s.cpu)}`)}
-      ${row('Memoria', `${(s.memUsed / GB).toFixed(1)} di ${(s.memTotal / GB).toFixed(0)} GB ${bar(s.memUsed / s.memTotal)}`)}
-      ${row('Carico medio', `${s.load.map((l) => l.toFixed(2)).join(' · ')}`)}
-      ${row('Core', s.cores)}
+      ${row('Memory', `${(s.memUsed / GB).toFixed(1)} of ${(s.memTotal / GB).toFixed(0)} GB ${bar(s.memUsed / s.memTotal)}`)}
+      ${row('Load average', `${s.load.map((l) => l.toFixed(2)).join(' · ')}`)}
+      ${row('Cores', s.cores)}
     </dl><h4>Work</h4><dl>
-      ${row('Memoria', mb(s.work.mem))}
+      ${row('Memory', mb(s.work.mem))}
       ${row('CPU', pct(s.work.cpu))}
-    </dl><div class="tip-note">Work senza shell e agenti dei terminali · ogni 3 s</div>`;
+    </dl><div class="tip-note">Work excluding terminal shells and agents · every 3 s</div>`;
 }
 
 function initStatusBar() {
-  tooltip($('#status-keys'), () => `<h4>Scorciatoie</h4><dl class="tip-keys">${
+  tooltip($('#status-keys'), () => `<h4>Shortcuts</h4><dl class="tip-keys">${
     SHORTCUTS.map(([label, ...keys]) => row(esc(label), keys.map(kbd).join('<span class="tip-or">/</span>'))).join('')}</dl>`);
   tooltip($('#status-sys'), statsTip);
   const v = info.versions;
   $('#status-version').textContent = `v${info.version}`;
   tooltip($('#status-version'), () => `<div class="tip-title">Work ${esc(info.version)}</div><dl>
       ${row('Tauri', esc(v.tauri))}${row('WebView', esc(v.webview))}
-      ${row('Sistema', `${esc(OS_NAMES[info.platform] || info.platform)} ${esc(info.arch)}`)}</dl>`);
+      ${row('System', `${esc(OS_NAMES[info.platform] || info.platform)} ${esc(info.arch)}`)}</dl>`);
   refreshStats();
   setInterval(refreshStats, 3000);
 }
@@ -664,7 +664,7 @@ work.app.onStalled(stalledToast);
 // ⋯ opens on pointerdown, like a native menu; Enter or Space (a click with
 // no pointer) open it with the focus on the first item.
 const more = $('#more');
-const moreItems = [{ label: 'Controlla aggiornamenti…', run: () => checkUpdate({ manual: true }) }];
+const moreItems = [{ label: 'Check for updates…', run: () => checkUpdate({ manual: true }) }];
 more.onpointerdown = (e) => {
   if (e.button !== 0) return;
   if (more.classList.contains('open')) closeMenu();
@@ -722,7 +722,7 @@ more.onclick = (e) => {
   initTeam({ activeProject: () => active });
   initGithub({
     activeProject: () => active,
-    login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Accedi a GitHub' }),
+    login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Sign in to GitHub' }),
   });
   initAgents({
     activeProject: () => active,

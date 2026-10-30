@@ -146,13 +146,13 @@ test('openTeamMenu allows selecting agent for PM and DEV', async () => {
   const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
   assert.ok(pop);
 
-  // Click "+ Configura PM"
+  // Click "+ Add PM"
   await pop.listeners.click[0]({
     target: { closest: (sel) => (sel === '[data-act]' ? { dataset: { act: 'add-pm' } } : null) },
   });
 
   // Verify view transitioned to agent selection
-  assert.ok(pop.innerHTML.includes('Attiva <b>PM</b>'));
+  assert.ok(pop.innerHTML.includes('Activate <b>PM</b>'));
 
   // Select "claude" agent
   await pop.listeners.click[0]({
@@ -248,16 +248,16 @@ test('la sezione Generico elenca i membri e avvia l\'agente scelto come agentN',
   await Team.openTeamMenu();
   const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
   assert.ok(pop);
-  assert.match(pop.innerHTML, /Generico \(1 attivi\)/);
+  assert.match(pop.innerHTML, /Generic \(1 active\)/);
   assert.match(pop.innerHTML, /AGENT1/, 'badge del membro generico esistente');
   assert.match(pop.innerHTML, /data-act="kill-role" data-role="agent1"/, 'pulsante per terminarlo');
-  assert.match(pop.innerHTML, /Aggiungi Generico \(agent2\)/);
+  assert.match(pop.innerHTML, /Add Generic \(agent2\)/);
 
-  // "＋ Aggiungi Generico" apre la scelta dell'agente CLI.
+  // "＋ Add Generic" apre la scelta dell'agente CLI.
   await pop.listeners.click[0]({
     target: { closest: (sel) => (sel === '[data-act]' ? { dataset: { act: 'add-generic' } } : null) },
   });
-  assert.match(pop.innerHTML, /membro generico AGENT2/);
+  assert.match(pop.innerHTML, /generic member AGENT2/);
   assert.match(pop.innerHTML, /data-agent-id="claude"/, 'la vista di selezione usa AGENTS');
 
   // Scegliendo Claude il membro generico parte con il comando dell'agente.

@@ -10,10 +10,10 @@ let onStatus = () => {};
 let onPushed = () => {};
 
 const ACTION_LABELS = {
-  fetch: 'Fetch completato', pull: 'Pull completato', push: 'Push completato', stash: 'Modifiche messe in stash',
-  stashPop: 'Stash ripristinato', commit: 'Commit creato', checkout: 'Branch cambiato', createBranch: 'Branch creato',
-  discard: 'Modifiche scartate', cherryPick: 'Cherry-pick applicato', revert: 'Revert creato', merge: 'Merge completato',
-  init: 'Repository inizializzato',
+  fetch: 'Fetch complete', pull: 'Pull complete', push: 'Push complete', stash: 'Changes stashed',
+  stashPop: 'Stash restored', commit: 'Commit created', checkout: 'Branch switched', createBranch: 'Branch created',
+  discard: 'Changes discarded', cherryPick: 'Cherry-pick applied', revert: 'Revert created', merge: 'Merge complete',
+  init: 'Repository initialized',
 };
 
 export function initGit({ statusChanged, pushed = () => {} }) {
@@ -24,7 +24,7 @@ export function initGit({ statusChanged, pushed = () => {} }) {
     b.onclick = async () => {
       const name = b.dataset.git;
       if (name === 'newBranch') {
-        const branch = await ask({ text: 'Nome del nuovo branch', placeholder: 'feature/…', okLabel: 'Crea' });
+        const branch = await ask({ text: 'New branch name', placeholder: 'feature/…', okLabel: 'Create' });
         if (branch) await runGit('createBranch', { name: branch });
         return;
       }
@@ -134,11 +134,11 @@ function renderChanges(project) {
     const dir = f.file.includes('/') ? f.file.slice(0, f.file.lastIndexOf('/') + 1) : '';
     const name = f.file.slice(dir.length);
     // A conflict can't be discarded with checkout: staging marks it resolved.
-    const discard = f.code === 'X' ? '' : `<button class="icon-btn" data-act="discard" title="Scarta modifiche">↺</button>`;
+    const discard = f.code === 'X' ? '' : `<button class="icon-btn" data-act="discard" title="Discard changes">↺</button>`;
     const acts = staged
-      ? `<button class="icon-btn" data-act="unstage" title="Togli dallo stage">−</button>`
+      ? `<button class="icon-btn" data-act="unstage" title="Unstage">−</button>`
       : `${discard}
-         <button class="icon-btn" data-act="stage" title="${f.code === 'X' ? 'Segna come risolto' : 'Metti in stage'}">＋</button>`;
+         <button class="icon-btn" data-act="stage" title="${f.code === 'X' ? 'Mark as resolved' : 'Stage'}">＋</button>`;
     return `<li data-file="${esc(f.file)}" data-staged="${staged ? 1 : ''}" data-code="${f.code}">
       <span class="code ${f.code}">${f.code}</span>
       <span class="fname s-${f.code}"><bdi>${esc(dir)}<b>${esc(name)}</b></bdi></span>
@@ -146,7 +146,7 @@ function renderChanges(project) {
   };
   $('#staged').innerHTML = st ? st.staged.map((f) => row(f, true)).join('') : '';
   $('#unstaged').innerHTML = st
-    ? st.unstaged.map((f) => row(f, false)).join('') || '<p class="empty">Nessuna modifica.</p>'
+    ? st.unstaged.map((f) => row(f, false)).join('') || '<p class="empty">No changes.</p>'
     : '';
 }
 
@@ -157,8 +157,8 @@ async function onFileClick(e) {
   const staged = !!li.dataset.staged;
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (act === 'discard') {
-    if (li.dataset.code === 'U') return toast('File non tracciato: eliminalo dal tab Project se vuoi scartarlo.', { error: true });
-    const ok = await ask({ text: `Scartare le modifiche a ${file}? Non si può annullare.`, okLabel: 'Scarta', danger: true, input: false });
+    if (li.dataset.code === 'U') return toast('Untracked file: delete it from the Project tab to discard it.', { error: true });
+    const ok = await ask({ text: `Discard changes to ${file}? This can’t be undone.`, okLabel: 'Discard', danger: true, input: false });
     if (ok) await runGit('discard', { files: [file] });
   } else if (act) {
     await runGit(act, { files: [file] }, { quiet: true });
@@ -183,19 +183,19 @@ function onFileMenu(e) {
   const deleted = li.dataset.code === 'D';
   const abs = `${active.root}/${file}`;
   contextMenu(e.clientX, e.clientY, [
-    { label: 'Mostra differenze', run: () => showWorkingDiff(active, file, staged) },
+    { label: 'Show diff', run: () => showWorkingDiff(active, file, staged) },
     staged
-      ? { label: 'Togli dallo stage', run: () => runGit('unstage', { files: [file] }, { quiet: true }) }
-      : { label: 'Metti in stage', run: () => runGit('stage', { files: [file] }, { quiet: true }) },
+      ? { label: 'Unstage', run: () => runGit('unstage', { files: [file] }, { quiet: true }) }
+      : { label: 'Stage', run: () => runGit('stage', { files: [file] }, { quiet: true }) },
     '-',
-    { label: 'Anteprima file', disabled: deleted, run: () => hooks.preview?.(abs) },
-    { label: "Mostra nell'albero", disabled: deleted, run: () => hooks.reveal?.(abs) },
-    { label: 'Copia percorso relativo', run: () => work.app.copy(file) },
+    { label: 'Preview file', disabled: deleted, run: () => hooks.preview?.(abs) },
+    { label: 'Reveal in tree', disabled: deleted, run: () => hooks.reveal?.(abs) },
+    { label: 'Copy relative path', run: () => work.app.copy(file) },
     ...(!staged && !untracked && !conflict ? ['-', {
-      label: 'Scarta modifiche…',
+      label: 'Discard changes…',
       danger: true,
       run: async () => {
-        const ok = await ask({ text: `Scartare le modifiche a ${file}? Non si può annullare.`, okLabel: 'Scarta', danger: true, input: false });
+        const ok = await ask({ text: `Discard changes to ${file}? This can’t be undone.`, okLabel: 'Discard', danger: true, input: false });
         if (ok) await runGit('discard', { files: [file] });
       },
     }] : []),
@@ -207,7 +207,7 @@ export function showWorkingDiff(project, file, staged) {
   if (!st) return;
   const inStaged = st.staged.some((f) => f.file === file);
   const inUnstaged = st.unstaged.some((f) => f.file === file);
-  if (!inStaged && !inUnstaged) return toast('Nessuna modifica per questo file.');
+  if (!inStaged && !inUnstaged) return toast('No changes for this file.');
   // Explicit group from the Changes list; otherwise prefer the unstaged version.
   const group = staged === true ? 's' : staged === false ? 'u' : inUnstaged ? 'u' : 's';
   openWorking(project.root, st, { group, file }, {
@@ -218,11 +218,11 @@ export function showWorkingDiff(project, file, staged) {
 export async function runGit(name, params = {}, { quiet = false, button = null, repo = null } = {}) {
   const project = active;
   const target = repo || project?.root;
-  if (!target) return toast('Nessun repository.', { error: true });
+  if (!target) return toast('No repository.', { error: true });
   button?.classList.add('busy');
   try {
     const out = await work.git.action(target, name, params);
-    if (!quiet) toast(ACTION_LABELS[name] || 'Fatto');
+    if (!quiet) toast(ACTION_LABELS[name] || 'Done');
     if (name === 'init') {
       project.root = null;
       await showGit(project);
@@ -243,8 +243,8 @@ async function commit() {
   const project = active; // the user may switch project while git commits
   const message = $('#commit-msg').value.trim();
   const amend = $('#amend').checked;
-  if (!message) return toast('Scrivi un messaggio di commit.', { error: true });
-  if (!amend && !project?.gitStatus?.staged.length) return toast('Niente in stage: aggiungi dei file prima.', { error: true });
+  if (!message) return toast('Enter a commit message.', { error: true });
+  if (!amend && !project?.gitStatus?.staged.length) return toast('Nothing staged: stage some files first.', { error: true });
   if (await runGit('commit', { message, amend }, { button: $('#commit-btn') })) {
     project.draft = '';
     if (project !== active) return;
@@ -260,10 +260,10 @@ async function refreshBranches(project) {
   const local = list.filter((b) => !b.remote);
   const remote = list.filter((b) => b.remote);
   // Detached HEAD is no branch to pick: shown as the current, unselectable state.
-  const detached = project.gitStatus?.branch.name === 'HEAD' ? '<option selected disabled value="HEAD">HEAD staccato</option>' : '';
+  const detached = project.gitStatus?.branch.name === 'HEAD' ? '<option selected disabled value="HEAD">Detached HEAD</option>' : '';
   sel.innerHTML = `${detached}
-    <optgroup label="Locali">${local.map((b) => `<option ${b.current ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</optgroup>
-    ${remote.length ? `<optgroup label="Remoti">${remote.map((b) => `<option>${esc(b.name)}</option>`).join('')}</optgroup>` : ''}`;
+    <optgroup label="Local">${local.map((b) => `<option ${b.current ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</optgroup>
+    ${remote.length ? `<optgroup label="Remote">${remote.map((b) => `<option>${esc(b.name)}</option>`).join('')}</optgroup>` : ''}`;
 }
 
 // The graph (git log + up to 400 rows) is only built while its tab is shown;
@@ -286,7 +286,7 @@ async function refreshGraph(project) {
   if (project !== active) return;
   const box = $('#graph');
   if (!commits.length) {
-    box.innerHTML = '<p class="empty">Nessun commit.</p>';
+    box.innerHTML = '<p class="empty">No commits.</p>';
     return;
   }
   const g = layout(commits);
@@ -303,12 +303,12 @@ async function refreshGraph(project) {
     e.preventDefault();
     const c = g.rows[Number(row.dataset.i)].commit;
     contextMenu(e.clientX, e.clientY, [
-      { label: 'Mostra dettagli', run: () => row.click() },
+      { label: 'Show details', run: () => row.click() },
       '-',
       ...commitActions(c, { menu: true }),
       '-',
-      { label: 'Copia hash', run: () => work.app.copy(c.hash) },
-      { label: 'Copia messaggio', run: () => work.app.copy(c.subject) },
+      { label: 'Copy hash', run: () => work.app.copy(c.hash) },
+      { label: 'Copy message', run: () => work.app.copy(c.subject) },
     ]);
   };
   box.onclick = (e) => {
@@ -326,13 +326,13 @@ async function refreshGraph(project) {
 function commitActions(c, { menu = false } = {}) {
   const target = checkoutTarget(c.refs, c.hash);
   const newBranch = async () => {
-    const name = await ask({ text: `Nuovo branch da ${c.hash.slice(0, 8)}`, placeholder: 'feature/…', okLabel: 'Crea' });
+    const name = await ask({ text: `New branch from ${c.hash.slice(0, 8)}`, placeholder: 'feature/…', okLabel: 'Create' });
     if (name) await runGit('createBranch', { name, from: c.hash });
   };
   const detached = menu ? 'Checkout (detached)' : 'Checkout';
   return [
     { label: target !== c.hash ? `Checkout ${target}` : detached, run: () => runGit('checkout', { branch: target }) },
-    { label: menu ? 'Nuovo branch qui…' : 'Nuovo branch qui', run: newBranch },
+    { label: menu ? 'New branch here…' : 'New branch here', run: newBranch },
     { label: 'Cherry-pick', run: () => runGit('cherryPick', { hash: c.hash }) },
     { label: 'Revert', run: () => runGit('revert', { hash: c.hash }) },
   ];

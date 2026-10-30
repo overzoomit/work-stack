@@ -97,7 +97,7 @@ test('nuovo file: su un file viene creato nella sua cartella, che si apre, e il 
   const done = tree.create('/p/src/app.test.js', false);
   const prompt = await answer('util.js');
   await done;
-  assert.equal(prompt.text, 'Nome del nuovo file');
+  assert.equal(prompt.text, 'New file name');
   assert.deepEqual(calls, [['create', '/p/src', 'util.js', false]]);
   assert.ok(tree.expanded.has('/p/src'));
   assert.equal(tree.selected, '/p/src/util.js');
@@ -109,9 +109,9 @@ test('spostamento: il toast offre Annulla, che riporta il file dov\'era', async 
   await tree.move('/p/readme.md', '/p/src');
   assert.equal(tree.selected, '/p/src/readme.md');
   const t = lastToast();
-  assert.equal(t.firstChild.textContent, 'readme.md spostato in src');
+  assert.equal(t.firstChild.textContent, 'readme.md moved to src');
   const undo = t.children.find((c) => c.className === 'toast-action');
-  assert.equal(undo.textContent, 'Annulla');
+  assert.equal(undo.textContent, 'Undo');
   undo.onclick();
   await new Promise((r) => setTimeout(r, 10));
   assert.deepEqual(calls, [['move', '/p/readme.md', '/p/src'], ['move', '/p/src/readme.md', '/p']]);
@@ -126,7 +126,7 @@ test('cestino: il file selezionato non resta selezionato e un errore del disco d
   tree.selected = '/p/readme.md';
   await tree.trash('/p/readme.md');
   assert.equal(tree.selected, null);
-  assert.equal(lastToast().firstChild.textContent, 'readme.md spostato nel cestino');
+  assert.equal(lastToast().firstChild.textContent, 'readme.md moved to the trash');
 
   failNext = new Error('Permesso negato');
   await tree.trash('/p/src');

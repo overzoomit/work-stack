@@ -85,7 +85,7 @@ export function closeReview() {
 function open() {
   const el = $('#review');
   el.hidden = false;
-  $('#review-diff').innerHTML = '<div class="d-empty">Seleziona un file.</div>';
+  $('#review-diff').innerHTML = '<div class="d-empty">Select a file.</div>';
 }
 
 // Commit review. `actions`: [{ label, run }] shown in the header.
@@ -93,7 +93,7 @@ export async function openCommit(repo, hash, actions = []) {
   const token = Symbol('review');
   session = { repo, mode: 'commit', hash, token };
   open();
-  $('#review-title').textContent = 'Caricamento…';
+  $('#review-title').textContent = 'Loading…';
   $('#review-info').innerHTML = '';
   $('#review-files').innerHTML = '';
   renderActions(actions);
@@ -120,17 +120,17 @@ export async function openCommit(repo, hash, actions = []) {
     ${body ? `<div class="ci-body">${esc(body)}</div>` : ''}
     ${refs ? `<div class="ci-refs">${refs}</div>` : ''}
     <dl class="ci-meta">
-      <dt>Autore</dt><dd>${esc(c.author)} <span class="muted">&lt;${esc(c.email)}&gt;</span></dd>
-      <dt>Data</dt><dd>${fullDate(c.time)}</dd>
-      ${c.committer !== c.author ? `<dt>Commit di</dt><dd>${esc(c.committer)}</dd>` : ''}
-      <dt>Hash</dt><dd><button class="hash" data-copy="${c.hash}" title="Copia">${c.hash.slice(0, 12)}</button></dd>
-      <dt>Parent</dt><dd>${c.parents.map((p) => `<button class="hash" data-copy="${p}" title="Copia">${p.slice(0, 8)}</button>`).join(' ') || '<span class="muted">nessuno (commit iniziale)</span>'}</dd>
+      <dt>Author</dt><dd>${esc(c.author)} <span class="muted">&lt;${esc(c.email)}&gt;</span></dd>
+      <dt>Date</dt><dd>${fullDate(c.time)}</dd>
+      ${c.committer !== c.author ? `<dt>Committer</dt><dd>${esc(c.committer)}</dd>` : ''}
+      <dt>Hash</dt><dd><button class="hash" data-copy="${c.hash}" title="Copy">${c.hash.slice(0, 12)}</button></dd>
+      <dt>Parent</dt><dd>${c.parents.map((p) => `<button class="hash" data-copy="${p}" title="Copy">${p.slice(0, 8)}</button>`).join(' ') || '<span class="muted">none (initial commit)</span>'}</dd>
       <dt>Branch</dt><dd id="ci-contains" class="muted">…</dd>
     </dl>`;
   $('#review-files').innerHTML = `
-    <div class="ft-head">${c.files.length} ${c.files.length === 1 ? 'file modificato' : 'file modificati'}
+    <div class="ft-head">${c.files.length} ${c.files.length === 1 ? 'file changed' : 'files changed'}
       <span class="plus">+${add}</span><span class="minus">−${del}</span>
-      ${c.parents.length > 1 ? '<span class="muted">· rispetto al primo parent</span>' : ''}</div>
+      ${c.parents.length > 1 ? '<span class="muted">· against the first parent</span>' : ''}</div>
     ${renderTree(c.files, 'c')}`;
   bindTree();
   if (c.files.length) selectFile('c', c.files[0].file);
@@ -142,7 +142,7 @@ export async function openCommit(repo, hash, actions = []) {
     box.innerHTML = list.length
       ? list.slice(0, 12).map((b) => `<span class="ref ${b.remote ? 'remote' : 'local'}">${esc(b.name)}</span>`).join(' ')
         + (list.length > 12 ? ` <span class="muted">+${list.length - 12}</span>` : '')
-      : '<span class="muted">nessuno</span>';
+      : '<span class="muted">none</span>';
   });
 }
 
@@ -152,12 +152,12 @@ export async function openWorking(repo, status, select, { onToggleStage } = {}) 
   session = { repo, mode: 'working', token, onToggleStage };
   open();
   renderActions([]);
-  $('#review-title').textContent = 'Modifiche locali';
-  $('#review-info').innerHTML = `<div class="ci-subject">Modifiche locali</div>
-    <div class="ci-body muted">Branch ${esc(status.branch.name)} · ${status.staged.length} in stage · ${status.unstaged.length} non in stage</div>`;
+  $('#review-title').textContent = 'Local changes';
+  $('#review-info').innerHTML = `<div class="ci-subject">Local changes</div>
+    <div class="ci-body muted">Branch ${esc(status.branch.name)} · ${status.staged.length} staged · ${status.unstaged.length} unstaged</div>`;
   session.groups = [
-    { key: 's', label: 'In stage', files: status.staged },
-    { key: 'u', label: 'Modifiche', files: status.unstaged },
+    { key: 's', label: 'Staged', files: status.staged },
+    { key: 'u', label: 'Changes', files: status.unstaged },
   ];
   $('#review-files').innerHTML = session.groups.filter((g) => g.files.length).map((g) => `
     <div class="ft-head">${g.label} <span class="count">${g.files.length}</span></div>
@@ -207,9 +207,9 @@ async function selectFile(groupKey, file) {
   item?.focus({ preventScroll: true }); // arrows move between files right away
 
   const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
-  const renamed = f.oldFile && f.oldFile !== f.file ? `<span class="muted">rinominato da ${esc(f.oldFile)}</span>` : '';
+  const renamed = f.oldFile && f.oldFile !== f.file ? `<span class="muted">renamed from ${esc(f.oldFile)}</span>` : '';
   const stageBtn = session.mode === 'working' && session.onToggleStage
-    ? `<button class="btn btn-small" id="d-stage">${groupKey === 's' ? 'Togli dallo stage' : 'Metti in stage'}</button>` : '';
+    ? `<button class="btn btn-small" id="d-stage">${groupKey === 's' ? 'Unstage' : 'Stage'}</button>` : '';
   $('#review-path').innerHTML = `<span class="code ${f.code}">${f.code}</span>
     <span class="d-path"><span class="muted">${esc(dir)}</span>${esc(basename(file))}</span> ${renamed}`;
   $('#review-tools-extra').innerHTML = stageBtn;
@@ -219,8 +219,8 @@ async function selectFile(groupKey, file) {
   });
 
   const [left, right] = session.mode === 'commit'
-    ? [session.parent ? `${session.parent.slice(0, 8)} (parent)` : 'vuoto', session.hash.slice(0, 8)]
-    : groupKey === 's' ? ['HEAD', 'Stage'] : [f.code === 'U' ? 'vuoto' : 'Stage / HEAD', 'Copia di lavoro'];
+    ? [session.parent ? `${session.parent.slice(0, 8)} (parent)` : 'empty', session.hash.slice(0, 8)]
+    : groupKey === 's' ? ['HEAD', 'Stage'] : [f.code === 'U' ? 'empty' : 'Stage / HEAD', 'Working copy'];
   $('#review-labels').innerHTML = `<span>${esc(left)}</span><span>${esc(right)}</span>`;
 
   const box = $('#review-diff');
@@ -249,7 +249,7 @@ function drawDiff() {
   $$('#review-mode button').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
   session.nav = renderDiff($('#review-diff'), session.parsed, mode);
   $('#review-count').textContent = session.nav.count
-    ? `${session.nav.count} ${session.nav.count === 1 ? 'modifica' : 'modifiche'}` : '';
+    ? `${session.nav.count} ${session.nav.count === 1 ? 'change' : 'changes'}` : '';
 }
 
 function stepFile(d) {
@@ -274,7 +274,7 @@ $('#review-info').addEventListener('click', (e) => {
   const h = e.target.closest('[data-copy]');
   if (!h) return;
   work.app.copy(h.dataset.copy);
-  toast('Hash copiato');
+  toast('Hash copied');
 });
 
 addEventListener('keydown', (e) => {

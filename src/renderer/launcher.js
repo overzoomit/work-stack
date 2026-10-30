@@ -12,18 +12,18 @@ let installed = null; // Set of available binaries
 const BYPASS_DEFAULT = { claude: true };
 
 export const AGENTS = [
-  { id: 'claude', name: 'Claude Code', by: 'Anthropic', desc: 'Agente di coding nel terminale', mono: 'C', tint: ['#e08a67', '#c2573a'], bin: 'claude', command: 'claude', bypass: '--dangerously-skip-permissions', install: 'curl -fsSL https://claude.ai/install.sh | bash', continueCommand: 'claude --continue' },
-  { id: 'antigravity', name: 'Antigravity (AGY)', by: 'Google DeepMind', desc: 'Agente Antigravity CLI', mono: 'AG', tint: ['#4285f4', '#34a853'], bin: 'agy', command: 'agy', bypass: '--dangerously-skip-permissions', install: 'npm i -g @google/antigravity' },
-  { id: 'codex', name: 'Codex', by: 'OpenAI', desc: 'Agente CLI di OpenAI', mono: 'Cx', tint: ['#5b6272', '#2b2f38'], bin: 'codex', command: 'codex', bypass: '--dangerously-bypass-approvals-and-sandbox', install: 'npm i -g @openai/codex' },
-  { id: 'gemini', name: 'Gemini CLI', by: 'Google', desc: 'Agente open source di Google', mono: 'G', tint: ['#5b8cff', '#8a5cf6'], bin: 'gemini', command: 'gemini', bypass: '--yolo', install: 'npm i -g @google/gemini-cli' },
-  { id: 'copilot', name: 'Copilot CLI', by: 'GitHub', desc: 'Copilot nel terminale', mono: 'Co', tint: ['#a371f7', '#6e40c9'], bin: 'copilot', command: 'copilot', bypass: '--allow-all-tools', install: 'npm i -g @github/copilot' },
-  { id: 'opencode', name: 'OpenCode', by: 'Open source', desc: 'Agente multi-modello', mono: 'OC', tint: ['#4fb3bf', '#2d6f86'], bin: 'opencode', command: 'opencode', install: 'npm i -g opencode-ai' },
-  { id: 'ollama', name: 'Ollama OpenCode', by: 'Ollama', desc: 'OpenCode con modello cloud DeepSeek', mono: 'Ol', tint: ['#ea580c', '#c2410c'], bin: 'ollama', command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud', install: 'curl -fsSL https://ollama.com/install.sh | sh' },
-  { id: 'aider', name: 'Aider', by: 'Open source', desc: 'Pair programming con git', mono: 'Ai', tint: ['#4cc38a', '#23875a'], bin: 'aider', command: 'aider', bypass: '--yes-always', install: 'pipx install aider-chat' },
-  { id: 'cursor-agent', name: 'Cursor Agent', by: 'Cursor', desc: "L'agente di Cursor da terminale", mono: 'Cu', tint: ['#6f7480', '#1c1e24'], bin: 'cursor-agent', command: 'cursor-agent', bypass: '--force', install: 'curl https://cursor.com/install -fsS | bash' },
-  { id: 'amp', name: 'Amp', by: 'Sourcegraph', desc: 'Agente di coding di Sourcegraph', mono: 'A', tint: ['#ff6b6b', '#c92a5a'], bin: 'amp', command: 'amp', bypass: '--dangerously-allow-all', install: 'npm i -g @sourcegraph/amp' },
-  { id: 'qwen', name: 'Qwen Code', by: 'Alibaba', desc: 'Agente basato su Qwen', mono: 'Q', tint: ['#7c83ff', '#4b3fd6'], bin: 'qwen', command: 'qwen', bypass: '--yolo', install: 'npm i -g @qwen-code/qwen-code' },
-  { id: 'goose', name: 'Goose', by: 'Block', desc: 'Agente open source estendibile', mono: 'Go', tint: ['#f5b53d', '#c47a12'], bin: 'goose', command: 'goose session', install: 'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash' },
+  { id: 'claude', name: 'Claude Code', by: 'Anthropic', desc: 'Coding agent in the terminal', mono: 'C', tint: ['#e08a67', '#c2573a'], bin: 'claude', command: 'claude', bypass: '--dangerously-skip-permissions', install: 'curl -fsSL https://claude.ai/install.sh | bash', continueCommand: 'claude --continue' },
+  { id: 'antigravity', name: 'Antigravity (AGY)', by: 'Google DeepMind', desc: 'Antigravity CLI agent', mono: 'AG', tint: ['#4285f4', '#34a853'], bin: 'agy', command: 'agy', bypass: '--dangerously-skip-permissions', install: 'npm i -g @google/antigravity' },
+  { id: 'codex', name: 'Codex', by: 'OpenAI', desc: 'OpenAI CLI agent', mono: 'Cx', tint: ['#5b6272', '#2b2f38'], bin: 'codex', command: 'codex', bypass: '--dangerously-bypass-approvals-and-sandbox', install: 'npm i -g @openai/codex' },
+  { id: 'gemini', name: 'Gemini CLI', by: 'Google', desc: 'Google open source agent', mono: 'G', tint: ['#5b8cff', '#8a5cf6'], bin: 'gemini', command: 'gemini', bypass: '--yolo', install: 'npm i -g @google/gemini-cli' },
+  { id: 'copilot', name: 'Copilot CLI', by: 'GitHub', desc: 'Copilot in the terminal', mono: 'Co', tint: ['#a371f7', '#6e40c9'], bin: 'copilot', command: 'copilot', bypass: '--allow-all-tools', install: 'npm i -g @github/copilot' },
+  { id: 'opencode', name: 'OpenCode', by: 'Open source', desc: 'Multi-model agent', mono: 'OC', tint: ['#4fb3bf', '#2d6f86'], bin: 'opencode', command: 'opencode', install: 'npm i -g opencode-ai' },
+  { id: 'ollama', name: 'Ollama OpenCode', by: 'Ollama', desc: 'OpenCode with DeepSeek cloud model', mono: 'Ol', tint: ['#ea580c', '#c2410c'], bin: 'ollama', command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud', install: 'curl -fsSL https://ollama.com/install.sh | sh' },
+  { id: 'aider', name: 'Aider', by: 'Open source', desc: 'Pair programming with git', mono: 'Ai', tint: ['#4cc38a', '#23875a'], bin: 'aider', command: 'aider', bypass: '--yes-always', install: 'pipx install aider-chat' },
+  { id: 'cursor-agent', name: 'Cursor Agent', by: 'Cursor', desc: "Cursor's agent for the terminal", mono: 'Cu', tint: ['#6f7480', '#1c1e24'], bin: 'cursor-agent', command: 'cursor-agent', bypass: '--force', install: 'curl https://cursor.com/install -fsS | bash' },
+  { id: 'amp', name: 'Amp', by: 'Sourcegraph', desc: 'Sourcegraph coding agent', mono: 'A', tint: ['#ff6b6b', '#c92a5a'], bin: 'amp', command: 'amp', bypass: '--dangerously-allow-all', install: 'npm i -g @sourcegraph/amp' },
+  { id: 'qwen', name: 'Qwen Code', by: 'Alibaba', desc: 'Qwen-based agent', mono: 'Q', tint: ['#7c83ff', '#4b3fd6'], bin: 'qwen', command: 'qwen', bypass: '--yolo', install: 'npm i -g @qwen-code/qwen-code' },
+  { id: 'goose', name: 'Goose', by: 'Block', desc: 'Extensible open source agent', mono: 'Go', tint: ['#f5b53d', '#c47a12'], bin: 'goose', command: 'goose session', install: 'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash' },
 ];
 
 let bypassState = {};
@@ -52,7 +52,7 @@ export function commandFor(a, base = a.command) {
   return bypassOn(a) ? `${base} ${a.bypass}` : base;
 }
 
-const badgeFor = (a) => (bypassOn(a) ? { text: 'bypass permessi', title: `Avviato con ${a.bypass}: nessuna richiesta di conferma` } : null);
+const badgeFor = (a) => (bypassOn(a) ? { text: 'bypass permissions', title: `Started with ${a.bypass}: no confirmation prompts` } : null);
 
 let getProject = () => null;
 
@@ -127,7 +127,7 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // Resume a Claude Code session from the agents list. The id is interpolated
 // into a shell command, so it must be a plain UUID.
 export function resumeClaude(project, cwd, sessionId, title) {
-  if (!SESSION_ID.test(sessionId)) throw new Error(`ID di sessione non valido: ${sessionId}`);
+  if (!SESSION_ID.test(sessionId)) throw new Error(`Invalid session ID: ${sessionId}`);
   const claude = AGENTS[0];
   return openTerminal(project, {
     cwd,
@@ -198,7 +198,7 @@ function flag(a) {
   const on = bypassOn(a);
   return `<button class="ap-flag${on ? ' on' : ''}" data-bypass aria-pressed="${on}" title="${esc(flagTitle(a, on))}"><i></i>bypass</button>`;
 }
-const flagTitle = (a, on) => `${on ? 'Parte senza chiedere conferme' : 'Chiede conferma prima di agire'} (${a.bypass}) · B`;
+const flagTitle = (a, on) => `${on ? 'Starts without asking for confirmation' : 'Asks for confirmation before acting'} (${a.bypass}) · B`;
 
 function paintFlag(el, a) {
   const on = bypassOn(a);
@@ -211,7 +211,7 @@ function installIn(a) {
   const project = getProject();
   closePop();
   // Pre-type the install command without running it: the user reviews and presses Enter.
-  openTerminal(project, { title: `Installa ${a.name}` }).then((t) => {
+  openTerminal(project, { title: `Install ${a.name}` }).then((t) => {
     setTimeout(() => sendInput(t.id, a.install), 600);
   });
 }
@@ -236,8 +236,8 @@ async function openMenu() {
         <div class="ap-desc">${esc(a.by)} · ${esc(a.desc)}</div>
       </div>
       <div class="ap-side">
-        ${a.continueCommand && canContinue ? '<button class="ap-sec" data-continue title="Continua l\'ultima sessione in questa cartella">Continua</button>' : ''}
-        ${a.id === last ? '<span class="ap-last">Ultimo</span>' : ''}
+        ${a.continueCommand && canContinue ? '<button class="ap-sec" data-continue title="Continue the last session in this folder">Continue</button>' : ''}
+        ${a.id === last ? '<span class="ap-last">Last</span>' : ''}
         ${i < 9 ? `<kbd>${i + 1}</kbd>` : ''}
       </div>
     </div>`;
@@ -248,7 +248,7 @@ async function openMenu() {
         <div class="ap-name">${esc(a.name)}</div>
         <div class="ap-desc mono">${esc(a.install)}</div>
       </div>
-      <div class="ap-side"><button class="ap-sec" data-install>Installa</button></div>
+      <div class="ap-side"><button class="ap-sec" data-install>Install</button></div>
     </div>`;
 
   pop = document.createElement('div');
@@ -256,19 +256,19 @@ async function openMenu() {
   pop.setAttribute('role', 'dialog');
   pop.innerHTML = `
     <header class="ap-head">
-      <div class="ap-title">Avvia un agente</div>
+      <div class="ap-title">Start an agent</div>
       <div class="ap-sub">in <b>${esc(project.name)}</b>${branch ? ` <span class="ap-branch">${esc(branch)}</span>` : ''}</div>
     </header>
     <div class="ap-list" role="listbox">
-      ${avail.map(row).join('') || '<div class="ap-empty">Nessun agente trovato nel PATH.</div>'}
+      ${avail.map(row).join('') || '<div class="ap-empty">No agents found in PATH.</div>'}
       ${missing.length ? `
-        <button class="ap-more"><span class="ap-more-chev">›</span>${missing.length} non installati</button>
+        <button class="ap-more"><span class="ap-more-chev">›</span>${missing.length} not installed</button>
         <div class="ap-missing" hidden>${missing.map(missingRow).join('')}</div>` : ''}
     </div>
     <footer class="ap-foot">
-      <span><kbd>↑</kbd><kbd>↓</kbd> scegli</span><span><kbd>↵</kbd> avvia</span><span><kbd>1</kbd>–<kbd>9</kbd> rapido</span><span><kbd>B</kbd> bypass</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>↵</kbd> start</span><span><kbd>1</kbd>–<kbd>9</kbd> quick</span><span><kbd>B</kbd> bypass</span>
       <div class="spacer"></div>
-      <button class="ap-rescan" title="Cerca di nuovo gli agenti installati">↻</button>
+      <button class="ap-rescan" title="Rescan installed agents">↻</button>
     </footer>`;
   document.body.appendChild(pop);
 

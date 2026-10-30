@@ -77,7 +77,7 @@ test('la lista mostra solo le sessioni del progetto attivo e ne riassume gli sta
   assert.doesNotMatch(list.innerHTML, /Altre sessioni|Sessioni recenti/);
   assert.equal($('#agent-count').textContent, 2);
   assert.equal($('#agent-empty').hidden, true);
-  assert.equal($('#status-agents').textContent, '1 al lavoro · 1 in attesa');
+  assert.equal($('#status-agents').textContent, '1 working · 1 waiting');
   assert.equal($('#toggle-sidebar').dataset.agents, 'waiting', 'a blocked session in another project is not urgent here');
   assert.equal($('#status-agents').dataset.state, 'waiting');
   assert.equal(agentStateFor('/home/u/app'), 'waiting', 'a project shows its most urgent agent');
@@ -174,9 +174,9 @@ test('tasto destro su una sessione: riprendi, terminale, copia; niente "Mostra a
   push([agent('d4', '/home/u/app', 'working')]);
   li('d4').oncontextmenu({ preventDefault() {}, clientX: 1, clientY: 1 });
   const items = openMenuItems();
-  assert.ok(items['Riprendi sessione'] && items['Terminale nella cartella'] && items['Apri come progetto']);
-  assert.equal(items['Mostra attività'], undefined);
-  items['Copia ID sessione'].onclick();
+  assert.ok(items['Resume session'] && items['Terminal in folder'] && items['Open as project']);
+  assert.equal(items['Show activity'], undefined);
+  items['Copy session ID'].onclick();
   assert.equal(env.copied.at(-1), 'd4');
 
   push([]);
@@ -186,7 +186,7 @@ test('tasto destro su una sessione: riprendi, terminale, copia; niente "Mostra a
 
 test('"Chiudi" c\'è solo se la sessione è viva e chiede conferma; lo stesso dal tasto destro', async () => {
   push([agent('e5', '/home/u/app', 'working', { live: true })]);
-  assert.match(li('e5').segment, /data-act="close">Chiudi</);
+  assert.match(li('e5').segment, /data-act="close">Close</);
   li('e5').querySelector('[data-act="close"]').onclick();
   await tick(0);
   $('#modal-cancel').onclick(); // changed their mind
@@ -194,7 +194,7 @@ test('"Chiudi" c\'è solo se la sessione è viva e chiede conferma; lo stesso da
   assert.deepEqual(stopped, [], 'nothing is closed without confirming');
 
   li('e5').oncontextmenu({ preventDefault() {}, clientX: 1, clientY: 1 });
-  openMenuItems()['Chiudi sessione'].onclick();
+  openMenuItems()['Close session'].onclick();
   await answer('');
   await tick();
   assert.deepEqual(stopped, ['e5']);
@@ -202,5 +202,5 @@ test('"Chiudi" c\'è solo se la sessione è viva e chiede conferma; lo stesso da
   push([agent('e5', '/home/u/app', 'idle', { live: false })]);
   assert.equal(li('e5').querySelector('[data-act="close"]'), null, 'a closed session has no close button');
   li('e5').oncontextmenu({ preventDefault() {}, clientX: 1, clientY: 1 });
-  assert.equal(openMenuItems()['Chiudi sessione'], undefined);
+  assert.equal(openMenuItems()['Close session'], undefined);
 });

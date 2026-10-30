@@ -197,7 +197,7 @@ export class ProjectTree {
 
   async create(p, dir) {
     const parent = this.targetDir(p);
-    const name = await ask({ text: dir ? 'Nome della nuova cartella' : 'Nome del nuovo file', placeholder: dir ? 'cartella' : 'file.ts', okLabel: 'Crea' });
+    const name = await ask({ text: dir ? 'New folder name' : 'New file name', placeholder: dir ? 'folder' : 'file.ts', okLabel: 'Create' });
     if (!name) return;
     try {
       const created = await work.fs.create(parent, name, dir);
@@ -213,7 +213,7 @@ export class ProjectTree {
     if (p === this.project.path) return;
     const name = basename(p);
     const dot = name.lastIndexOf('.');
-    const next = await ask({ text: 'Rinomina', value: name, okLabel: 'Rinomina', select: [0, dot > 0 ? dot : name.length] });
+    const next = await ask({ text: 'Rename', value: name, okLabel: 'Rename', select: [0, dot > 0 ? dot : name.length] });
     if (!next || next === name) return;
     try {
       const dest = await work.fs.rename(p, next);
@@ -243,8 +243,8 @@ export class ProjectTree {
       await this.refreshDirs(from, toDir, ...moved);
       this.select(dest);
       if (undo) {
-        toast(`${basename(p)} spostato in ${basename(toDir)}`, {
-          action: { label: 'Annulla', run: () => this.move(dest, from, { undo: false }) },
+        toast(`${basename(p)} moved to ${basename(toDir)}`, {
+          action: { label: 'Undo', run: () => this.move(dest, from, { undo: false }) },
         });
       }
     } catch (e) {
@@ -258,7 +258,7 @@ export class ProjectTree {
       await work.fs.trash(p);
       this.forget(p);
       await this.refreshDirs(dirname(p));
-      toast(`${basename(p)} spostato nel cestino`);
+      toast(`${basename(p)} moved to the trash`);
     } catch (e) {
       toastError(e);
     }
@@ -311,22 +311,22 @@ export class ProjectTree {
     const isRoot = p === this.project.path;
     const changed = this.vcs.has(p) && !ent?.dir;
     contextMenu(e.clientX, e.clientY, [
-      { label: 'Nuovo file…', run: () => this.create(p, false) },
-      { label: 'Nuova cartella…', run: () => this.create(p, true) },
+      { label: 'New file…', run: () => this.create(p, false) },
+      { label: 'New folder…', run: () => this.create(p, true) },
       '-',
       ...(!ent?.dir ? [
-        { label: 'Anteprima', hint: 'Invio', run: () => this.hooks.preview(p) },
-        { label: 'Apri con app di sistema', run: () => work.fs.openPath(p) },
+        { label: 'Preview', hint: 'Enter', run: () => this.hooks.preview(p) },
+        { label: 'Open with default app', run: () => work.fs.openPath(p) },
       ] : []),
-      ...(changed ? [{ label: 'Mostra differenze', run: () => this.hooks.showDiff(p) }] : []),
-      { label: 'Apri terminale qui', run: () => this.hooks.openTerminal(this.targetDir(p)) },
-      { label: 'Mostra nel file manager', run: () => work.fs.reveal(p) },
+      ...(changed ? [{ label: 'Show changes', run: () => this.hooks.showDiff(p) }] : []),
+      { label: 'Open in terminal', run: () => this.hooks.openTerminal(this.targetDir(p)) },
+      { label: 'Reveal in file manager', run: () => work.fs.reveal(p) },
       '-',
-      { label: 'Copia percorso', run: () => work.app.copy(p) },
-      { label: 'Copia percorso relativo', run: () => work.app.copy(this.rel(p)) },
+      { label: 'Copy path', run: () => work.app.copy(p) },
+      { label: 'Copy relative path', run: () => work.app.copy(this.rel(p)) },
       '-',
-      { label: 'Rinomina…', hint: 'F2', disabled: isRoot, run: () => this.rename(p) },
-      { label: 'Sposta nel cestino', hint: 'Canc', danger: true, disabled: isRoot, run: () => this.trash(p) },
+      { label: 'Rename…', hint: 'F2', disabled: isRoot, run: () => this.rename(p) },
+      { label: 'Move to trash', hint: 'Del', danger: true, disabled: isRoot, run: () => this.trash(p) },
     ]);
   }
 
@@ -411,10 +411,10 @@ export class ProjectTree {
       this.expanded.add(toDir);
       await this.refreshDirs(toDir);
       this.select(copied.at(-1));
-      const what = copied.length === 1 ? `${basename(copied[0])} copiato` : `${copied.length} elementi copiati`;
-      toast(`${what} in ${basename(toDir)}`, {
+      const what = copied.length === 1 ? `${basename(copied[0])} copied` : `${copied.length} items copied`;
+      toast(`${what} to ${basename(toDir)}`, {
         action: {
-          label: 'Annulla',
+          label: 'Undo',
           run: async () => {
             try {
               for (const p of copied) await work.fs.trash(p);

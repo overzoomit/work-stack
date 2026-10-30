@@ -76,9 +76,9 @@ test('un processo che termina con errore mostra un avviso con "Mostra output"', 
   await tick();
   assert.equal($('#run').dataset.state, 'failed');
   const t = lastToast();
-  assert.equal(t.firstChild.textContent, 'dev terminato con codice 1');
+  assert.equal(t.firstChild.textContent, 'dev exited with code 1');
   const show = t.children.find((c) => c.className === 'toast-action');
-  assert.equal(show.textContent, 'Mostra output');
+  assert.equal(show.textContent, 'Show output');
   show.onclick();
   assert.equal(revealed.length, 1, 'the Run tab opens');
 });
@@ -107,13 +107,13 @@ test('il menu delle configurazioni cambia quella scelta e aggiunge comandi perso
   saves.length = 0;
   $('#run-config').onpointerdown({ button: 0 });
   let items = openMenuItems();
-  assert.ok(items.dev && items.build && items['Aggiungi comando…'] && items['Rileva di nuovo']);
+  assert.ok(items.dev && items.build && items['Add command…'] && items['Detect again']);
   items.build.onclick();
   assert.equal($('#run-name').textContent, 'build');
   assert.equal(project.run.selected, 'npm:build');
 
   $('#run-config').onpointerdown({ button: 0 });
-  openMenuItems()['Aggiungi comando…'].onclick();
+  openMenuItems()['Add command…'].onclick();
   await answer('npm run dev -- --port 4000');
   await answer('dev 4000');
   await tick();
@@ -124,7 +124,7 @@ test('il menu delle configurazioni cambia quella scelta e aggiunge comandi perso
   // A custom command can be removed from the same menu.
   $('#run-config').onpointerdown({ button: 0 });
   items = openMenuItems();
-  items['Rimuovi “dev 4000”'].onclick();
+  items['Remove “dev 4000”'].onclick();
   assert.deepEqual(project.run.custom, []);
   assert.equal($('#run-name').textContent, 'dev', 'back to the first detected one');
 });

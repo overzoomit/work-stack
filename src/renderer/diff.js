@@ -167,7 +167,7 @@ export function wordDiff(a, b) {
   const mark = (x) => {
     const mid = x.slice(p, x.length - s);
     const hl = !mid ? '' : ws
-      ? `<span class="w ws" title="Cambiano solo spazi o fine riga">${mid.replace(/\s/g, (c) => WS_GLYPHS[c] || '·')}</span>`
+      ? `<span class="w ws" title="Only whitespace or line endings changed">${mid.replace(/\s/g, (c) => WS_GLYPHS[c] || '·')}</span>`
       : `<span class="w">${esc(mid)}</span>`;
     return esc(x.slice(0, p)) + hl + esc(x.slice(x.length - s));
   };
@@ -188,15 +188,15 @@ function visibility(rows) {
 
 function gapHtml(count, from) {
   return `<div class="d-gap" data-from="${from}" data-count="${count}">
-    <span>⋯</span><span>${count} ${count === 1 ? 'riga invariata' : 'righe invariate'}</span></div>`;
+    <span>⋯</span><span>${count} ${count === 1 ? 'unchanged line' : 'unchanged lines'}</span></div>`;
 }
 
 // Lines between two hunks that git didn't send (they can't be expanded).
 const missingHtml = (count) =>
-  `<div class="d-gap static"><span>⋯</span><span>${count} ${count === 1 ? 'riga non inclusa' : 'righe non incluse'}</span></div>`;
+  `<div class="d-gap static"><span>⋯</span><span>${count} ${count === 1 ? 'line not included' : 'lines not included'}</span></div>`;
 
 // Only the final newline changed: the side that has it shows ⏎, highlighted.
-const EOL = '<span class="w ws" title="Cambia solo l\'a capo a fine file">⏎</span>';
+const EOL = '<span class="w ws" title="Only the final newline changed">⏎</span>';
 function modPair(r) {
   if (r.whole) return [esc(r.l.t), esc(r.r.t)];
   const [a, b] = wordDiff(r.l.t, r.r.t);
@@ -232,13 +232,13 @@ function unifiedRows(r, idx) {
 export function renderDiff(box, parsed, mode = 'side') {
   const { rows } = parsed;
   if (parsed.binary) {
-    box.innerHTML = '<div class="d-empty">File binario: nessuna anteprima del contenuto.</div>';
+    box.innerHTML = '<div class="d-empty">Binary file: no content preview.</div>';
     return { next() {}, prev() {}, count: 0 };
   }
   if (!rows.some((r) => r.type !== 'ctx' && r.type !== 'gap')) {
-    let why = 'Nessuna differenza nel contenuto (solo rinomina o permessi).';
-    if (parsed.created) why = 'File nuovo vuoto.';
-    else if (parsed.deleted) why = 'File vuoto eliminato.';
+    let why = 'No content changes (rename or permissions only).';
+    if (parsed.created) why = 'New empty file.';
+    else if (parsed.deleted) why = 'Deleted empty file.';
     box.innerHTML = `<div class="d-empty">${why}</div>`;
     return { next() {}, prev() {}, count: 0 };
   }

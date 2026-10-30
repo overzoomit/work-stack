@@ -135,12 +135,12 @@ test('il flag bypass accanto al nome decide come parte ogni agente: Claude acces
   const uuid = '12345678-1234-1234-1234-123456789abc';
   let t = await L.resumeClaude(p, '/p', uuid, 'sessione');
   assert.equal(created.at(-1).command, `claude --resume ${uuid}`, 'Riprendi follows the same flag');
-  assert.doesNotMatch(t.el.innerHTML, /bypass permessi/);
+  assert.doesNotMatch(t.el.innerHTML, /bypass permissions/);
   await toggle('claude');
   t = await L.resumeClaude(p, '/p', uuid, 'sessione');
   assert.equal(created.at(-1).command, `claude --resume ${uuid} --dangerously-skip-permissions`);
-  assert.match(t.el.innerHTML, /bypass permessi/, 'the pane shows the bypass badge');
-  assert.throws(() => L.resumeClaude(p, '/p', 'x; rm -rf ~', 't'), /ID di sessione non valido/);
+  assert.match(t.el.innerHTML, /bypass permissions/, 'the pane shows the bypass badge');
+  assert.throws(() => L.resumeClaude(p, '/p', 'x; rm -rf ~', 't'), /Invalid session ID/);
   await new Promise((r) => setTimeout(r, 700));
 });
 

@@ -51,8 +51,8 @@ test('le righe invariate lontane dalle modifiche vengono compresse e si espandon
   const box = fakeBox();
   renderDiff(box, diff(`${ctx(1, 10)}\n-vecchia\n+nuova\n${ctx(12, 20)}`), 'side');
   const html = box.html();
-  assert.match(html, /data-from="0" data-count="6">[\s\S]*6 righe invariate/);
-  assert.match(html, /data-count="5">[\s\S]*5 righe invariate/);
+  assert.match(html, /data-from="0" data-count="6">[\s\S]*6 unchanged lines/);
+  assert.match(html, /data-count="5">[\s\S]*5 unchanged lines/);
   assert.equal((html.match(/class="d-row ctx"/g) || []).length, 8, '4 context lines on each side of the change');
   // Click on the first gap: its rows replace it.
   let replaced = null;
@@ -65,10 +65,10 @@ test('le righe invariate lontane dalle modifiche vengono compresse e si espandon
 test('file binari e diff senza modifiche mostrano un messaggio invece delle righe', () => {
   const bin = fakeBox();
   assert.equal(renderDiff(bin, parseDiff('Binary files a/i.png and b/i.png differ\n')).count, 0);
-  assert.match(bin.innerHTML, /File binario/);
+  assert.match(bin.innerHTML, /Binary file/);
   const same = fakeBox();
   assert.equal(renderDiff(same, diff(' uguale')).count, 0);
-  assert.match(same.innerHTML, /Nessuna differenza/);
+  assert.match(same.innerHTML, /No content changes/);
 });
 
 test('un blocco enorme di righe cambiate viene accoppiato per posizione, senza confronto riga per riga', () => {
@@ -85,7 +85,7 @@ test('in modalità unificata le righe che git non ha inviato compaiono come segn
   const box = fakeBox();
   const parsed = parseDiff('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,1 +1,1 @@\n-a\n+b\n@@ -50,1 +50,1 @@\n-c\n+d\n');
   renderDiff(box, parsed, 'unified');
-  assert.match(box.html(), /d-gap static[\s\S]*48 righe non incluse/);
+  assert.match(box.html(), /d-gap static[\s\S]*48 lines not included/);
 });
 
 test('F7 e Shift+F7 visitano i blocchi di modifiche in ordine e ricominciano dall\'inizio', async () => {
@@ -115,8 +115,8 @@ test('il segnaposto delle righe non incluse usa il singolare per una riga (regre
     const box = fakeBox();
     // Two hunks one line apart: git left out exactly one unchanged line.
     renderDiff(box, parseDiff('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -3 +3 @@\n-c\n+d\n'), mode);
-    assert.match(box.html(), /1 riga non inclusa/, mode);
-    assert.doesNotMatch(box.html(), /1 righe/, mode);
+    assert.match(box.html(), /1 line not included/, mode);
+    assert.doesNotMatch(box.html(), /1 lines/, mode);
   }
 });
 
@@ -128,16 +128,16 @@ test('se cambia solo l\'a capo finale, il lato che ce l\'ha mostra ⏎ evidenzia
     renderDiff(box, parsed, mode);
     const html = box.html();
     assert.equal((html.match(/⏎/g) || []).length, 1, mode);
-    assert.match(html, /ultima riga<span class="w ws" title="[^"]*a capo[^"]*">⏎<\/span>/, `${mode}: on the new side, which ends with a newline`);
+    assert.match(html, /ultima riga<span class="w ws" title="[^"]*final newline[^"]*">⏎<\/span>/, `${mode}: on the new side, which ends with a newline`);
   }
 });
 
 test('un file nuovo o eliminato vuoto lo dice, invece di "solo rinomina o permessi" (regressione)', () => {
   const box = fakeBox();
   renderDiff(box, parseDiff('diff --git a/vuoto.txt b/vuoto.txt\nnew file mode 100644\nindex 0000000..e69de29\n'), 'side');
-  assert.match(box.html(), /File nuovo vuoto/);
+  assert.match(box.html(), /New empty file/);
   renderDiff(box, parseDiff('diff --git a/v b/v\ndeleted file mode 100644\nindex e69de29..0000000\n'), 'side');
-  assert.match(box.html(), /File vuoto eliminato/);
+  assert.match(box.html(), /Deleted empty file/);
   renderDiff(box, parseDiff('diff --git a/x b/x\nold mode 100644\nnew mode 100755\n'), 'side');
-  assert.match(box.html(), /solo rinomina o permessi/, 'a mode change keeps its message');
+  assert.match(box.html(), /rename or permissions only/, 'a mode change keeps its message');
 });

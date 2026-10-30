@@ -68,18 +68,18 @@ test('senza novità la barra di stato resta sulla versione e il controllo a mano
   assert.equal(capsule().classList.contains('has-update'), false);
   assert.equal(toasts().length, before, 'silent on its own');
   await check({ manual: true });
-  assert.equal(toasts().at(-1).firstChild.textContent, 'Work è aggiornato (1.1.0)');
+  assert.equal(toasts().at(-1).firstChild.textContent, 'Work is up to date (1.1.0)');
 });
 
 test('una versione nuova: capsula blu "Aggiorna a X" e un solo toast per versione', async () => {
   reply = newer('1.2.0');
   const before = toasts().length;
   await check();
-  assert.equal(capsule().textContent, 'Aggiorna a 1.2.0');
+  assert.equal(capsule().textContent, 'Update to 1.2.0');
   assert.ok(capsule().classList.contains('has-update'));
   assert.equal(toasts().length, before + 1);
-  assert.equal(toasts().at(-1).firstChild.textContent, 'Work 1.2.0 è disponibile');
-  assert.equal(toasts().at(-1).children.find((c) => c.className === 'toast-action').textContent, 'Dettagli');
+  assert.equal(toasts().at(-1).firstChild.textContent, 'Work 1.2.0 is available');
+  assert.equal(toasts().at(-1).children.find((c) => c.className === 'toast-action').textContent, 'Details');
 
   await check();
   await check();
@@ -99,7 +99,7 @@ test('"Dettagli" e la capsula aprono il popover con versione, data e note; Più 
   const [pop] = pops();
   assert.ok(pop, 'the popover opened');
   assert.match(pop.innerHTML, /Work 1\.4\.0/);
-  assert.match(pop.innerHTML, /Pubblicata il 12 ottobre 2026 · hai la 1\.1\.0/);
+  assert.match(pop.innerHTML, /Published October 12, 2026 · you have 1\.1\.0/);
   assert.match(pop.innerHTML, /<!--clean-->/, 'the notes go through the sanitizer');
   assert.match(pop.innerHTML, /<li>una cosa<\/li>/);
   assert.match(pop.style.transformOrigin, /100%/, 'it grows out of the capsule');
@@ -147,7 +147,7 @@ test('un errore di rete non disturba: niente toast, solo il log; a mano invece l
   await check();
   assert.equal(toasts().length, before);
   await check({ manual: true });
-  assert.match(toasts().at(-1).firstChild.textContent, /Impossibile controllare gli aggiornamenti: offline/);
+  assert.match(toasts().at(-1).firstChild.textContent, /Could not check for updates: offline/);
   fails = null;
 });
 
@@ -157,12 +157,12 @@ test('il comando di menu "Controlla aggiornamenti…" fa un controllo a mano', a
   onCheck();
   await tick();
   assert.equal(calls, before + 1);
-  assert.equal(toasts().at(-1).firstChild.textContent, 'Work è aggiornato (1.1.0)');
+  assert.equal(toasts().at(-1).firstChild.textContent, 'Work is up to date (1.1.0)');
 });
 
 test('notesHtml: note vuote hanno un testo, il markdown passa dal sanificatore', () => {
-  assert.match(notesHtml(''), /Nessuna nota/);
-  assert.match(notesHtml(undefined), /Nessuna nota/);
+  assert.match(notesHtml(''), /No release notes/);
+  assert.match(notesHtml(undefined), /No release notes/);
   assert.match(notesHtml('**ciao**'), /<!--clean--><p><strong>ciao<\/strong><\/p>/);
 });
 
@@ -178,16 +178,16 @@ const manualCheck = async (info) => {
 
 test('closingText: nomina cosa si chiude, con i singolari', () => {
   assert.equal(closingText({}), '');
-  assert.equal(closingText({ terminals: 2, agents: 1 }), '2 terminali e 1 agente verranno chiusi');
-  assert.equal(closingText({ terminals: 1 }), '1 terminale verrà chiuso');
-  assert.equal(closingText({ agents: 3, runs: 1 }), '3 agenti e 1 processo verranno chiusi');
-  assert.equal(closingText({ terminals: 2, agents: 2, runs: 2 }), '2 terminali, 2 agenti e 2 processi verranno chiusi');
+  assert.equal(closingText({ terminals: 2, agents: 1 }), '2 terminals and 1 agent will be closed');
+  assert.equal(closingText({ terminals: 1 }), '1 terminal will be closed');
+  assert.equal(closingText({ agents: 3, runs: 1 }), '3 agents and 1 process will be closed');
+  assert.equal(closingText({ terminals: 2, agents: 2, runs: 2 }), '2 terminals, 2 agents and 2 processes will be closed');
 });
 
 test('con canInstall il popover offre Installa e Più tardi, non Scarica; senza clic non si installa niente', async () => {
   installs = 0;
   await manualCheck(newer('2.0.0'));
-  assert.match(btns(), /data-up="install">Installa</);
+  assert.match(btns(), /data-up="install">Install</);
   assert.match(btns(), /data-up="later"/);
   assert.doesNotMatch(btns(), /data-up="download"/);
   await check();
@@ -195,7 +195,7 @@ test('con canInstall il popover offre Installa e Più tardi, non Scarica; senza 
   assert.equal(installs, 0, 'never on its own');
   closePop();
   await manualCheck(newer('2.0.0', { canInstall: false }));
-  assert.match(btns(), /data-up="download">Scarica</);
+  assert.match(btns(), /data-up="download">Download</);
   assert.doesNotMatch(btns(), /data-up="install"/);
   closePop();
   reply = null;
@@ -216,16 +216,16 @@ test('Installa: barra che scorre con i MB, poi "Riavvia ora" e "Al prossimo avvi
   const widths = [];
   pop.querySelector('.update-bar i').style.setProperty = (k, v) => widths.push([k, v]);
   onProgress(6_500_000, 13_000_000);
-  assert.equal(pop.querySelector('.update-mb').textContent, '6,5 di 13,0 MB');
+  assert.equal(pop.querySelector('.update-mb').textContent, '6.5 of 13.0 MB');
   onProgress(13_000_000, 13_000_000);
-  assert.equal(pop.querySelector('.update-mb').textContent, '13,0 di 13,0 MB');
+  assert.equal(pop.querySelector('.update-mb').textContent, '13.0 of 13.0 MB');
   assert.deepEqual(widths, [['--v', '0.500'], ['--v', '1.000']], 'the bar follows the bytes');
 
   finish();
   await tick();
-  assert.match(btns(), /data-up="restart">Riavvia ora</);
-  assert.match(btns(), /data-up="later">Al prossimo avvio</);
-  assert.equal(capsule().textContent, 'Riavvia per aggiornare');
+  assert.match(btns(), /data-up="restart">Restart now</);
+  assert.match(btns(), /data-up="later">On next launch</);
+  assert.equal(capsule().textContent, 'Restart to update');
 
   const calls0 = calls;
   await check();
@@ -234,9 +234,9 @@ test('Installa: barra che scorre con i MB, poi "Riavvia ora" e "Al prossimo avvi
 
   pop.querySelector('[data-up="later"]').onclick();
   endAnimation(pop);
-  assert.equal(capsule().textContent, 'Riavvia per aggiornare', 'the capsule keeps asking');
+  assert.equal(capsule().textContent, 'Restart to update', 'the capsule keeps asking');
   capsule().onclick();
-  assert.match(btns(), /Riavvia ora/, 'reopening finds the same state');
+  assert.match(btns(), /Restart now/, 'reopening finds the same state');
   closePop();
   installGate = null;
 });
@@ -254,9 +254,9 @@ test('se l\'installazione fallisce il popover dice perché e offre di riprovare'
   rejectIt(new Error('Aggiornamento non installato: firma non valida'));
   await tick();
   assert.equal(pops().at(-1).querySelector('.update-error').textContent, 'Aggiornamento non installato: firma non valida');
-  assert.match(pops().at(-1).querySelector('.update-btns').innerHTML, /data-up="install">Riprova</);
+  assert.match(pops().at(-1).querySelector('.update-btns').innerHTML, /data-up="install">Retry</);
   assert.match(toasts().at(-1).firstChild.textContent, /firma non valida/);
-  assert.equal($('#status-version').textContent, 'Aggiorna a 2.2.0', 'not installed: the capsule still offers it');
+  assert.equal($('#status-version').textContent, 'Update to 2.2.0', 'not installed: the capsule still offers it');
   installGate = null;
 });
 
@@ -293,7 +293,7 @@ test('Riavvia ora con terminali o agenti vivi li nomina e chiede conferma; senza
   const pop = pops().at(-1);
   pop.querySelector('[data-up="restart"]').onclick();
   await tick(0);
-  assert.equal($('#modal-text').textContent, 'Riavviando Work, 2 terminali e 1 agente verranno chiusi. Riavviare ora?');
+  assert.equal($('#modal-text').textContent, 'Restarting Work: 2 terminals and 1 agent will be closed. Restart now?');
   $('#modal-cancel').onclick();
   await tick();
   assert.equal(restarts, 0);

@@ -34,15 +34,15 @@ export function setOpenRow(list, id) {
 
 export function ago(ms) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 10) return 'ora';
+  if (s < 10) return 'now';
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)} min`;
   if (s < 86400) return `${Math.floor(s / 3600)} h`;
-  if (s < 30 * 86400) return `${Math.floor(s / 86400)} g`;
-  return new Date(ms).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} d`;
+  return new Date(ms).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
-export const fullDate = (ms) => new Date(ms).toLocaleString('it-IT', {
+export const fullDate = (ms) => new Date(ms).toLocaleString('en-US', {
   day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
 });
 
@@ -77,7 +77,7 @@ export function leave(el, done) {
 }
 
 // ── Toasts ───────────────────────────────────────────────────
-// action: { label, run } adds an inline button (e.g. "Annulla").
+// action: { label, run } adds an inline button (e.g. "Undo").
 export function toast(message, { error = false, action = null } = {}) {
   const el = document.createElement('div');
   el.className = `toast${error ? ' error' : ''}`;
@@ -305,8 +305,8 @@ addEventListener('blur', closeMenu);
 
 // After an export, the toast offers to show the file where it landed.
 export function logExported() {
-  const label = document.body.classList.contains('mac') ? 'Mostra nel Finder' : 'Mostra nella cartella';
-  toast('Log esportato', { action: { label, run: () => window.work.app.revealExport().catch(toastError) } });
+  const label = document.body.classList.contains('mac') ? 'Show in Finder' : 'Show in folder';
+  toast('Log exported', { action: { label, run: () => window.work.app.revealExport().catch(toastError) } });
 }
 
 // Cancelled in the save panel: no toast.
@@ -319,13 +319,13 @@ export async function exportLog() {
 }
 
 // Offered by the toasts of a problem, when the log has something to tell.
-export const exportLogAction = { label: 'Esporta log', run: exportLog };
+export const exportLogAction = { label: 'Export log', run: exportLog };
 
 export function stalledToast(ms) {
-  toast(`Work è rimasto bloccato per ${Math.round(ms / 1000)} s`, { error: true, action: exportLogAction });
+  toast(`Work was unresponsive for ${Math.round(ms / 1000)} s`, { error: true, action: exportLogAction });
 }
 
-// ⋯ in the top bar (Linux; macOS has Aiuto › Esporta log… in its menu bar).
+// ⋯ in the top bar (Linux; macOS has Help › Export log… in its menu bar).
 export function moreMenu(button, { focus = false, items = [] } = {}) {
-  contextMenu(0, 0, [...items, { label: 'Esporta log…', run: exportLog }], { anchor: button, focus });
+  contextMenu(0, 0, [...items, { label: 'Export log…', run: exportLog }], { anchor: button, focus });
 }

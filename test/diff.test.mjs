@@ -97,7 +97,7 @@ test('wordDiff evidenzia solo la parte cambiata e fa l\'escape dell\'HTML', () =
 test('una modifica di soli spazi o fine riga si vede: i caratteri invisibili diventano simboli (regressione)', () => {
   // CRLF → LF: the only difference is a trailing \r.
   const [crlf, lf] = wordDiff('const a = 1;\r', 'const a = 1;');
-  assert.equal(crlf, 'const a = 1;<span class="w ws" title="Cambiano solo spazi o fine riga">␍</span>');
+  assert.equal(crlf, 'const a = 1;<span class="w ws" title="Only whitespace or line endings changed">␍</span>');
   assert.equal(lf, 'const a = 1;');
   // Indentation: tab replaced by spaces.
   const [tab, spaces] = wordDiff('\tx', '  x');

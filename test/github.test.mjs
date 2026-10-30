@@ -100,7 +100,7 @@ const show = async (s) => {
 
 test('senza gh il tab chiede di installarlo e apre la pagina del CLI', async () => {
   await show({ installed: false });
-  assert.match(body(), /Serve GitHub CLI/);
+  assert.match(body(), /GitHub CLI required/);
   click('install');
   assert.deepEqual(env.opened.at(-1), 'https://cli.github.com');
 });
@@ -112,14 +112,14 @@ test('un gh troppo vecchio è trattato come mancante, con il motivo', async () =
 
 test('senza login il tab propone di accedere e apre un terminale', async () => {
   await show({ installed: true, authed: false });
-  assert.match(body(), /Accedi a GitHub/);
+  assert.match(body(), /Sign in to GitHub/);
   click('login');
   assert.deepEqual(logins, ['/p']);
 });
 
 test('un progetto senza remote GitHub lo dice, senza azioni', async () => {
   await show({ installed: true, authed: true, repo: null });
-  assert.match(body(), /non ha un repository su GitHub/);
+  assert.match(body(), /has no GitHub repository/);
   assert.doesNotMatch(body(), /data-gh=/);
 });
 
@@ -244,13 +244,13 @@ test('con il tab nascosto il ritmo resta di un minuto, anche con una run viva', 
 test('un errore nel leggere le run resta nella sezione, con "Riprova"', async () => {
   runs = new Error('Non hai i permessi per farlo su questo repository.');
   await show({ installed: true, authed: true, repo: 'a/b', url: 'u' });
-  assert.match(body(), /Impossibile leggere le run/);
+  assert.match(body(), /Couldn’t load runs/);
   assert.match(body(), /Non hai i permessi/);
   assert.match(body(), /a\/b/, 'the repository header stays');
   runs = [];
   click('retry');
   await tick();
-  assert.match(body(), /Nessuna run/);
+  assert.match(body(), /No runs/);
 });
 
 test('dopo un push fatto da Work le run si rileggono subito e dopo qualche secondo', async () => {
@@ -415,9 +415,9 @@ test('secretNameError: la stessa regola del backend, detta mentre si scrive', ()
   assert.equal(secretNameError(''), '', 'empty is not an error yet');
   assert.equal(secretNameError('NPM_TOKEN'), '');
   assert.equal(secretNameError('_x1'), '');
-  assert.match(secretNameError('1ABC'), /cifra/);
-  assert.match(secretNameError('A B'), /Solo lettere/);
-  assert.match(secretNameError('A-B'), /Solo lettere/);
+  assert.match(secretNameError('1ABC'), /digit/);
+  assert.match(secretNameError('A B'), /Only letters/);
+  assert.match(secretNameError('A-B'), /Only letters/);
   assert.match(secretNameError('GITHUB_TOKEN'), /GITHUB_/);
   assert.match(secretNameError('github_x'), /GITHUB_/);
 });
@@ -429,7 +429,7 @@ test('il controllo segmentato compare solo con un repository, ricorda la sezione
   assert.equal($('#gh-nav').innerHTML, '', 'no control without a repository');
   await show(repoStatus);
   assert.match($('#gh-nav').innerHTML, /data-seg="actions"[\s\S]*data-seg="secrets"/);
-  assert.match(body(), /Esegui workflow/, 'Actions is the default');
+  assert.match(body(), /Run workflow/, 'Actions is the default');
 
   secretsCalls = 0;
   chooseSection('secrets');
@@ -438,14 +438,14 @@ test('il controllo segmentato compare solo con un repository, ricorda la sezione
   assert.equal(secretsCalls, 1);
   const html = body();
   assert.match(html, /ZED/);
-  assert.match(html, /aggiornato 3 g fa/);
-  assert.match(html, /aggiornato ora/);
-  assert.doesNotMatch(html, /Esegui workflow/);
+  assert.match(html, /updated 3 d ago/);
+  assert.match(html, /updated just now/);
+  assert.doesNotMatch(html, /Run workflow/);
 
   // A fresh visit to the project opens on the same section.
   await show(repoStatus);
   await tick();
-  assert.match(body(), /Secret del repository/);
+  assert.match(body(), /Repository secrets/);
   chooseSection('actions');
   assert.equal(stored.get('work.gh.section:/p'), 'actions');
   stored.clear();
@@ -471,7 +471,7 @@ test('Nuovo secret: il nome è validato mentre si scrive e Salva resta spento fi
   assert.ok(sheetEl(), 'the sheet opens inside the panel');
   assert.equal(field('save').disabled, true);
   typeIn('name', '1ABC');
-  assert.match(field('error').textContent, /cifra/);
+  assert.match(field('error').textContent, /digit/);
   typeIn('value', 'x');
   assert.equal(field('save').disabled, true, 'a wrong name keeps Save off');
   typeIn('name', 'GITHUB_TOKEN');
@@ -603,14 +603,14 @@ const onArtifacts = async () => {
 
 test('bytes ed expiry: unità leggibili e "scaduto" dopo la scadenza', () => {
   assert.equal(bytes(0), '0 B');
-  assert.equal(bytes(1536), '1,5 KB');
+  assert.equal(bytes(1536), '1.5 KB');
   assert.equal(bytes(5 * 1024 * 1024), '5 MB');
   const now = Date.parse('2026-10-01T12:00:00Z');
-  assert.equal(expiry('2026-10-13T12:00:00Z', now), 'scade tra 12 g');
-  assert.equal(expiry('2026-10-01T15:30:00Z', now), 'scade tra 3 h');
-  assert.equal(expiry('2026-10-01T12:20:00Z', now), 'scade tra 20 min');
-  assert.equal(expiry('2026-10-01T11:59:00Z', now), 'scaduto');
-  assert.equal(expiry('', now), 'scaduto');
+  assert.equal(expiry('2026-10-13T12:00:00Z', now), 'expires in 12 d');
+  assert.equal(expiry('2026-10-01T15:30:00Z', now), 'expires in 3 h');
+  assert.equal(expiry('2026-10-01T12:20:00Z', now), 'expires in 20 min');
+  assert.equal(expiry('2026-10-01T11:59:00Z', now), 'expired');
+  assert.equal(expiry('', now), 'expired');
 });
 
 test('Artifacts: nome, run di origine, dimensione e scadenza; gli scaduti in grigio e senza "Scarica"', async () => {
@@ -623,12 +623,12 @@ test('Artifacts: nome, run di origine, dimensione e scadenza; gli scaduti in gri
   assert.match($('#gh-nav').innerHTML, /data-seg="artifacts"/);
   const [live, expired, late] = body().split('<li data-id=').slice(1);
   assert.match(live, /bundle &lt;mac&gt;/);
-  assert.match(live, /run 101 · 210,5 KB · scade tra 12 g/);
+  assert.match(live, /run 101 · 210.5 KB · expires in 12 d/);
   assert.match(live, /data-gh="downloadArtifact"/);
   assert.doesNotMatch(live, /expired/);
   for (const part of [expired, late]) {
     assert.match(part, /expired/);
-    assert.match(part, /scaduto/);
+    assert.match(part, /expired/);
     assert.doesNotMatch(part, /downloadArtifact/);
     assert.match(part, /deleteArtifact/);
   }
@@ -645,7 +645,7 @@ test('Scarica: chiede la cartella, scarica e il toast offre di mostrarla nel Fin
   await tick();
   assert.deepEqual(downloads, [['/p', 101, 'bundle', '/Users/me/Downloads']]);
   const action = revealAction();
-  assert.match(action.textContent, /Mostra nel/);
+  assert.match(action.textContent, /Show in/);
   action.onclick();
   await tick();
   assert.deepEqual(revealed, ['/Users/me/Downloads/bundle']);
@@ -694,10 +694,10 @@ test('Elimina un artifact chiede conferma; senza il sì non parte nulla', async 
 test('un errore nel leggere gli artifact resta nella sezione, con "Riprova"', async () => {
   artifacts = new Error('Non hai i permessi per farlo su questo repository.');
   await onArtifacts();
-  assert.match(body(), /Impossibile leggere gli artifact/);
+  assert.match(body(), /Couldn’t load artifacts/);
   artifacts = [];
   click('retryArtifacts');
   await tick();
-  assert.match(body(), /Nessun artifact/);
+  assert.match(body(), /No artifacts/);
   stored.clear();
 });

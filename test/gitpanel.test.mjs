@@ -155,14 +155,14 @@ test('graph: clic su un commit apre il dettaglio con Checkout del suo ramo; il t
   await tick();
   assert.equal($('#review').hidden, false, 'the commit details open');
   const buttons = Object.fromEntries($('#review-actions').children.map((b) => [b.textContent, b]));
-  assert.deepEqual(Object.keys(buttons), ['Checkout main', 'Nuovo branch qui', 'Cherry-pick', 'Revert']);
+  assert.deepEqual(Object.keys(buttons), ['Checkout main', 'New branch here', 'Cherry-pick', 'Revert']);
   buttons['Checkout main'].onclick();
   await tick();
   assert.deepEqual(calls.at(-1), ['checkout', { branch: 'main' }]);
 
   $('#graph').oncontextmenu({ target: rowTarget(0), preventDefault() {}, clientX: 5, clientY: 5 });
   const items = openMenuItems();
-  assert.ok(items['Checkout main'] && items['Nuovo branch qui…'] && items['Cherry-pick'] && items.Revert && items['Copia hash']);
+  assert.ok(items['Checkout main'] && items['New branch here…'] && items['Cherry-pick'] && items.Revert && items['Copy hash']);
   items['Cherry-pick'].onclick();
   await tick();
   assert.deepEqual(calls.at(-1), ['cherryPick', { hash: 'c1' }]);
@@ -183,17 +183,17 @@ test('tasto destro su un file: stage/unstage, anteprima, e "Scarta" solo per fil
     return openMenuItems();
   };
   let items = menuFor('#unstaged', 'b.js', 'M', false);
-  assert.ok(items['Metti in stage'] && items['Scarta modifiche…'] && items['Anteprima file'] && items["Mostra nell'albero"]);
-  items['Metti in stage'].onclick();
+  assert.ok(items['Stage'] && items['Discard changes…'] && items['Preview file'] && items['Reveal in tree']);
+  items['Stage'].onclick();
   await tick();
   assert.deepEqual(calls.at(-1), ['stage', { files: ['b.js'] }]);
 
   items = menuFor('#staged', 'a.js', 'M', true);
-  assert.ok(items['Togli dallo stage'] && !items['Scarta modifiche…'], 'staged changes are not discarded from here');
+  assert.ok(items['Unstage'] && !items['Discard changes…'], 'staged changes are not discarded from here');
   items = menuFor('#unstaged', 'nuovo.txt', 'U', false);
-  assert.ok(!items['Scarta modifiche…'], 'untracked files are deleted from the Project tab, not discarded');
+  assert.ok(!items['Discard changes…'], 'untracked files are deleted from the Project tab, not discarded');
   items = menuFor('#unstaged', 'via.js', 'D', false);
-  assert.equal(items['Anteprima file'].disabled, true, 'a deleted file has nothing to preview');
+  assert.equal(items['Preview file'].disabled, true, 'a deleted file has nothing to preview');
 });
 
 test('un file in conflitto non offre "Scarta" (git non può) ma solo lo stage per segnarlo risolto (regressione)', async () => {
@@ -205,8 +205,8 @@ test('un file in conflitto non offre "Scarta" (git non può) ma solo lo stage pe
   const li = { dataset: { file: 'c.js', code: 'X', staged: '' } };
   $('#unstaged').listeners.contextmenu[0]({ target: { closest: () => li }, preventDefault() {}, clientX: 1, clientY: 1 });
   const items = openMenuItems();
-  assert.ok(items['Metti in stage']);
-  assert.ok(!items['Scarta modifiche…']);
+  assert.ok(items['Stage']);
+  assert.ok(!items['Discard changes…']);
 });
 
 test('spuntando Amend con il messaggio vuoto si precompila il messaggio dell\'ultimo commit (regressione)', async () => {
@@ -243,7 +243,7 @@ test('con HEAD staccato il selettore dei rami lo mostra come stato corrente, non
   branchesReply = [{ name: 'main', current: false, remote: false }];
   await showGit({ path: '/det', root: '/det' });
   const html = $('#branch-select').innerHTML;
-  assert.match(html, /<option selected disabled value="HEAD">HEAD staccato<\/option>/);
+  assert.match(html, /<option selected disabled value="HEAD">Detached HEAD<\/option>/);
   assert.match(html, /<option >main<\/option>/);
   branchesReply = [{ name: 'main', current: true, remote: false }, { name: 'dev', current: false, remote: false }];
 });
@@ -258,7 +258,7 @@ test('un pull fallito offre "Esporta log" nel toast di errore; un checkout falli
   await runGit('pull');
   failPull = false;
   assert.equal(lastToast().firstChild.textContent, 'fatal: Not possible to fast-forward');
-  assert.equal(action(lastToast())?.textContent, 'Esporta log');
+  assert.equal(action(lastToast())?.textContent, 'Export log');
 
   failCheckout = true;
   await runGit('checkout', { branch: 'dev' });

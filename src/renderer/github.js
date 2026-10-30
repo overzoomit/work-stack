@@ -12,8 +12,8 @@ let timer = 0;
 const activeProject = () => hooks.activeProject?.();
 
 const SECTIONS = [['actions', 'Actions'], ['secrets', 'Secrets'], ['artifacts', 'Artifacts']];
-const DONE = { rerun: 'Run rimessa in coda', rerunFailed: 'Job falliti rimessi in coda', cancel: 'Run annullata' };
-const STATE_LABEL = { queued: 'In coda', running: 'In corso', success: 'Riuscita', failure: 'Fallita', cancelled: 'Annullata' };
+const DONE = { rerun: 'Run re-queued', rerunFailed: 'Failed jobs re-queued', cancel: 'Run cancelled' };
+const STATE_LABEL = { queued: 'Queued', running: 'In progress', success: 'Succeeded', failure: 'Failed', cancelled: 'Cancelled' };
 const live = (runs) => runs.some((r) => r.state === 'running' || r.state === 'queued');
 // The GitHub section is on screen only while it is expanded.
 const shown = () => visible;
@@ -40,15 +40,15 @@ export function duration(ms) {
 // What the tab shows instead of the repository when gh can't give it; null when it can.
 export function emptyState(s) {
   if (!s.installed) {
-    return { id: 'install', title: 'Serve GitHub CLI', text: 'Work usa il CLI di GitHub per leggere e governare il repository: installalo e torna qui.', action: 'Scarica GitHub CLI' };
+    return { id: 'install', title: 'GitHub CLI required', text: 'Work uses the GitHub CLI to read and manage the repository: install it and come back.', action: 'Download GitHub CLI' };
   }
   if (s.old) {
-    return { id: 'install', title: 'Serve GitHub CLI 2.40 o più recente', text: 'La versione installata è troppo vecchia: aggiornala e torna qui.', action: 'Scarica GitHub CLI' };
+    return { id: 'install', title: 'GitHub CLI 2.40 or later required', text: 'The installed version is too old: update it and come back.', action: 'Download GitHub CLI' };
   }
   if (!s.authed) {
-    return { id: 'login', title: 'Accedi a GitHub', text: 'Si apre un terminale con gh auth login. Work non vede né salva il tuo token.', action: 'Accedi a GitHub' };
+    return { id: 'login', title: 'Sign in to GitHub', text: 'A terminal opens with gh auth login. Work never sees or stores your token.', action: 'Sign in to GitHub' };
   }
-  if (!s.repo) return { id: 'none', title: 'Questo progetto non ha un repository su GitHub', text: '', action: null };
+  if (!s.repo) return { id: 'none', title: 'This project has no GitHub repository', text: '', action: null };
   return null;
 }
 
@@ -66,9 +66,9 @@ const jobTook = (j) => {
 
 function jobsHtml(g, r) {
   const j = g.jobs?.[r.id];
-  if (!j) return '<p class="gh-note">Carico i job…</p>';
+  if (!j) return '<p class="gh-note">Loading jobs…</p>';
   if (j.error) return `<p class="gh-note">${esc(j.error)}</p>`;
-  if (!j.list.length) return '<p class="gh-note">Nessun job.</p>';
+  if (!j.list.length) return '<p class="gh-note">No jobs.</p>';
   return `<ul class="gh-jobs">${j.list.map((x) => `<li><span class="dot g-${x.state}" title="${STATE_LABEL[x.state]}"></span><span class="gh-job-name">${esc(x.name)}</span><i>${jobTook(x)}</i></li>`).join('')}</ul>`;
 }
 
@@ -90,31 +90,31 @@ function runRow(g, r) {
     <div class="row-actions"><div>
       <div class="gh-detail">${jobsHtml(g, r)}</div>
       <div class="row-btns">
-        <button class="btn btn-small" data-gh="rerun">Riesegui</button>
-        ${r.state === 'failure' ? '<button class="btn btn-small" data-gh="rerunFailed">Riesegui falliti</button>' : ''}
-        ${isLive ? '<button class="btn btn-small btn-danger-text" data-gh="cancel">Annulla</button>' : ''}
-        <button class="btn btn-small" data-gh="openRun">Apri su GitHub</button>
+        <button class="btn btn-small" data-gh="rerun">Re-run</button>
+        ${r.state === 'failure' ? '<button class="btn btn-small" data-gh="rerunFailed">Re-run failed</button>' : ''}
+        ${isLive ? '<button class="btn btn-small btn-danger-text" data-gh="cancel">Cancel</button>' : ''}
+        <button class="btn btn-small" data-gh="openRun">Open on GitHub</button>
       </div>
     </div></div>
   </li>`;
 }
 
 function actionsHtml(g) {
-  if (g.runsError) return card('Impossibile leggere le run', g.runsError, 'retry', 'Riprova');
-  if (!g.runs) return '<p class="empty">Carico le run…</p>';
-  if (!g.runs.length) return '<p class="empty">Nessuna run in questo repository.</p>';
+  if (g.runsError) return card('Couldn’t load runs', g.runsError, 'retry', 'Retry');
+  if (!g.runs) return '<p class="empty">Loading runs…</p>';
+  if (!g.runs.length) return '<p class="empty">No runs in this repository.</p>';
   return `<ul class="list gh-list">${g.runs.map((r) => runRow(g, r)).join('')}</ul>`;
 }
 
 const actionsPage = (g) => `<div class="gh-head"><b>${esc(g.status.repo)}</b>
-  <button class="btn btn-small" data-gh="workflow">Esegui workflow <span class="btn-chev">⌄</span></button>
-  <button class="btn btn-small" data-gh="open">Apri su GitHub</button></div>${actionsHtml(g)}`;
+  <button class="btn btn-small" data-gh="workflow">Run workflow <span class="btn-chev">⌄</span></button>
+  <button class="btn btn-small" data-gh="open">Open on GitHub</button></div>${actionsHtml(g)}`;
 
 // GitHub never gives a secret's value back: a row has a name and an age.
 const since = (iso) => {
   const a = ago(Date.parse(iso));
-  if (a === 'ora') return 'aggiornato ora';
-  return /^\d+(s| min| h| g)$/.test(a) ? `aggiornato ${a} fa` : `aggiornato il ${a}`;
+  if (a === 'now') return 'updated just now';
+  return /^\d+(s| min| h| d)$/.test(a) ? `updated ${a} ago` : `updated on ${a}`;
 };
 
 function secretRow(g, x) {
@@ -129,18 +129,18 @@ function secretRow(g, x) {
     </button>
     <div class="row-actions"><div>
       <div class="row-btns">
-        <button class="btn btn-small" data-gh="updateSecret">Aggiorna valore</button>
-        <button class="btn btn-small btn-danger-text" data-gh="deleteSecret">Elimina</button>
+        <button class="btn btn-small" data-gh="updateSecret">Update value</button>
+        <button class="btn btn-small btn-danger-text" data-gh="deleteSecret">Delete</button>
       </div>
     </div></div>
   </li>`;
 }
 
 function secretsPage(g) {
-  const head = '<div class="gh-head"><b>Secret del repository</b><button class="btn btn-small" data-gh="newSecret">＋ Nuovo secret</button></div>';
-  if (g.secretsError) return head + card('Impossibile leggere i secret', g.secretsError, 'retrySecrets', 'Riprova');
-  if (!g.secrets) return `${head}<p class="empty">Carico i secret…</p>`;
-  if (!g.secrets.length) return `${head}<p class="empty">Nessun secret in questo repository.</p>`;
+  const head = '<div class="gh-head"><b>Repository secrets</b><button class="btn btn-small" data-gh="newSecret">＋ New secret</button></div>';
+  if (g.secretsError) return head + card('Couldn’t load secrets', g.secretsError, 'retrySecrets', 'Retry');
+  if (!g.secrets) return `${head}<p class="empty">Loading secrets…</p>`;
+  if (!g.secrets.length) return `${head}<p class="empty">No secrets in this repository.</p>`;
   return `${head}<ul class="list gh-list">${g.secrets.map((x) => secretRow(g, x)).join('')}</ul>`;
 }
 
@@ -151,43 +151,43 @@ export function bytes(n) {
     n /= 1024;
     i++;
   }
-  return `${n.toLocaleString('it-IT', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+  return `${n.toLocaleString('en-US', { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
 }
 
-// "scade tra 12 g", or "scaduto" once it is past.
+// "expires in 12 d", or "expired" once it is past.
 export function expiry(iso, now = Date.now()) {
   const s = (Date.parse(iso) - now) / 1000;
-  if (!(s > 0)) return 'scaduto';
-  if (s < 3600) return `scade tra ${Math.max(1, Math.floor(s / 60))} min`;
-  if (s < 86400) return `scade tra ${Math.floor(s / 3600)} h`;
-  return `scade tra ${Math.floor(s / 86400)} g`;
+  if (!(s > 0)) return 'expired';
+  if (s < 3600) return `expires in ${Math.max(1, Math.floor(s / 60))} min`;
+  if (s < 86400) return `expires in ${Math.floor(s / 3600)} h`;
+  return `expires in ${Math.floor(s / 86400)} d`;
 }
 
 function artifactRow(g, a) {
   const open = String(a.id) === g.open;
-  const gone = a.expired || expiry(a.expiresAt) === 'scaduto';
+  const gone = a.expired || expiry(a.expiresAt) === 'expired';
   return `<li data-id="${a.id}" class="row-item gh-item gh-artifact${open ? ' open' : ''}${gone ? ' expired' : ''}">
     <button class="row-main" aria-expanded="${open}">
       <div class="li-main">
         <div class="li-title">${esc(a.name)}</div>
-        <div class="li-sub">run ${a.run} · ${bytes(a.size)} · ${gone ? 'scaduto' : expiry(a.expiresAt)}</div>
+        <div class="li-sub">run ${a.run} · ${bytes(a.size)} · ${gone ? 'expired' : expiry(a.expiresAt)}</div>
       </div>
       <span class="chev">›</span>
     </button>
     <div class="row-actions"><div>
       <div class="row-btns">
-        ${gone ? '' : '<button class="btn btn-small" data-gh="downloadArtifact">Scarica</button>'}
-        <button class="btn btn-small btn-danger-text" data-gh="deleteArtifact">Elimina</button>
+        ${gone ? '' : '<button class="btn btn-small" data-gh="downloadArtifact">Download</button>'}
+        <button class="btn btn-small btn-danger-text" data-gh="deleteArtifact">Delete</button>
       </div>
     </div></div>
   </li>`;
 }
 
 function artifactsPage(g) {
-  const head = '<div class="gh-head"><b>Artifact del repository</b></div>';
-  if (g.artifactsError) return head + card('Impossibile leggere gli artifact', g.artifactsError, 'retryArtifacts', 'Riprova');
-  if (!g.artifacts) return `${head}<p class="empty">Carico gli artifact…</p>`;
-  if (!g.artifacts.length) return `${head}<p class="empty">Nessun artifact in questo repository.</p>`;
+  const head = '<div class="gh-head"><b>Repository artifacts</b></div>';
+  if (g.artifactsError) return head + card('Couldn’t load artifacts', g.artifactsError, 'retryArtifacts', 'Retry');
+  if (!g.artifacts) return `${head}<p class="empty">Loading artifacts…</p>`;
+  if (!g.artifacts.length) return `${head}<p class="empty">No artifacts in this repository.</p>`;
   return `${head}<ul class="list gh-list">${g.artifacts.map((a) => artifactRow(g, a)).join('')}</ul>`;
 }
 
@@ -229,8 +229,8 @@ function render() {
   const g = p.gh;
   const ready = g?.status && !g.error && !emptyState(g.status);
   if (setHtml($('#gh-nav'), ready ? navHtml() : '') || ready) applyNav(p);
-  if (g?.error) setHtml($('#gh-content'), card('Impossibile leggere GitHub', g.error, 'retry', 'Riprova'));
-  else if (!g?.status) setHtml($('#gh-content'), '<p class="empty">Carico…</p>');
+  if (g?.error) setHtml($('#gh-content'), card('Couldn’t reach GitHub', g.error, 'retry', 'Retry'));
+  else if (!g?.status) setHtml($('#gh-content'), '<p class="empty">Loading…</p>');
   else {
     const e = emptyState(g.status);
     setHtml($('#gh-content'), e ? card(e.title, e.text, e.id, e.action) : PAGES[sectionOf(p)](g));
@@ -339,8 +339,8 @@ function setSection(p, id) {
 // The same rule as the backend, so a wrong name is told while typing.
 export function secretNameError(name) {
   if (!name) return '';
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Solo lettere, cifre e _; non può iniziare con una cifra.';
-  if (/^github_/i.test(name)) return 'I nomi che iniziano con GITHUB_ sono riservati da GitHub.';
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Only letters, digits and _; it can’t start with a digit.';
+  if (/^github_/i.test(name)) return 'Names starting with GITHUB_ are reserved by GitHub.';
   return '';
 }
 
@@ -360,20 +360,20 @@ function openSecretSheet(p, existing) {
   const el = document.createElement('div');
   el.className = 'gh-sheet';
   el.innerHTML = `<form class="gh-sheet-card" autocomplete="off">
-    <h3>${existing ? 'Aggiorna valore' : 'Nuovo secret'}</h3>
-    <label class="gh-field">Nome
-      <input id="gh-secret-name" class="gh-mono" spellcheck="false" ${existing ? 'readonly' : 'placeholder="NOME_DEL_SECRET"'}>
+    <h3>${existing ? 'Update value' : 'New secret'}</h3>
+    <label class="gh-field">Name
+      <input id="gh-secret-name" class="gh-mono" spellcheck="false" ${existing ? 'readonly' : 'placeholder="SECRET_NAME"'}>
     </label>
     <p class="gh-field-error" id="gh-secret-error"></p>
-    <label class="gh-field">Valore
+    <label class="gh-field">Value
       <span class="gh-value">
-        <textarea id="gh-secret-value" class="gh-mono" rows="6" spellcheck="false" placeholder="Anche un certificato su più righe"></textarea>
-        <button type="button" class="icon-btn gh-eye" id="gh-secret-eye" title="Mostra il valore" aria-pressed="false">◉</button>
+        <textarea id="gh-secret-value" class="gh-mono" rows="6" spellcheck="false" placeholder="Multi-line values such as certificates are fine"></textarea>
+        <button type="button" class="icon-btn gh-eye" id="gh-secret-eye" title="Show value" aria-pressed="false">◉</button>
       </span>
     </label>
     <div class="gh-sheet-btns">
-      <button type="button" class="btn" id="gh-secret-cancel">Annulla</button>
-      <button type="submit" class="btn btn-accent" id="gh-secret-save" disabled>Salva</button>
+      <button type="button" class="btn" id="gh-secret-cancel">Cancel</button>
+      <button type="submit" class="btn btn-accent" id="gh-secret-save" disabled>Save</button>
     </div>
   </form>`;
   const [name, value, error, eye, save] = ['name', 'value', 'error', 'eye', 'save'].map((x) => el.querySelector(`#gh-secret-${x}`));
@@ -390,7 +390,7 @@ function openSecretSheet(p, existing) {
   eye.onclick = () => {
     const hidden = value.classList.toggle('masked');
     eye.setAttribute('aria-pressed', String(!hidden));
-    eye.title = hidden ? 'Mostra il valore' : 'Nascondi il valore';
+    eye.title = hidden ? 'Show value' : 'Hide value';
   };
   el.querySelector('#gh-secret-cancel').onclick = closeSheet;
   el.onkeydown = (e) => e.key === 'Escape' && closeSheet();
@@ -402,7 +402,7 @@ function openSecretSheet(p, existing) {
     save.disabled = true;
     try {
       await work.github.secretSet(p.path, name.value, value.value);
-      toast(`Secret «${name.value}» salvato`);
+      toast(`Secret “${name.value}” saved`);
       closeSheet();
       loadSecrets(p);
     } catch (err) {
@@ -424,21 +424,21 @@ async function downloadArtifact(p, btn, a) {
     path = await work.github.artifactDownload(p.path, a.run, a.name, dir);
   });
   if (!ok) return;
-  const label = document.body.classList.contains('mac') ? 'Mostra nel Finder' : 'Mostra nella cartella';
-  toast('Scaricato', { action: { label, run: () => work.github.artifactReveal(path).catch(toastError) } });
+  const label = document.body.classList.contains('mac') ? 'Show in Finder' : 'Show in folder';
+  toast('Downloaded', { action: { label, run: () => work.github.artifactReveal(path).catch(toastError) } });
 }
 
 async function deleteArtifact(p, btn, a) {
-  const ok = await ask({ text: `Eliminare l'artifact «${a.name}»? Non si può annullare.`, input: false, danger: true, okLabel: 'Elimina' });
-  if (ok && await act(p, btn, () => work.github.artifactDelete(p.path, a.id), `Artifact «${a.name}» eliminato`)) {
+  const ok = await ask({ text: `Delete artifact “${a.name}”? This can’t be undone.`, input: false, danger: true, okLabel: 'Delete' });
+  if (ok && await act(p, btn, () => work.github.artifactDelete(p.path, a.id), `Artifact “${a.name}” deleted`)) {
     p.gh.open = null;
     loadArtifacts(p);
   }
 }
 
 async function deleteSecret(p, btn, name) {
-  const ok = await ask({ text: `Eliminare il secret «${name}»? I workflow che lo usano non lo troveranno più.`, input: false, danger: true, okLabel: 'Elimina' });
-  if (ok && await act(p, btn, () => work.github.secretDelete(p.path, name), `Secret «${name}» eliminato`)) {
+  const ok = await ask({ text: `Delete secret “${name}”? Workflows that use it will no longer find it.`, input: false, danger: true, okLabel: 'Delete' });
+  if (ok && await act(p, btn, () => work.github.secretDelete(p.path, name), `Secret “${name}” deleted`)) {
     p.gh.open = null;
     loadSecrets(p);
   }
@@ -492,7 +492,7 @@ async function act(p, btn, work_, done) {
 
 async function runAction(p, btn, run, action) {
   if (action === 'cancel') {
-    const ok = await ask({ text: `Annullare la run «${run.title || run.workflow}»?`, input: false, danger: true, okLabel: 'Annulla run' });
+    const ok = await ask({ text: `Cancel run “${run.title || run.workflow}”?`, input: false, danger: true, okLabel: 'Cancel run' });
     if (!ok) return;
   }
   if (await act(p, btn, () => work.github.runAction(p.path, run.id, action), DONE[action])) refreshSoon();
@@ -502,18 +502,18 @@ async function workflowMenu(p, btn) {
   const branch = p.gitStatus?.branch?.name;
   let list;
   const ok = await act(p, btn, async () => {
-    if (!branch) throw new Error('Nessun branch attuale: sei in detached HEAD.');
+    if (!branch) throw new Error('No current branch: you are in detached HEAD.');
     list = await work.github.workflows(p.path);
   });
   if (!ok) return;
-  if (!list.length) return toast('Nessun workflow da avviare in questo repository.');
+  if (!list.length) return toast('No workflows to run in this repository.');
   contextMenu(0, 0, list.map((w) => ({
     label: w.name,
-    detail: `su ${branch}`,
+    detail: `on ${branch}`,
     run: async () => {
       try {
         await work.github.runWorkflow(p.path, w.id, branch);
-        toast(`«${w.name}» avviato su ${branch}`);
+        toast(`“${w.name}” started on ${branch}`);
         refreshSoon();
       } catch (e) {
         toastError(e);

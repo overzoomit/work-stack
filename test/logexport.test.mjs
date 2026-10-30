@@ -17,12 +17,12 @@ test('il menu ⋯ ha una sola voce, "Esporta log…", ed esporta', async () => {
   const button = new El();
   moreMenu(button);
   assert.ok(button.classList.contains('open'), 'the button stays highlighted while its menu is open');
-  assert.deepEqual(Object.keys(openMenuItems()), ['Esporta log…']);
-  openMenuItems()['Esporta log…'].onclick();
+  assert.deepEqual(Object.keys(openMenuItems()), ['Export log…']);
+  openMenuItems()['Export log…'].onclick();
   await tick();
   assert.equal(exported.length, 1);
-  assert.equal(lastToast().firstChild.textContent, 'Log esportato');
-  assert.equal(action(lastToast()).textContent, 'Mostra nella cartella');
+  assert.equal(lastToast().firstChild.textContent, 'Log exported');
+  assert.equal(action(lastToast()).textContent, 'Show in folder');
   assert.ok(!button.classList.contains('open'));
 });
 
@@ -30,7 +30,7 @@ test('annullare la finestra di salvataggio non mostra nessun toast', async () =>
   const toasts = document.querySelector('#toasts').children.length;
   exportReply = null;
   moreMenu(new El());
-  openMenuItems()['Esporta log…'].onclick();
+  openMenuItems()['Export log…'].onclick();
   await tick();
   exportReply = '/home/u/Work-log.txt';
   assert.equal(document.querySelector('#toasts').children.length, toasts);
@@ -39,8 +39,8 @@ test('annullare la finestra di salvataggio non mostra nessun toast', async () =>
 
 test('il toast di uno stallo dice quanto è durato e offre "Esporta log"', async () => {
   stalledToast(6200);
-  assert.equal(lastToast().firstChild.textContent, 'Work è rimasto bloccato per 6 s');
-  assert.equal(action(lastToast()).textContent, 'Esporta log');
+  assert.equal(lastToast().firstChild.textContent, 'Work was unresponsive for 6 s');
+  assert.equal(action(lastToast()).textContent, 'Export log');
   const before = exported.length;
   action(lastToast()).onclick();
   await tick();

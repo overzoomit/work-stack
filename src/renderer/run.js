@@ -62,7 +62,7 @@ export async function detect(p) {
 }
 
 function configs(p) {
-  return [...(p.detected || []), ...p.run.custom.map((c) => ({ ...c, group: 'personalizzati', custom: true }))];
+  return [...(p.detected || []), ...p.run.custom.map((c) => ({ ...c, group: 'custom', custom: true }))];
 }
 
 function selected(p = active) {
@@ -121,9 +121,9 @@ async function start(p, cfg) {
       hooks.changed();
       if (r.restart) start(p, cfg);
       else if (code && !wasStopping) {
-        toast(`${cfg.name} terminato con codice ${code}`, {
+        toast(`${cfg.name} exited with code ${code}`, {
           error: true,
-          action: { label: 'Mostra output', run: () => showOutput(p, r) },
+          action: { label: 'Show output', run: () => showOutput(p, r) },
         });
       }
     },
@@ -153,9 +153,9 @@ function startOrRerun() {
 }
 
 async function addCustom() {
-  const command = await ask({ text: 'Comando da eseguire nella cartella del progetto', placeholder: 'npm run dev -- --port 4000', okLabel: 'Avanti' });
+  const command = await ask({ text: 'Command to run in the project folder', placeholder: 'npm run dev -- --port 4000', okLabel: 'Next' });
   if (!command) return;
-  const name = await ask({ text: 'Nome della configurazione', value: command.split(/\s+/).slice(-1)[0], okLabel: 'Aggiungi' });
+  const name = await ask({ text: 'Configuration name', value: command.split(/\s+/).slice(-1)[0], okLabel: 'Add' });
   if (!name) return;
   const cfg = { id: `custom:${Date.now()}`, name, command };
   active.run.custom.push(cfg);
@@ -181,7 +181,7 @@ function openMenu() {
       label: c.name,
       detail: c.command,
       checked: c.id === sel?.id,
-      hint: isRunning(r) ? '● attivo' : '',
+      hint: isRunning(r) ? '● running' : '',
       run: () => {
         p.run.selected = c.id;
         hooks.save();
@@ -189,14 +189,14 @@ function openMenu() {
       },
     });
   }
-  if (!list.length) items.push({ header: 'Nessun comando rilevato' });
+  if (!list.length) items.push({ header: 'No commands detected' });
   items.push('-');
   const r = current();
-  if (r?.t) items.push({ label: 'Mostra output', run: () => showOutput(p, r) });
-  items.push({ label: 'Aggiungi comando…', run: addCustom });
+  if (r?.t) items.push({ label: 'Show output', run: () => showOutput(p, r) });
+  items.push({ label: 'Add command…', run: addCustom });
   if (sel?.custom) {
     items.push({
-      label: `Rimuovi “${sel.name}”`,
+      label: `Remove “${sel.name}”`,
       danger: true,
       run: () => {
         p.run.custom = p.run.custom.filter((c) => c.id !== sel.id);
@@ -206,7 +206,7 @@ function openMenu() {
       },
     });
   }
-  items.push({ label: 'Rileva di nuovo', run: () => detect(p) });
+  items.push({ label: 'Detect again', run: () => detect(p) });
   // Anchor the menu to the trigger so it grows out of it.
   const b = $('#run-config').getBoundingClientRect();
   contextMenu(b.left, b.bottom + 6, items);
@@ -299,17 +299,17 @@ export function render() {
   const state = r?.status === 'stopping' ? 'blocked' : running ? 'running' : r?.status === 'exited' && r.code && !r.stopped ? 'failed' : 'idle';
   box.dataset.state = state;
   $('#run-dot').className = `dot ${state}`;
-  $('#run-name').textContent = cfg ? cfg.name : 'Aggiungi configurazione';
-  $('#run-config').title = cfg ? `${cfg.command}\n(clic per scegliere)` : 'Nessun comando rilevato: aggiungine uno';
+  $('#run-name').textContent = cfg ? cfg.name : 'Add configuration';
+  $('#run-config').title = cfg ? `${cfg.command}\n(click to choose)` : 'No commands detected: add one';
   const startBtn = $('#run-start');
   startBtn.innerHTML = running ? '<span class="i-rerun">↻</span>' : '<span class="i-play"></span>';
-  startBtn.title = running ? 'Riavvia (Ctrl+F5)' : 'Avvia (Shift+F10)';
+  startBtn.title = running ? 'Restart (Ctrl+F5)' : 'Run (Shift+F10)';
   startBtn.disabled = !cfg;
   $('#run-stop').disabled = !running;
   const url = $('#run-url');
   url.hidden = !r?.url;
   if (r?.url) {
     url.innerHTML = `${esc(r.url.replace(/^https?:\/\//, ''))}<span>↗</span>`;
-    url.title = `Apri ${r.url} nel browser`;
+    url.title = `Open ${r.url} in the browser`;
   }
 }

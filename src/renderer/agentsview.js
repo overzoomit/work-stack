@@ -45,10 +45,10 @@ function item(a) {
       <span class="chev">›</span>
     </button>
     <div class="row-actions"><div><div class="row-btns">
-      <button class="btn btn-small" data-act="resume">Riprendi</button>
-      <button class="btn btn-small" data-act="shell"${a.cwd ? '' : ' disabled'}>Terminale</button>
-      <button class="btn btn-small" data-act="repo"${a.cwd ? '' : ' disabled'}>Apri progetto</button>
-      ${a.live ? '<button class="btn btn-small btn-danger-text" data-act="close">Chiudi</button>' : ''}
+      <button class="btn btn-small" data-act="resume">Resume</button>
+      <button class="btn btn-small" data-act="shell"${a.cwd ? '' : ' disabled'}>Terminal</button>
+      <button class="btn btn-small" data-act="repo"${a.cwd ? '' : ' disabled'}>Open project</button>
+      ${a.live ? '<button class="btn btn-small btn-danger-text" data-act="close">Close</button>' : ''}
     </div></div></div>
   </li>`;
 }
@@ -84,7 +84,7 @@ export function renderAgentList() {
   }
   const working = mine.filter((a) => a.status.state === 'working').length;
   const waiting = mine.filter((a) => a.status.state === 'waiting' || a.status.state === 'blocked').length;
-  $('#status-agents').textContent = mine.length ? `${working} al lavoro · ${waiting} in attesa` : '';
+  $('#status-agents').textContent = mine.length ? `${working} working · ${waiting} waiting` : '';
   // Shown on the sidebar toggle while the list is hidden, so nothing urgent is missed.
   const urgent = (project && agentStateFor(project.path)) || '';
   $('#toggle-sidebar').dataset.agents = urgent;
@@ -95,15 +95,15 @@ export function renderAgentList() {
 // is doing, so it asks first; the conversation stays resumable.
 export async function closeSession(a) {
   const ok = await ask({
-    text: `Chiudere «${a.title}»? Claude Code viene terminato; potrai riprendere la conversazione con «Riprendi».`,
+    text: `Close “${a.title}”? Claude Code will be terminated; you can resume the conversation with “Resume”.`,
     input: false,
     danger: true,
-    okLabel: 'Chiudi sessione',
+    okLabel: 'Close session',
   });
   if (!ok) return;
   try {
     await work.agents.stop(a.id);
-    toast('Sessione chiusa');
+    toast('Session closed');
   } catch (e) {
     toastError(e);
   }
@@ -111,13 +111,13 @@ export async function closeSession(a) {
 
 function agentMenu(a, x, y) {
   contextMenu(x, y, [
-    { label: 'Riprendi sessione', run: () => hooks.resume(a) },
+    { label: 'Resume session', run: () => hooks.resume(a) },
     '-',
-    { label: 'Terminale nella cartella', disabled: !a.cwd, run: () => hooks.shellAt(a.cwd) },
-    { label: 'Apri come progetto', disabled: !a.cwd, run: () => hooks.openRepo(a.cwd) },
+    { label: 'Terminal in folder', disabled: !a.cwd, run: () => hooks.shellAt(a.cwd) },
+    { label: 'Open as project', disabled: !a.cwd, run: () => hooks.openRepo(a.cwd) },
     '-',
-    { label: 'Copia percorso', disabled: !a.cwd, run: () => work.app.copy(a.cwd) },
-    { label: 'Copia ID sessione', run: () => work.app.copy(a.id) },
-    ...(a.live ? ['-', { label: 'Chiudi sessione', danger: true, run: () => closeSession(a) }] : []),
+    { label: 'Copy path', disabled: !a.cwd, run: () => work.app.copy(a.cwd) },
+    { label: 'Copy session ID', run: () => work.app.copy(a.id) },
+    ...(a.live ? ['-', { label: 'Close session', danger: true, run: () => closeSession(a) }] : []),
   ]);
 }

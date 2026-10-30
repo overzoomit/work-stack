@@ -53,7 +53,7 @@ test('una pagina HTML si vede in un iframe isolato, senza eseguire i suoi script
 test('gli script di una pagina HTML girano solo dopo averli attivati, per quel file', async () => {
   files.set('/p/app.html', { text: '<script>1</script>', size: 20 });
   await previewFile('/p/app.html');
-  const flag = $('#viewer-actions').children.find((b) => b.textContent === 'Esegui script');
+  const flag = $('#viewer-actions').children.find((b) => b.textContent === 'Run scripts');
   assert.ok(flag, 'the HTML preview has the flag');
   assert.doesNotMatch($('#viewer-body').innerHTML, /allow-scripts/, 'off by default');
   flag.onclick();
@@ -63,17 +63,17 @@ test('gli script di una pagina HTML girano solo dopo averli attivati, per quel f
   assert.doesNotMatch($('#viewer-body').innerHTML, /allow-scripts/, 'opening the file again starts without scripts');
   files.set('/p/b.txt', { text: 't', size: 1 });
   await previewFile('/p/b.txt');
-  assert.ok(!$('#viewer-actions').children.some((b) => b.textContent === 'Esegui script'), 'only for HTML');
+  assert.ok(!$('#viewer-actions').children.some((b) => b.textContent === 'Run scripts'), 'only for HTML');
   closeViewer();
 });
 
 test('file binari e troppo grandi non vengono mostrati', async () => {
   files.set('/p/dati.bin', { binary: true, size: 10 });
   await previewFile('/p/dati.bin');
-  assert.match($('#viewer-body').innerHTML, /File binario/);
+  assert.match($('#viewer-body').innerHTML, /Binary file/);
   files.set('/p/big.log', { tooBig: true, size: 3 * 1024 * 1024 });
   await previewFile('/p/big.log');
-  assert.match($('#viewer-body').innerHTML, /troppo grande per l'anteprima \(3072 KB\)/);
+  assert.match($('#viewer-body').innerHTML, /too large to preview \(3072 KB\)/);
   closeViewer();
 });
 
@@ -100,13 +100,13 @@ test('i fine riga CRLF si modificano come \\n e tornano CRLF al salvataggio', ()
 test('Modifica solo per i file di testo UTF-8', async () => {
   files.set('/p/ok.txt', { text: 'x', size: 1, mtime: 1, utf8: true });
   await previewFile('/p/ok.txt');
-  assert.ok(actionsByLabel().Modifica);
+  assert.ok(actionsByLabel().Edit);
   files.set('/p/latin1.txt', { text: 'caff�', size: 5, mtime: 1, utf8: false });
   await previewFile('/p/latin1.txt');
-  assert.equal(actionsByLabel().Modifica, undefined, 'saving would rewrite its bytes');
+  assert.equal(actionsByLabel().Edit, undefined, 'saving would rewrite its bytes');
   files.set('/p/dati.bin', { binary: true, size: 10 });
   await previewFile('/p/dati.bin');
-  assert.equal(actionsByLabel().Modifica, undefined);
+  assert.equal(actionsByLabel().Edit, undefined);
   closeViewer();
 });
 
@@ -115,10 +115,10 @@ test('salvare scrive il testo con i fine riga originali e torna all\'anteprima',
   window.work.fs.write = async (file, text, mtime, force) => { writes.push({ file, text, mtime, force }); return { mtime: 2 }; };
   files.set('/p/win.txt', { text: 'uno\r\ndue\r\n', size: 10, mtime: 1, utf8: true });
   await previewFile('/p/win.txt');
-  actionsByLabel().Modifica.onclick();
+  actionsByLabel().Edit.onclick();
   const ta = $('#viewer-body').querySelector('.pv-edit-text');
   assert.equal(ta.value, 'uno\ndue\n');
-  const salva = Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1];
+  const salva = Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Save'))[1];
   assert.equal(salva.disabled, true, 'nothing to save yet');
   ta.value = 'uno\ntre\n';
   ta.oninput();
@@ -126,7 +126,7 @@ test('salvare scrive il testo con i fine riga originali e torna all\'anteprima',
   assert.equal($('#viewer-dirty').hidden, false, 'the title shows the unsaved dot');
   await salva.onclick();
   assert.deepEqual(writes, [{ file: '/p/win.txt', text: 'uno\r\ntre\r\n', mtime: 1, force: false }]);
-  assert.ok(actionsByLabel().Modifica, 'back to the preview');
+  assert.ok(actionsByLabel().Edit, 'back to the preview');
   assert.equal($('#viewer-dirty').hidden, true);
   closeViewer();
 });
@@ -134,7 +134,7 @@ test('salvare scrive il testo con i fine riga originali e torna all\'anteprima',
 test('chiudere con modifiche non salvate chiede prima: Scarta chiude, Continua resta', async () => {
   files.set('/p/env.txt', { text: 'A=1\n', size: 4, mtime: 1, utf8: true });
   await previewFile('/p/env.txt');
-  actionsByLabel().Modifica.onclick();
+  actionsByLabel().Edit.onclick();
   const ta = $('#viewer-body').querySelector('.pv-edit-text');
   ta.value = 'A=2\n';
   ta.oninput();
@@ -143,7 +143,7 @@ test('chiudere con modifiche non salvate chiede prima: Scarta chiude, Continua r
   await tick();
   assert.equal($('#viewer').hidden, false, 'not closed');
   assert.equal($('#viewer-bar').hidden, false);
-  assert.match($('#viewer-bar').innerHTML, /Hai modifiche non salvate in <b>env\.txt<\/b>/);
+  assert.match($('#viewer-bar').innerHTML, /You have unsaved changes in <b>env\.txt<\/b>/);
   $('#viewer-bar').querySelector('.pv-keep').onclick();
   assert.equal($('#viewer-bar').hidden, true);
   assert.equal(ta.value, 'A=2\n', 'the edits are still there');
@@ -157,10 +157,10 @@ test('chiudere con modifiche non salvate chiede prima: Scarta chiude, Continua r
 test('Annulla senza modifiche torna subito all\'anteprima', async () => {
   files.set('/p/b.txt', { text: 'b', size: 1, mtime: 1, utf8: true });
   await previewFile('/p/b.txt');
-  actionsByLabel().Modifica.onclick();
-  actionsByLabel().Annulla.onclick();
+  actionsByLabel().Edit.onclick();
+  actionsByLabel().Cancel.onclick();
   assert.equal($('#viewer-bar').hidden, true);
-  assert.ok(actionsByLabel().Modifica);
+  assert.ok(actionsByLabel().Edit);
   closeViewer();
 });
 
@@ -173,13 +173,13 @@ test('un file cambiato su disco mostra la striscia: Sovrascrivi forza, Ricarica 
   };
   files.set('/p/c.txt', { text: 'mio\n', size: 4, mtime: 1, utf8: true });
   await previewFile('/p/c.txt');
-  actionsByLabel().Modifica.onclick();
+  actionsByLabel().Edit.onclick();
   const ta = $('#viewer-body').querySelector('.pv-edit-text');
   ta.value = 'modificato\n';
   ta.oninput();
-  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1].onclick();
+  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Save'))[1].onclick();
   assert.equal($('#viewer-conflict').hidden, false);
-  assert.match($('#viewer-conflict').innerHTML, /<b>c\.txt<\/b> è cambiato su disco/);
+  assert.match($('#viewer-conflict').innerHTML, /<b>c\.txt<\/b> has changed on disk/);
   assert.equal(ta.value, 'modificato\n', 'the edits stay until the user chooses');
 
   files.set('/p/c.txt', { text: 'dal terminale\n', size: 14, mtime: 5, utf8: true });
@@ -189,11 +189,11 @@ test('un file cambiato su disco mostra la striscia: Sovrascrivi forza, Ricarica 
 
   ta.value = 'di nuovo mio\n';
   ta.oninput();
-  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1].onclick();
+  await Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Save'))[1].onclick();
   $('#viewer-conflict').querySelector('.pv-overwrite').onclick();
   await tick();
   assert.deepEqual(writes.at(-1), { text: 'di nuovo mio\n', force: true });
-  assert.ok(actionsByLabel().Modifica, 'saved: back to the preview');
+  assert.ok(actionsByLabel().Edit, 'saved: back to the preview');
   closeViewer();
 });
 
@@ -215,13 +215,13 @@ test('un .env si apre con i valori visibili; "Nascondi valori" li copre tutti', 
   const html = () => $('#viewer-body').firstChild.children.map((c) => c.innerHTML).join('');
   assert.match(html(), /<span class="env-key">DB<\/span>=<span class="env-val">segreto<\/span>/);
   assert.match(html(), /<span class="env-comment"># db<\/span>/);
-  actionsByLabel()['Nascondi valori'].onclick();
+  actionsByLabel()['Hide values'].onclick();
   await tick();
   assert.doesNotMatch(html(), /segreto/);
   assert.match(html(), /••••••••••/);
-  assert.ok(actionsByLabel()['Mostra valori']);
-  assert.match($('#viewer-foot').innerHTML, /4 righe · 22 byte · UTF-8/);
-  assert.match($('#viewer-foot').innerHTML, /<kbd>esc<\/kbd> Chiudi/);
+  assert.ok(actionsByLabel()['Show values']);
+  assert.match($('#viewer-foot').innerHTML, /4 lines · 22 bytes · UTF-8/);
+  assert.match($('#viewer-foot').innerHTML, /<kbd>esc<\/kbd> Close/);
   closeViewer();
 });
 
@@ -235,7 +235,7 @@ test('righe .env con fine riga CRLF: i valori si possono coprire', async () => {
 test('un file con fine riga misti non si modifica (il campo di testo li renderebbe tutti \\n)', async () => {
   files.set('/p/misto.txt', { text: 'a\r\nb\n', size: 5, mtime: 1, utf8: true });
   await previewFile('/p/misto.txt');
-  assert.equal(actionsByLabel().Modifica, undefined);
+  assert.equal(actionsByLabel().Edit, undefined);
   closeViewer();
 });
 
@@ -245,11 +245,11 @@ test('un secondo ⌘S durante il salvataggio non parte, e il testo resta bloccat
   window.work.fs.write = (file, text) => { writes.push(text); return new Promise((r) => { release = () => r({ mtime: 2 }); }); };
   files.set('/p/lento.txt', { text: 'a\n', size: 2, mtime: 1, utf8: true });
   await previewFile('/p/lento.txt');
-  actionsByLabel().Modifica.onclick();
+  actionsByLabel().Edit.onclick();
   const ta = $('#viewer-body').querySelector('.pv-edit-text');
   ta.value = 'b\n';
   ta.oninput();
-  const salva = Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Salva'))[1];
+  const salva = Object.entries(actionsByLabel()).find(([l]) => l.startsWith('Save'))[1];
   const first = salva.onclick();
   assert.equal(ta.readOnly, true);
   salva.onclick();
@@ -263,7 +263,7 @@ test('un secondo ⌘S durante il salvataggio non parte, e il testo resta bloccat
 test('uscire con modifiche non salvate chiede prima; Scarta esce davvero', async () => {
   files.set('/p/q.txt', { text: 'a\n', size: 2, mtime: 1, utf8: true });
   await previewFile('/p/q.txt');
-  actionsByLabel().Modifica.onclick();
+  actionsByLabel().Edit.onclick();
   const ta = $('#viewer-body').querySelector('.pv-edit-text');
   ta.value = 'b\n';
   ta.oninput();

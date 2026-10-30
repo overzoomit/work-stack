@@ -92,18 +92,18 @@ test('tasto destro: azioni del file o della cartella, rinomina e cestino disatti
     return openMenuItems();
   };
   let items = menuOn('/p/readme.md');
-  assert.ok(items.Anteprima && items['Apri con app di sistema'] && items['Copia percorso relativo']);
-  assert.equal(items['Rinomina…'].disabled, false);
-  items['Mostra nel file manager'].onclick();
+  assert.ok(items.Preview && items['Open with default app'] && items['Copy relative path']);
+  assert.equal(items['Rename…'].disabled, false);
+  items['Reveal in file manager'].onclick();
   assert.deepEqual(calls.at(-1), ['reveal', '/p/readme.md']);
 
   items = menuOn('/p/src');
-  assert.ok(!items.Anteprima, 'folders have no preview');
-  assert.ok(items['Nuovo file…'] && items['Apri terminale qui']);
+  assert.ok(!items.Preview, 'folders have no preview');
+  assert.ok(items['New file…'] && items['Open in terminal']);
 
   items = menuOn(null); // empty area: the project folder itself
-  assert.equal(items['Rinomina…'].disabled, true);
-  assert.equal(items['Sposta nel cestino'].disabled, true);
+  assert.equal(items['Rename…'].disabled, true);
+  assert.equal(items['Move to trash'].disabled, true);
 });
 
 test('su Mac ⌘⌫ sposta nel cestino come nel Finder; ⌫ da solo no (regressione)', async () => {

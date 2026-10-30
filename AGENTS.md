@@ -81,7 +81,8 @@ WORK_DEVTOOLS=1 npm run dev
 
 - **Lingua:**
   - Codice, nomi di funzioni, variabili e commenti nel sorgente: **inglese**. Commenti essenziali, focalizzati sul *perché*.
-  - Interfaccia utente (UI), messaggi di errore restituiti al frontend, notifiche toast e ticket/commenti Plane: **italiano**.
+  - Interfaccia utente (UI), messaggi di errore creati nel frontend e notifiche toast: **inglese**. I messaggi di errore restituiti dal backend Rust sono ancora in italiano (da tradurre con un ticket dedicato).
+  - Ticket e commenti Plane: **italiano**.
 - **Gestione Errori:**
   - I comandi Tauri ritornano `Result<T, String>` con descrizioni chiare e comprensibili per l'utente.
 - **Sicurezza Filesystem:**

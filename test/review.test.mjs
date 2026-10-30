@@ -68,7 +68,7 @@ test('dettaglio commit: intestazione, metadati escapati, albero dei file compatt
   assert.match(info, /<span class="ref head">main<\/span><span class="ref tag">v1<\/span>/);
 
   const files = $('#review-files').innerHTML;
-  assert.match(files, /3 file modificati\s*<span class="plus">\+3<\/span><span class="minus">−1<\/span>/);
+  assert.match(files, /3 files changed\s*<span class="plus">\+3<\/span><span class="minus">−1<\/span>/);
   assert.match(files, /<\/span>src\/app<\/div>/, 'a folder with a single child folder is shown as one row');
   assert.match(files, /title="docs\/vecchio\.md → docs\/nuovo\.md"/, 'renames show where the file came from');
   assert.match(files, /data-file="img\.png"[\s\S]*?<span class="bin">bin<\/span>/, 'binary files have no line counts');
@@ -78,7 +78,7 @@ test('dettaglio commit: intestazione, metadati escapati, albero dei file compatt
   assert.deepEqual(diffs, [{ hash: COMMIT.hash, file: 'src/app/main.js', oldFile: undefined }]);
   assert.match($('#review-labels').innerHTML, /<span>ffff0000 \(parent\)<\/span><span>a1b2c3d4<\/span>/);
   assert.match($('#review-diff').html(), /d-row mod[\s\S]*<span class="code l">uno<\/span>[\s\S]*<span class="code r">due<\/span>/, 'old and new line side by side');
-  assert.match($('#review-count').textContent, /1 modifica/);
+  assert.match($('#review-count').textContent, /1 change/);
 
   // Branches containing the commit, local and remote told apart.
   assert.match($('#ci-contains').innerHTML, /<span class="ref local">feature\/x<\/span> <span class="ref remote">origin\/main<\/span>/);
@@ -90,9 +90,9 @@ test('commit iniziale: nessun parent e confronto con il vuoto', async () => {
   commitReply = Promise.resolve({ ...COMMIT, parents: [], files: [{ code: 'A', file: 'a.txt', add: 1, del: 0 }] });
   await openCommit('/repo', COMMIT.hash);
   await tick();
-  assert.match($('#review-info').innerHTML, /nessuno \(commit iniziale\)/);
-  assert.match($('#review-labels').innerHTML, /<span>vuoto<\/span>/);
-  assert.match($('#review-files').innerHTML, /1 file modificato/);
+  assert.match($('#review-info').innerHTML, /none \(initial commit\)/);
+  assert.match($('#review-labels').innerHTML, /<span>empty<\/span>/);
+  assert.match($('#review-files').innerHTML, /1 file changed/);
   closeReview();
 });
 
@@ -119,12 +119,12 @@ test('modifiche locali: gruppi In stage e Modifiche, file non tracciato confront
   await openWorking('/repo', status, null, { onToggleStage() {} });
   await tick();
   const files = $('#review-files').innerHTML;
-  assert.match(files, /In stage <span class="count">1<\/span>[\s\S]*Modifiche <span class="count">1<\/span>/);
-  assert.match($('#review-info').innerHTML, /Branch main · 1 in stage · 1 non in stage/);
+  assert.match(files, /Staged <span class="count">1<\/span>[\s\S]*Changes <span class="count">1<\/span>/);
+  assert.match($('#review-info').innerHTML, /Branch main · 1 staged · 1 unstaged/);
   // Default selection: the first unstaged file; untracked, so the left side is empty.
   assert.deepEqual(diffs, [{ file: 'b/nuovo.txt', oldFile: undefined, staged: false, untracked: true }]);
-  assert.match($('#review-labels').innerHTML, /<span>vuoto<\/span><span>Copia di lavoro<\/span>/);
-  assert.match($('#review-tools-extra').innerHTML, /Metti in stage/);
+  assert.match($('#review-labels').innerHTML, /<span>empty<\/span><span>Working copy<\/span>/);
+  assert.match($('#review-tools-extra').innerHTML, /Stage/);
   closeReview();
 });
 

@@ -14,11 +14,11 @@ export const THEMES = [
       '#6b7080', '#ff6961', '#4cd964', '#ffe066', '#409cff', '#da8fff', '#8fe1ff', '#ffffff'],
   },
   {
-    id: 'basic-dark', name: 'Basic scuro', dark: true,
+    id: 'basic-dark', name: 'Basic Dark', dark: true,
     bg: '#1e1e1e', fg: '#ffffff', cursor: '#a0a0a0', selection: 'rgba(120, 140, 170, 0.45)', ansi: TERMINAL_APP_ANSI,
   },
   {
-    id: 'basic-light', name: 'Basic chiaro', dark: false,
+    id: 'basic-light', name: 'Basic Light', dark: false,
     bg: '#ffffff', fg: '#000000', cursor: '#7f7f7f', selection: 'rgba(164, 205, 255, 0.8)',
     ansi: ['#000000', '#990000', '#00a600', '#999900', '#0000b2', '#b200b2', '#00a6b2', '#bfbfbf',
       '#666666', '#e50000', '#00d900', '#b3b300', '#0000ff', '#e500e5', '#00c4cc', '#e5e5e5'],

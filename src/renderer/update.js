@@ -38,17 +38,17 @@ export async function check({ manual = false } = {}) {
   } catch (e) {
     // The network is allowed to be away: only the log hears about it.
     console.warn(`controllo aggiornamenti: ${e?.message ?? e}`);
-    if (manual) toastError(`Impossibile controllare gli aggiornamenti: ${e?.message ?? e}`);
+    if (manual) toastError(`Could not check for updates: ${e?.message ?? e}`);
     return;
   }
   showCapsule();
   if (!found) {
     closePop();
-    if (manual) toast(`Work è aggiornato (${current})`);
+    if (manual) toast(`Work is up to date (${current})`);
   } else if (manual) openPop();
   else if (!notified.has(found.version)) {
     notified.add(found.version);
-    toast(`Work ${found.version} è disponibile`, { action: { label: 'Dettagli', run: openPop } });
+    toast(`Work ${found.version} is available`, { action: { label: 'Details', run: openPop } });
   }
 }
 
@@ -56,14 +56,14 @@ export async function check({ manual = false } = {}) {
 function showCapsule() {
   const el = $('#status-version');
   el.classList.toggle('has-update', !!found);
-  el.textContent = !found ? `v${current}` : install.phase === 'ready' ? 'Riavvia per aggiornare' : `Aggiorna a ${found.version}`;
+  el.textContent = !found ? `v${current}` : install.phase === 'ready' ? 'Restart to update' : `Update to ${found.version}`;
   el.onclick = found ? openPop : null;
   el.onkeydown = found ? (e) => (e.key === 'Enter' || e.key === ' ') && openPop() : null;
 }
 
-const day = (ms) => new Date(ms).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
+const day = (ms) => new Date(ms).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export const notesHtml = (md) => (md?.trim() ? DOMPurify.sanitize(marked.parse(md, { gfm: true })) : '<p class="update-none">Nessuna nota di rilascio.</p>');
+export const notesHtml = (md) => (md?.trim() ? DOMPurify.sanitize(marked.parse(md, { gfm: true })) : '<p class="update-none">No release notes.</p>');
 
 function closePop() {
   if (!pop) return;
@@ -82,19 +82,19 @@ function onKey(e) {
   if (e.key === 'Escape') closePop();
 }
 
-const mb = (n) => (n / 1e6).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const mb = (n) => (n / 1e6).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-// "2 terminali e 1 agente verranno chiusi", or '' when nothing would end.
+// "2 terminals and 1 agent will be closed", or '' when nothing would end.
 export function closingText({ terminals = 0, agents = 0, runs = 0 }) {
   const parts = [
-    terminals && plural(terminals, 'terminale', 'terminali'),
-    agents && plural(agents, 'agente', 'agenti'),
-    runs && plural(runs, 'processo', 'processi'),
+    terminals && plural(terminals, 'terminal', 'terminals'),
+    agents && plural(agents, 'agent', 'agents'),
+    runs && plural(runs, 'process', 'processes'),
   ].filter(Boolean);
   if (!parts.length) return '';
-  const list = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}` : parts.join(' e ');
-  return `${list} ${terminals + agents + runs === 1 ? 'verrà chiuso' : 'verranno chiusi'}`;
+  const list = parts.length > 2 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts.join(' and ');
+  return `${list} will be closed`;
 }
 
 // The progress bar moves by transform, so it glides instead of stepping.
@@ -103,16 +103,16 @@ function drawProgress() {
   const { done, total } = install;
   pop.querySelector('.update-bar i').style.setProperty('--v', total ? (done / total).toFixed(3) : '0');
   pop.querySelector('.update-bar').classList.toggle('unknown', !total);
-  pop.querySelector('.update-mb').textContent = total ? `${mb(done)} di ${mb(total)} MB` : `${mb(done)} MB`;
+  pop.querySelector('.update-mb').textContent = total ? `${mb(done)} of ${mb(total)} MB` : `${mb(done)} MB`;
 }
 
 function buttons() {
   if (install.phase === 'installing') return '';
-  if (install.phase === 'ready') return '<button class="btn" data-up="later">Al prossimo avvio</button><button class="btn btn-accent" data-up="restart">Riavvia ora</button>';
-  return `<button class="btn" data-up="later">Più tardi</button>${
+  if (install.phase === 'ready') return '<button class="btn" data-up="later">On next launch</button><button class="btn btn-accent" data-up="restart">Restart now</button>';
+  return `<button class="btn" data-up="later">Later</button>${
     found.canInstall
-      ? `<button class="btn btn-accent" data-up="install">${install.error ? 'Riprova' : 'Installa'}</button>`
-      : '<button class="btn btn-accent" data-up="download">Scarica</button>'}`;
+      ? `<button class="btn btn-accent" data-up="install">${install.error ? 'Retry' : 'Install'}</button>`
+      : '<button class="btn btn-accent" data-up="download">Download</button>'}`;
 }
 
 // Buttons and the bar follow the phase; the notes stay as they are.
@@ -152,7 +152,7 @@ function restartNow() {
   hooks.guard(async () => {
     const closing = closingText(hooks.liveWork());
     if (closing) {
-      const ok = await ask({ text: `Riavviando Work, ${closing}. Riavviare ora?`, input: false, danger: true, okLabel: 'Riavvia' });
+      const ok = await ask({ text: `Restarting Work: ${closing}. Restart now?`, input: false, danger: true, okLabel: 'Restart' });
       if (!ok) return;
     }
     try {
@@ -172,7 +172,7 @@ function openPop() {
   el.className = 'update-pop';
   el.setAttribute('role', 'dialog');
   el.innerHTML = `<h3>Work ${esc(found.version)}</h3>
-    <p class="update-date">${found.date ? `Pubblicata il ${day(found.date)} · ` : ''}hai la ${esc(current)}</p>
+    <p class="update-date">${found.date ? `Published ${day(found.date)} · ` : ''}you have ${esc(current)}</p>
     <div class="update-notes">${notesHtml(found.notes)}</div>
     <div class="update-progress" hidden><div class="update-bar"><i></i></div><span class="update-mb"></span></div>
     <p class="update-error"></p>

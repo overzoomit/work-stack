@@ -99,8 +99,8 @@ function zoomable(box, img, label) {
 }
 
 // ── .env files ──────────────────────────────────────────────
-// Values are shown when the file opens; the eye on a line or "Nascondi
-// valori" covers them, for this opening only.
+// Values are shown when the file opens; the eye on a line or "Hide
+// values" covers them, for this opening only.
 export const isEnvFile = (path) => basename(path).startsWith('.env');
 const ENV_LINE = /^(\s*(?:export\s+)?[A-Za-z_][\w.-]*)(\s*=\s*)(.*)$/;
 
@@ -120,7 +120,7 @@ function envHtml(l, i) {
   if (e.comment != null) return `<span class="env-comment">${esc(e.comment)}</span>`;
   const hidden = current.hideAll || current.hidden.has(i);
   const value = hidden && e.value ? '<span class="env-masked">••••••••••</span>' : esc(e.value);
-  const eye = e.value ? `<button class="env-eye${hidden ? ' off' : ''}" data-l="${i}" title="${hidden ? 'Mostra' : 'Nascondi'} il valore" aria-label="${hidden ? 'Mostra' : 'Nascondi'} il valore">${EYE}</button>` : '';
+  const eye = e.value ? `<button class="env-eye${hidden ? ' off' : ''}" data-l="${i}" title="${hidden ? 'Show' : 'Hide'} value" aria-label="${hidden ? 'Show' : 'Hide'} value">${EYE}</button>` : '';
   return `<span class="env-key">${esc(e.key)}</span>${esc(e.eq)}<span class="env-val">${value}</span>${eye}`;
 }
 
@@ -184,10 +184,10 @@ export function linkTarget(href, base) {
 function drawFoot() {
   const { text, size, utf8, edit: editing } = current;
   const facts = [];
-  if (text != null && size != null) facts.push(`${text.split('\n').length.toLocaleString('it')} righe`);
-  if (size != null) facts.push(`${size.toLocaleString('it')} byte`);
-  if (text != null && utf8 != null) facts.push(utf8 ? 'UTF-8' : 'non UTF-8');
-  $('#viewer-foot').innerHTML = `<span>${facts.join(' · ')}</span><span><kbd>esc</kbd> ${editing ? 'Annulla' : 'Chiudi'}</span>`;
+  if (text != null && size != null) facts.push(`${text.split('\n').length.toLocaleString('en-US')} lines`);
+  if (size != null) facts.push(`${size.toLocaleString('en-US')} bytes`);
+  if (text != null && utf8 != null) facts.push(utf8 ? 'UTF-8' : 'not UTF-8');
+  $('#viewer-foot').innerHTML = `<span>${facts.join(' · ')}</span><span><kbd>esc</kbd> ${editing ? 'Cancel' : 'Close'}</span>`;
 }
 
 function draw() {
@@ -257,7 +257,7 @@ function startEdit() {
   resetChunks(body);
   body.classList.remove('rendered');
   drawFoot();
-  body.innerHTML = '<div class="pv-edit"><pre class="pv-edit-lines" aria-hidden="true"></pre><textarea class="pv-edit-text" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Testo del file"></textarea></div>';
+  body.innerHTML = '<div class="pv-edit"><pre class="pv-edit-lines" aria-hidden="true"></pre><textarea class="pv-edit-text" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="File text"></textarea></div>';
   const ta = editor();
   ta.value = text;
   lineNumbers(ta);
@@ -298,7 +298,7 @@ async function save(force = false) {
     current.size = r.size ?? new TextEncoder().encode(text).length;
     current.hidden.clear(); // hidden by line number: lines may have moved
     stopEdit();
-    toast(`${basename(path)} salvato`);
+    toast(`${basename(path)} saved`);
   } catch (e) {
     if (String(e?.message ?? e) === 'CHANGED') showConflict();
     else toastError(e); // the edits stay
@@ -313,8 +313,8 @@ async function save(force = false) {
 function showConflict() {
   if (!current?.edit) return;
   const strip = $('#viewer-conflict');
-  strip.innerHTML = `<span class="pv-bar-text"><b>${esc(basename(current.path))}</b> è cambiato su disco da quando l'hai aperto.</span>
-    <button class="btn btn-small pv-reload">Ricarica dal disco</button><button class="btn btn-small pv-overwrite">Sovrascrivi</button>`;
+  strip.innerHTML = `<span class="pv-bar-text"><b>${esc(basename(current.path))}</b> has changed on disk since you opened it.</span>
+    <button class="btn btn-small pv-reload">Reload from disk</button><button class="btn btn-small pv-overwrite">Overwrite</button>`;
   strip.hidden = false;
   strip.querySelector('.pv-reload').onclick = reload;
   strip.querySelector('.pv-overwrite').onclick = () => {
@@ -355,8 +355,8 @@ async function reload() {
 export function guardEdits(then) {
   if (!current?.edit?.dirty) return then();
   const bar = $('#viewer-bar');
-  bar.innerHTML = `<span class="pv-bar-text">Hai modifiche non salvate in <b>${esc(basename(current.path))}</b>.</span>
-    <button class="btn btn-small pv-discard">Scarta</button><button class="btn btn-small btn-accent pv-keep">Continua a modificare</button>`;
+  bar.innerHTML = `<span class="pv-bar-text">You have unsaved changes in <b>${esc(basename(current.path))}</b>.</span>
+    <button class="btn btn-small pv-discard">Discard</button><button class="btn btn-small btn-accent pv-keep">Keep editing</button>`;
   bar.hidden = false;
   bar.querySelector('.pv-discard').onclick = () => {
     current.edit.dirty = false;
@@ -391,8 +391,8 @@ function drawActions() {
     return b;
   };
   if (current.edit) {
-    add('Annulla', cancelEdit);
-    const b = add(`Salva ${document.body.classList.contains('mac') ? '⌘S' : 'Ctrl+S'}`, () => save());
+    add('Cancel', cancelEdit);
+    const b = add(`Save ${document.body.classList.contains('mac') ? '⌘S' : 'Ctrl+S'}`, () => save());
     b.classList.add('btn-accent');
     b.disabled = !current.edit.dirty;
     current.edit.saveBtn = b;
@@ -402,28 +402,28 @@ function drawActions() {
     const b = add('', () => zoom?.toggle());
     b.id = 'pv-zoom';
     b.classList.add('pv-zoom');
-    b.title = 'Adatta ↔ 100% · Ctrl/⌘ + rotella o pinch per lo zoom · + − 0';
+    b.title = 'Fit ↔ 100% · Ctrl/⌘ + wheel or pinch to zoom · + − 0';
   }
   if (kind === 'html' && text != null) {
-    const b = add('Esegui script', () => {
+    const b = add('Run scripts', () => {
       current.scripts = !current.scripts;
       b.classList.toggle('active', current.scripts);
       draw();
     });
     b.classList.toggle('active', !!current.scripts);
-    b.title = 'Esegue il JavaScript della pagina (può leggere gli altri file dei progetti aperti)';
+    b.title = 'Runs the page\'s JavaScript (it can read other files of the open projects)';
   }
-  if (current.editable) add('Modifica', startEdit);
+  if (current.editable) add('Edit', startEdit);
   if (isEnvFile(path) && text) {
-    add(current.hideAll ? 'Mostra valori' : 'Nascondi valori', () => {
+    add(current.hideAll ? 'Show values' : 'Hide values', () => {
       current.hideAll = !current.hideAll;
       current.hidden.clear();
       drawActions();
       draw();
     });
   }
-  if (onDiff) add('Mostra differenze', () => requestClose(onDiff));
-  add('Apri con app di sistema', () => work.fs.openPath(path));
+  if (onDiff) add('Show changes', () => requestClose(onDiff));
+  add('Open with default app', () => work.fs.openPath(path));
 }
 
 export async function previewFile(path, opts = {}) {
@@ -453,8 +453,8 @@ export async function previewFile(path, opts = {}) {
   drawFoot();
   if (!image && (r.binary || r.tooBig)) {
     $('#viewer-mode').hidden = true;
-    $('#viewer-body').innerHTML = r.binary ? '<div class="d-empty">File binario.</div>'
-      : `<div class="d-empty">File troppo grande per l'anteprima (${Math.round(r.size / 1024)} KB).</div>`;
+    $('#viewer-body').innerHTML = r.binary ? '<div class="d-empty">Binary file.</div>'
+      : `<div class="d-empty">File too large to preview (${Math.round(r.size / 1024)} KB).</div>`;
   } else {
     const drawn = draw();
     if (line) {
@@ -501,7 +501,7 @@ $('#viewer').addEventListener('pointerdown', (e) => e.target.id === 'viewer' && 
 $('#viewer-body').addEventListener('click', (e) => {
   const eye = e.target.closest('.env-eye');
   if (eye) {
-    // One line: shown again if it was covered by "Nascondi valori" too.
+    // One line: shown again if it was covered by "Hide values" too.
     const i = Number(eye.dataset.l);
     const hidden = current.hideAll || current.hidden.has(i);
     if (current.hideAll) {
