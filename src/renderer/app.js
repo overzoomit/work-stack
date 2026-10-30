@@ -21,6 +21,7 @@ import { openAppearance } from './appearance.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
 import { isRefreshKey, isCloseTerminalKey } from './keys.js';
+import { initAccordion, revealSection } from './accordion.js';
 
 const { work } = window;
 
@@ -325,17 +326,16 @@ setGitHooks({
   preview: (abs) => active && treeHooks(active).preview(abs),
   reveal: (abs) => {
     if (!active) return;
-    showSection('project');
+    revealSection('project');
     active.tree.reveal(abs);
   },
 });
 
-// ⌘/Ctrl+↵ in the search palette: the file in the tree, panel open if hidden.
+// ⌘/Ctrl+↵ in the search palette: the file in the tree, section open if hidden.
 setSearchHooks({
   reveal: (abs) => {
     if (!active) return;
-    setPanel('left', true);
-    showSection('project');
+    revealSection('project');
     active.tree.reveal(abs);
   },
 });
@@ -465,36 +465,18 @@ async function refreshAll() {
 
 // ── Sidebar accordion ───────────────────────────────────────
 // VS Code style: Agents is the explorer (open by default); the other panels
-// are collapsed sections that reveal their content on click.
+// are collapsed sections that reveal their content on click or Enter/Space.
+// The graph and GitHub views only talk to their backends while expanded.
 
-function sectionEl(name) {
-  return $(`.acc[data-sec="${name}"]`);
-}
-
-function setSection(name, open) {
-  const sec = sectionEl(name);
-  if (!sec) return;
-  sec.classList.toggle('open', open);
-  sec.querySelector('.acc-toggle')?.setAttribute('aria-expanded', String(open));
-  if (name === 'graph') setGraphVisible(open);
-  if (name === 'github') setGithubVisible(open);
-  // The console can only be measured once its section has a size.
-  if (name === 'run' && open) renderRunTab();
-}
-
-const sectionOpen = (name) => !!sectionEl(name)?.classList.contains('open');
-const toggleSection = (name) => setSection(name, !sectionOpen(name));
-
-function showSection(name) {
-  setSection(name, true);
-  if (name === 'project') $('#tree').focus({ preventScroll: true });
-}
-
-$$('.acc-toggle').forEach((b) => {
-  b.onpointerdown = (e) => {
-    if (e.button !== 0) return;
-    toggleSection(b.dataset.sec);
-  };
+initAccordion({
+  openSidebar: () => setPanel('left', true),
+  onExpand: (name, open) => {
+    if (name === 'project' && open) $('#tree').focus({ preventScroll: true });
+    if (name === 'graph') setGraphVisible(open);
+    if (name === 'github') setGithubVisible(open);
+    // The console can only be measured once its section has a size.
+    if (name === 'run' && open) renderRunTab();
+  },
 });
 
 // ── Side panels ─────────────────────────────────────────────
@@ -733,7 +715,7 @@ more.onclick = (e) => {
     save,
     changed: renderProjectTabs,
     reveal: () => {
-      showSection('run');
+      revealSection('run');
     },
   });
   initLauncher({ activeProject: () => active });
@@ -757,7 +739,7 @@ more.onclick = (e) => {
     shellAt: (cwd) => active && openTerminal(projectFor(cwd) || active, { cwd }),
     openRepo: async (cwd) => {
       await addProject((await work.git.root(cwd)) || cwd, { withTerminal: false });
-      showSection('project');
+      revealSection('project');
     },
   });
 
