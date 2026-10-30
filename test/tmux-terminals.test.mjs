@@ -53,29 +53,46 @@ test('syncProjectTerminals re-attaches existing windows from tmux session withou
   env.tmuxAvailable = false;
 });
 
-test('ensureInitialTerminal only attaches the primary shell window and avoids exploding squad windows', async () => {
+test('ensureInitialTerminal re-attaches every window the tmux session kept alive', async () => {
   env.tmuxAvailable = true;
   env.tmuxSession = 'work_work-stack_123456';
-  env.tmuxWindows = [
-    { id: '@0', name: 'shell', active: true, path: '/home/u/work-stack' },
-    { id: '@1', name: 'pm', active: false, path: '/home/u/work-stack' },
-    { id: '@2', name: 'dev1', active: false, path: '/home/u/work-stack' },
-  ];
+  env.tmuxWindows = ['shell', 'pm', 'dev1', 'qa'].map((name, i) => ({ id: `@${i}`, name, active: i === 0, path: '/home/u/work-stack' }));
+  env.createdWindows = [];
 
   const p = { path: '/home/u/work-stack', focusedId: null, maximizedId: null };
   T.showProject(p);
 
-  const pane = await T.ensureInitialTerminal(p);
-  assert.ok(pane, 'should return the opened primary pane');
-
+  const opened = await T.ensureInitialTerminal(p);
+  assert.equal(opened.length, 4);
   const panes = T.terminalsOf(p);
-  assert.equal(panes.length, 1, 'only exactly 1 pane is opened');
-  assert.equal(panes[0].title, 'shell');
-  assert.equal(panes[0].tmuxWindow, '@0');
+  assert.deepEqual(panes.map((t) => [t.title, t.tmuxWindow]), [['shell', '@0'], ['pm', '@1'], ['dev1', '@2'], ['qa', '@3']]);
+  assert.ok(panes.every((t) => t.tmuxSession === 'work_work-stack_123456'));
+  assert.deepEqual(env.createdWindows, [], 'attaches the existing windows, creates none');
+
+  assert.deepEqual(await T.ensureInitialTerminal(p), [], 'a project that already has panes is left alone');
+  assert.equal(T.terminalsOf(p).length, 4);
 
   for (const t of panes) {
     T.closeTerminal(t.id);
   }
   await new Promise((r) => setTimeout(r, 700));
+  env.tmuxAvailable = false;
+});
+
+test('ensureInitialTerminal opens one plain shell when tmux has no windows or is missing', async () => {
+  for (const tmuxAvailable of [true, false]) {
+    env.tmuxAvailable = tmuxAvailable;
+    env.tmuxSession = 'work_empty_proj';
+    env.tmuxWindows = [];
+    const p = { path: '/home/u/empty-proj', focusedId: null, maximizedId: null };
+    T.showProject(p);
+
+    const opened = await T.ensureInitialTerminal(p);
+    assert.equal(opened.length, 1, `tmux available: ${tmuxAvailable}`);
+    assert.equal(T.terminalsOf(p).length, 1);
+
+    T.closeTerminal(opened[0].id);
+    await new Promise((r) => setTimeout(r, 700));
+  }
   env.tmuxAvailable = false;
 });

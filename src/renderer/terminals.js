@@ -585,37 +585,12 @@ function startPaneDrag(t, e) {
   addEventListener('keydown', esc, true);
 }
 
-// Ensures exactly one initial primary terminal is open for the project without exploding all tmux squad windows.
+// A project with no panes gets back every window its tmux session kept alive
+// (the app only detaches on close); without tmux windows, one plain shell.
 export async function ensureInitialTerminal(project) {
-  if (!project || terminalsOf(project).length > 0) return null;
-  if (!work?.tmux) {
-    return openTerminal(project);
-  }
-  const available = await work.tmux.isAvailable().catch(() => false);
-  if (!available) {
-    return openTerminal(project);
-  }
-  const session = await work.tmux.sessionForProject(project.path).catch(() => null);
-  if (!session) {
-    return openTerminal(project);
-  }
-  const windows = await work.tmux.listWindows(session).catch(() => []);
-  if (!windows || !windows.length) {
-    return openTerminal(project);
-  }
-  // Look for a shell / standard terminal window (prefer non-role windows)
-  const roleNames = new Set(['pm', 'dev1', 'dev2', 'dev3', 'dev4', 'dev5', 'qa', 'qa1', 'qa2', 'qa3']);
-  const shellWin = windows.find((w) => ['shell', 'bash', 'terminal', 'Terminale 1'].includes(w.name))
-    || windows.find((w) => !roleNames.has(w.name?.toLowerCase()))
-    || windows[0];
-
-  return openTerminal(project, {
-    cwd: shellWin.path || project.path,
-    title: shellWin.name,
-    tmuxSession: session,
-    tmuxWindow: shellWin.id,
-    tmuxName: shellWin.name,
-  });
+  if (!project || terminalsOf(project).length > 0) return [];
+  const reattached = await syncProjectTerminals(project);
+  return reattached.length ? reattached : [await openTerminal(project)];
 }
 
 // Interrogates tmux for the project's session windows and re-attaches them automatically.

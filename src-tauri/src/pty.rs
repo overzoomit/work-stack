@@ -726,6 +726,51 @@ mod tests {
     }
 
     #[test]
+    fn closing_tmux_terminals_detaches_and_keeps_the_project_session_and_windows() {
+        if !crate::tmux::is_available() {
+            return;
+        }
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let session = format!("test_detach_{nanos:x}");
+        let (m, rx) = manager();
+        let open = |name: &str| {
+            m.create(CreateOpts {
+                cwd: Some("/tmp".into()),
+                cols: 80,
+                rows: 24,
+                command: Some("sleep 600".into()),
+                tmux_session: Some(session.clone()),
+                tmux_name: Some(name.into()),
+                ..Default::default()
+            })
+        };
+        let (pm, dev1) = (open("pm"), open("dev1"));
+        let wait_exit = |id: u32| loop {
+            if let Ev::Exit(i, _) = rx.recv_timeout(Duration::from_secs(10)).expect("the terminal ends") {
+                if i == id {
+                    break;
+                }
+            }
+        };
+        let client = |id: u32| format!("{session}_pty_{id}");
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(crate::tmux::has_session(&client(pm)));
+
+        m.kill(pm); // one terminal closed in the UI
+        wait_exit(pm);
+        assert!(!crate::tmux::has_session(&client(pm)), "its client session is gone");
+        assert!(crate::tmux::has_session(&client(dev1)), "the other terminal stays attached");
+
+        m.kill_all(); // the app quits
+        wait_exit(dev1);
+        assert!(!crate::tmux::has_session(&client(dev1)));
+        assert!(crate::tmux::has_session(&session), "the project session survives");
+        let names: Vec<String> = crate::tmux::list_windows(&session).unwrap().into_iter().map(|w| w.name).collect();
+        let _ = crate::tmux::kill_session(&session);
+        assert!(names.contains(&"pm".into()) && names.contains(&"dev1".into()), "{names:?}");
+    }
+
+    #[test]
     fn write_sends_input_and_resize_changes_the_size_programs_see() {
         let (m, rx) = manager();
         let id = m.create(opts("read line; echo \"got:$line\"; sleep 0.3; stty size"));
