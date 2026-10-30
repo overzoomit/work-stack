@@ -15,8 +15,8 @@ const SECTIONS = [['actions', 'Actions'], ['secrets', 'Secrets'], ['artifacts', 
 const DONE = { rerun: 'Run rimessa in coda', rerunFailed: 'Job falliti rimessi in coda', cancel: 'Run annullata' };
 const STATE_LABEL = { queued: 'In coda', running: 'In corso', success: 'Riuscita', failure: 'Fallita', cancelled: 'Annullata' };
 const live = (runs) => runs.some((r) => r.state === 'running' || r.state === 'queued');
-// The panel is on screen only with the GitHub tab selected and the right panel open.
-const shown = () => visible && !document.body.classList.contains('panel-hidden');
+// The GitHub section is on screen only while it is expanded.
+const shown = () => visible;
 
 // Every 10 s while a run is live and the tab is in view; otherwise once a
 // minute, which also keeps the tab's dot current when it is hidden.
@@ -354,7 +354,7 @@ function closeSheet() {
   leave(el, () => el.remove());
 }
 
-// A translucent sheet from the panel's edge. It does not dim the rest: nothing else is blocked.
+// A translucent sheet from the sidebar's edge. It does not dim the rest: nothing else is blocked.
 function openSecretSheet(p, existing) {
   closeSheet();
   const el = document.createElement('div');
@@ -411,7 +411,7 @@ function openSecretSheet(p, existing) {
       check();
     }
   };
-  $('.panel').appendChild(el);
+  $('.sidebar').appendChild(el);
   sheet = el;
   (existing ? value : name).focus();
 }
@@ -581,13 +581,7 @@ export function setGithubVisible(on) {
   } else schedule();
 }
 
-// The right panel opened or closed.
-export function githubPanelChanged() {
-  if (shown()) refresh();
-  else schedule();
-}
-
-// Another project became the active one: its dot needs data even with the tab hidden.
+// Another project became the active one: its dot needs data even with the section collapsed.
 export function showGithub() {
   const p = activeProject();
   render();

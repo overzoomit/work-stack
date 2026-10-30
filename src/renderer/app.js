@@ -13,8 +13,8 @@ import {
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
 import { initUpdate, check as checkUpdate } from './update.js';
-import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPanelChanged, githubPushed } from './github.js';
-import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount } from './run.js';
+import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPushed } from './github.js';
+import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { initTeam } from './team.js';
 import { openAppearance } from './appearance.js';
@@ -325,7 +325,7 @@ setGitHooks({
   preview: (abs) => active && treeHooks(active).preview(abs),
   reveal: (abs) => {
     if (!active) return;
-    showTab('project');
+    showSection('project');
     active.tree.reveal(abs);
   },
 });
@@ -334,8 +334,8 @@ setGitHooks({
 setSearchHooks({
   reveal: (abs) => {
     if (!active) return;
-    setPanel('right', true);
-    showTab('project');
+    setPanel('left', true);
+    showSection('project');
     active.tree.reveal(abs);
   },
 });
@@ -358,7 +358,6 @@ $('#terminals').addEventListener('contextmenu', (e) => {
 
 const SIZES = {
   left: { prop: '--left-size', def: 256, min: 190, max: 460, key: 'work.leftSize' },
-  right: { prop: '--right-size', def: 440, min: 340, max: 760, key: 'work.rightSize' },
 };
 
 function setSize(side, px, persist) {
@@ -464,25 +463,47 @@ async function refreshAll() {
   btn.addEventListener('animationiteration', () => btn.classList.remove('spin'), { once: true });
 }
 
-function showTab(name) {
-  $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  $$('.tab-body').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  if (name === 'project') $('#tree').focus({ preventScroll: true });
-  setGraphVisible(name === 'graph');
-  setGithubVisible(name === 'github');
+// ── Sidebar accordion ───────────────────────────────────────
+// VS Code style: Agents is the explorer (open by default); the other panels
+// are collapsed sections that reveal their content on click.
+
+function sectionEl(name) {
+  return $(`.acc[data-sec="${name}"]`);
 }
-$$('#tabs button').forEach((b) => {
-  b.onpointerdown = () => showTab(b.dataset.tab);
+
+function setSection(name, open) {
+  const sec = sectionEl(name);
+  if (!sec) return;
+  sec.classList.toggle('open', open);
+  sec.querySelector('.acc-toggle')?.setAttribute('aria-expanded', String(open));
+  if (name === 'graph') setGraphVisible(open);
+  if (name === 'github') setGithubVisible(open);
+  // The console can only be measured once its section has a size.
+  if (name === 'run' && open) renderRunTab();
+}
+
+const sectionOpen = (name) => !!sectionEl(name)?.classList.contains('open');
+const toggleSection = (name) => setSection(name, !sectionOpen(name));
+
+function showSection(name) {
+  setSection(name, true);
+  if (name === 'project') $('#tree').focus({ preventScroll: true });
+}
+
+$$('.acc-toggle').forEach((b) => {
+  b.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    toggleSection(b.dataset.sec);
+  };
 });
 
 // ── Side panels ─────────────────────────────────────────────
-// Left (terminals + sessions) collapses to the left, right (project/git/agent)
-// to the right; each returns along the same path. Grid widths transition from
-// their current value, so a second click mid-way simply reverses.
+// The left column (terminals, sessions and the accordion sections) collapses
+// to the left and returns along the same path. The terminal grid extends over
+// the whole remaining width.
 
 const PANELS = {
   left: { cls: 'sidebar-hidden', btn: '#toggle-sidebar', key: 'work.sidebar' },
-  right: { cls: 'panel-hidden', btn: '#toggle-panel', key: 'work.panel' },
 };
 
 function setPanel(side, open, persist = true) {
@@ -496,7 +517,6 @@ function setPanel(side, open, persist = true) {
       // storage unavailable: keep the state for this session only
     }
   }
-  if (side === 'right') githubPanelChanged();
 }
 const panelOpen = (side) => !document.body.classList.contains(PANELS[side].cls);
 const togglePanel = (side) => setPanel(side, !panelOpen(side));
@@ -534,12 +554,6 @@ $('#tree-collapse').onclick = () => {
 };
 
 addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'b') {
-    e.preventDefault();
-    e.stopPropagation();
-    togglePanel('right');
-    return;
-  }
   if (isRefreshKey(e)) {
     e.preventDefault();
     refreshAll();
@@ -604,7 +618,7 @@ const SHORTCUTS = [
   ['Apri progetto', 'Ctrl+Shift+O'],
   ['Chiudi terminale', 'Ctrl+Shift+W'],
   ['Ingrandisci terminale', 'Ctrl+Shift+M'],
-  ['Pannello sinistro / destro', 'Ctrl+Shift+B', 'Ctrl+Alt+B'],
+  ['Pannello sinistro', 'Ctrl+Shift+B'],
   ['Avvia / ferma', 'Shift+F10', 'Ctrl+F2'],
   ['Aggiorna', 'F5'],
 ];
@@ -710,8 +724,8 @@ more.onclick = (e) => {
       renderProjectTabs();
       if (p === active) {
         const n = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
-        $('#toggle-panel').dataset.changes = n ? '1' : '';
-        updateGithubDot(); // the branch may have changed: so may the tab's dot
+        $('#changes-count').textContent = n;
+        updateGithubDot(); // the branch may have changed: so may the section's dot
       }
     },
   });
@@ -719,8 +733,7 @@ more.onclick = (e) => {
     save,
     changed: renderProjectTabs,
     reveal: () => {
-      setPanel('right', true);
-      showTab('run');
+      showSection('run');
     },
   });
   initLauncher({ activeProject: () => active });
@@ -744,7 +757,7 @@ more.onclick = (e) => {
     shellAt: (cwd) => active && openTerminal(projectFor(cwd) || active, { cwd }),
     openRepo: async (cwd) => {
       await addProject((await work.git.root(cwd)) || cwd, { withTerminal: false });
-      showTab('project');
+      showSection('project');
     },
   });
 

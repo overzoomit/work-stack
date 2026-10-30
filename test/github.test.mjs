@@ -405,7 +405,7 @@ test('se la run aperta sparisce dall\'elenco non resta aperto niente; i job si r
 
 const secret = (name, ago_ = 3 * 86400_000) => ({ name, updatedAt: new Date(Date.now() - ago_).toISOString() });
 const chooseSection = (id) => $('#gh-body').onclick({ detail: 1, target: { closest: (sel) => (sel === '[data-seg]' ? { dataset: { seg: id } } : null) } });
-const sheetEl = () => $('.panel').children.filter((c) => c.className === 'gh-sheet').at(-1);
+const sheetEl = () => $('.sidebar').children.filter((c) => c.className === 'gh-sheet').at(-1);
 const field = (id) => sheetEl().querySelector(`#gh-secret-${id}`);
 const typeIn = (id, v) => { field(id).value = v; field(id).oninput(); };
 const submit = () => sheetEl().querySelector('form').onsubmit({ preventDefault() {} });
@@ -509,7 +509,7 @@ test('il valore è mascherato, si mostra con l\'occhio, arriva intero a gh e spa
   assert.equal(secretsCalls, before + 1, 'the list is read again');
   assert.equal(field('value').value, '', 'the value is wiped when the sheet closes');
   endAnimation(el);
-  assert.equal($('.panel').children.includes(el), false, 'the sheet is gone');
+  assert.equal($('.sidebar').children.includes(el), false, 'the sheet is gone');
   assert.doesNotMatch(body(), /MIIB/, 'the value is nowhere in the page');
   assert.equal([...stored.values()].some((v) => v.includes('MIIB')), false, 'nor in the stored preferences');
   stored.clear();
