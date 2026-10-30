@@ -218,7 +218,7 @@ export async function createTeamMember(project, roleName, agent) {
       if (existingPane) {
         closeTerminal(existingPane.id);
       }
-      const newWinId = await work.tmux.newWindow(session, roleName, cmd, project.path);
+      const newWinId = await work.tmux.newWindow(session, roleName, project.path, cmd);
       const pane = await openTerminal(project, {
         cwd: project.path,
         title: roleName,
@@ -575,7 +575,7 @@ export async function launchTeamMember(project, role) {
           tmuxName: win.name,
         });
       } else {
-        await work.tmux.newWindow(session, role.name, role.command, project.path);
+        await work.tmux.newWindow(session, role.name, project.path, role.command);
         const updated = await work.tmux.listWindows(session).catch(() => []);
         const newWin = updated.find((w) => w.name === role.name);
         return openTerminal(project, {
@@ -611,7 +611,7 @@ export async function initializeTeam(project) {
       for (const role of TEAM_ROLES) {
         const exists = windows.some((w) => w.name === role.name);
         if (!exists) {
-          await work.tmux.newWindow(session, role.name, role.command, project.path);
+          await work.tmux.newWindow(session, role.name, project.path, role.command);
         }
       }
       const reattached = await syncProjectTerminals(project);

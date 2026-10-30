@@ -80,7 +80,8 @@ test('createTeamMember creates and attaches a window with the chosen agent', asy
   assert.equal(pane.title, 'pm');
   assert.equal(env.createdWindows.length, 1);
   assert.equal(env.createdWindows[0].name, 'pm');
-  assert.ok(env.createdWindows[0].command.includes('agy'));
+  assert.equal(env.createdWindows[0].cwd, '/home/u/create-proj', 'cwd is the 3rd argument');
+  assert.ok(env.createdWindows[0].command.includes('agy'), 'the agent command is the 4th argument');
 
   // Clean up
   T.closeTerminal(pane.id);
@@ -100,6 +101,11 @@ test('initializeTeam on tmux creates missing windows and attaches them', async (
   const panes = await Team.initializeTeam(project);
   assert.equal(env.createdWindows.length, 4, 'creates 4 tmux windows for the team');
   assert.deepEqual(env.createdWindows.map((w) => w.name), ['pm', 'dev1', 'dev2', 'qa']);
+  assert.deepEqual(
+    env.createdWindows.map((w) => [w.cwd, w.command]),
+    Team.TEAM_ROLES.map((r) => ['/home/u/team-proj', r.command]),
+    'each window starts its role command in the project folder',
+  );
 
   assert.equal(panes.length, 4);
   const titles = panes.map((p) => p.title);
@@ -190,5 +196,24 @@ test('openOrFocusRole and killTeamRole open and kill specific role windows', asy
   const panesAfter = T.terminalsOf(project);
   assert.equal(panesAfter.length, 0, 'pane was closed');
 
+  env.tmuxAvailable = false;
+});
+
+test('launchTeamMember creates a missing role window with cwd before the command', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_missing_role';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+
+  const project = { path: '/home/u/missing-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  const dev1 = Team.TEAM_ROLES.find((r) => r.name === 'dev1');
+
+  const pane = await Team.launchTeamMember(project, dev1);
+  assert.deepEqual(env.createdWindows, [{ session: 'work_missing_role', name: 'dev1', cwd: '/home/u/missing-proj', command: dev1.command }]);
+  assert.equal(pane.tmuxWindow, '@0');
+
+  T.closeTerminal(pane.id);
+  await tick(50);
   env.tmuxAvailable = false;
 });

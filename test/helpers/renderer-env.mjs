@@ -164,7 +164,8 @@ globalThis.window = {
       sessionForProject: async (path) => env.tmuxSession ?? 'work_test',
       listWindows: async (session) => env.tmuxWindows ?? [],
       ensureSession: async () => {},
-      newWindow: async (session, name, command, cwd) => {
+      // Same argument order as bridge.js: call('tmux_new_window', 'session', 'name', 'cwd', 'command').
+      newWindow: async (session, name, cwd, command) => {
         const id = `@${(env.tmuxWindows?.length || 0)}`;
         const win = { id, name, active: false, path: cwd };
         env.tmuxWindows = [...(env.tmuxWindows || []), win];
