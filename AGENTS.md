@@ -33,6 +33,26 @@ Posizione script: `/home/flavio/.claude/scripts/plane_cli.py`
 
 > **Regola Fondamentale:** Titoli, descrizioni, criteri di accettazione e tutti i commenti tecnici/QA su Plane devono essere scritti tassativamente in **lingua italiana**.
 
+### Protocollo di Escalation e Sentinella tmux-dogwatch
+Nessun dev o QA deve attendere una risposta diretta dall'utente. Tutte le domande e le richieste di conferma sono catturate da `scripts/tmux-dogwatch.py` e inoltrate al PM.
+
+- La sentinella scansiona con `tmux capture-pane` le finestre `dev*`, `qa*` e `agent*` della sessione di progetto, riconoscendo conferme/autorizzazioni (es. `[y/N]`, `Do you want to proceed?`, `Enter to confirm`) e domande aperte.
+- Quando una finestra si blocca, la sentinella crea o aggiorna `.claude/escalation_to_pm.json` con `target`, `question`, `prompt_type`, `options` e `timestamp`.
+- Se il PM può rispondere in autonomia (requisiti tecnici, permessi noti, architettura), risponde direttamente con `tmux-dogwatch.py answer` oppure `tmux send-keys`.
+- Se serve una decisione di prodotto/business, il PM interpella l'utente. L'utente risponde **esclusivamente al PM**, che a sua volta risponde all'agente bloccato.
+
+```bash
+# Controllo immediato (JSON su stdout + file di escalation)
+python3 scripts/tmux-dogwatch.py --once --session <sessione>
+python3 scripts/tmux-dogwatch.py --check --session <sessione>
+
+# Sentinella continua
+python3 scripts/tmux-dogwatch.py --daemon --interval 5
+
+# Risposta del PM a una finestra bloccata
+python3 scripts/tmux-dogwatch.py answer dev1 "sì, procedi"
+```
+
 ---
 
 ## 2. Architettura & Stack Tecnologico
