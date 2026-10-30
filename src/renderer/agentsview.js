@@ -1,4 +1,4 @@
-// Agents: sidebar list (this project first); a row opens to show its actions.
+// Agents: sidebar list of the active project's sessions; a row opens to show its actions.
 import { $, esc, ago, setHtml, setOpenRow, contextMenu, ask, toast, toastError } from './ui.js';
 
 const { work } = window;
@@ -59,14 +59,12 @@ function toggle(id) {
 export function renderAgentList() {
   const project = hooks.activeProject();
   const mine = project ? agents.filter((a) => inside(a.cwd, project.path)) : [];
-  const others = agents.filter((a) => !mine.includes(a));
   const list = $('#agent-list');
-  $('#agent-count').textContent = agents.length;
-  $('#agent-empty').hidden = agents.length > 0;
-  const changed = setHtml(list, (mine.length ? `<li class="list-label">In questo progetto</li>${mine.map(item).join('')}` : '')
-    + (others.length ? `<li class="list-label">${mine.length ? 'Altre sessioni' : 'Sessioni recenti'}</li>${others.map(item).join('')}` : ''));
+  $('#agent-count').textContent = mine.length;
+  $('#agent-empty').hidden = mine.length > 0;
+  const changed = setHtml(list, mine.map(item).join(''));
   if (changed) for (const li of list.querySelectorAll('li[data-id]')) {
-    const a = agents.find((x) => x.id === li.dataset.id);
+    const a = mine.find((x) => x.id === li.dataset.id);
     if (!a) continue;
     li.oncontextmenu = (e) => {
       e.preventDefault();
@@ -82,11 +80,11 @@ export function renderAgentList() {
     const close = li.querySelector('[data-act="close"]');
     if (close) close.onclick = () => closeSession(a);
   }
-  const working = agents.filter((a) => a.status.state === 'working').length;
-  const waiting = agents.filter((a) => a.status.state === 'waiting' || a.status.state === 'blocked').length;
-  $('#status-agents').textContent = agents.length ? `${working} al lavoro · ${waiting} in attesa` : '';
+  const working = mine.filter((a) => a.status.state === 'working').length;
+  const waiting = mine.filter((a) => a.status.state === 'waiting' || a.status.state === 'blocked').length;
+  $('#status-agents').textContent = mine.length ? `${working} al lavoro · ${waiting} in attesa` : '';
   // Shown on the sidebar toggle while the list is hidden, so nothing urgent is missed.
-  const urgent = ['blocked', 'waiting', 'working'].find((st) => agents.some((a) => a.status.state === st)) || '';
+  const urgent = (project && agentStateFor(project.path)) || '';
   $('#toggle-sidebar').dataset.agents = urgent;
   $('#status-agents').dataset.state = urgent;
 }

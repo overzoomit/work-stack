@@ -1,4 +1,4 @@
-// Agents list (this project first) and the actions of an open row, on the
+// Agents list (active project only) and the actions of an open row, on the
 // shared fake renderer environment; rows are read back from the rendered HTML.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -44,7 +44,7 @@ Object.assign(globalThis.window.work, {
     stop: async (id) => { stopped.push(id); },
   },
 });
-const { initAgents, agentStateFor } = await import('../src/renderer/agentsview.js');
+const { initAgents, agentStateFor, renderAgentList } = await import('../src/renderer/agentsview.js');
 
 const agent = (id, cwd, state, extra = {}) => ({
   id, cwd, project: cwd.split('/').pop(), title: `sessione ${id}`, mtime: Date.now(), tokens: 0,
@@ -52,7 +52,7 @@ const agent = (id, cwd, state, extra = {}) => ({
   eventSeq: 0, ...extra,
 });
 const hooks = { resumed: [], shells: [], repos: [] };
-const active = { path: '/home/u/app' };
+let active = { path: '/home/u/app' };
 // The list refreshes its "x min ago" every 10 s; that timer would keep the test alive.
 const realSetInterval = globalThis.setInterval;
 globalThis.setInterval = () => 0;
@@ -65,22 +65,46 @@ initAgents({
 });
 globalThis.setInterval = realSetInterval;
 
-test('la lista mette prima le sessioni del progetto attivo e riassume gli stati', async () => {
+test('la lista mostra solo le sessioni del progetto attivo e ne riassume gli stati', async () => {
   push([
-    agent('a1', '/home/u/altro', 'working'),
-    agent('b2', '/home/u/app/api', 'blocked'),
-    agent('c3', '/home/u/app', 'waiting'),
+    agent('a1', '/home/u/altro', 'blocked'),
+    agent('b2', '/home/u/app/api', 'waiting'),
+    agent('c3', '/home/u/app', 'working'),
+    agent('f6', '/home/u/app2', 'working'),
   ]);
-  const html = list.innerHTML;
-  assert.ok(html.indexOf('In questo progetto') < html.indexOf('data-id="b2"'));
-  assert.ok(html.indexOf('data-id="c3"') < html.indexOf('Altre sessioni'));
-  assert.ok(html.indexOf('Altre sessioni') < html.indexOf('data-id="a1"'));
-  assert.equal($('#agent-count').textContent, 3);
-  assert.equal($('#status-agents').textContent, '1 al lavoro · 2 in attesa');
-  assert.equal($('#toggle-sidebar').dataset.agents, 'blocked', 'the most urgent state shows on the hidden sidebar button');
-  assert.equal(agentStateFor('/home/u/app'), 'blocked', 'a project shows its most urgent agent');
-  assert.equal(agentStateFor('/home/u/altro'), 'working');
-  assert.equal(agentStateFor('/home/u/app2'), null, 'not a prefix match');
+  const ids = list.querySelectorAll('li[data-id]').map((r) => r.dataset.id);
+  assert.deepEqual(ids, ['b2', 'c3'], 'sessions outside the active project are not listed');
+  assert.doesNotMatch(list.innerHTML, /Altre sessioni|Sessioni recenti/);
+  assert.equal($('#agent-count').textContent, 2);
+  assert.equal($('#agent-empty').hidden, true);
+  assert.equal($('#status-agents').textContent, '1 al lavoro · 1 in attesa');
+  assert.equal($('#toggle-sidebar').dataset.agents, 'waiting', 'a blocked session in another project is not urgent here');
+  assert.equal($('#status-agents').dataset.state, 'waiting');
+  assert.equal(agentStateFor('/home/u/app'), 'waiting', 'a project shows its most urgent agent');
+  assert.equal(agentStateFor('/home/u/altro'), 'blocked');
+  assert.equal(agentStateFor('/home/u/app2'), 'working', 'not a prefix match');
+});
+
+test('senza progetto attivo la lista è vuota e i contatori a zero', async () => {
+  active = null;
+  push([agent('a1', '/home/u/altro', 'blocked'), agent('c3', '/home/u/app', 'working')]);
+  active = { path: '/home/u/app' };
+  assert.deepEqual(list.querySelectorAll('li[data-id]'), []);
+  assert.equal($('#agent-count').textContent, 0);
+  assert.equal($('#agent-empty').hidden, false);
+  assert.equal($('#status-agents').textContent, '');
+  assert.equal($('#toggle-sidebar').dataset.agents, '');
+});
+
+test('una sessione esterna non compare finché il suo progetto non diventa attivo', async () => {
+  push([agent('a1', '/home/u/altro', 'working')]);
+  assert.equal($('#agent-count').textContent, 0);
+  assert.equal($('#agent-empty').hidden, false);
+  active = { path: '/home/u/altro' };
+  renderAgentList();
+  active = { path: '/home/u/app' };
+  assert.deepEqual(list.querySelectorAll('li[data-id]').map((r) => r.dataset.id), ['a1']);
+  assert.equal($('#agent-count').textContent, 1);
 });
 
 test('un clic apre la riga; una sola alla volta; di nuovo la chiude; da tastiera con Invio o Spazio', async () => {
