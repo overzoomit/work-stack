@@ -22,6 +22,14 @@ if [ "$DOGWATCH_CLEAN" = "1" ]; then
   esac
   exit 0
 fi
+if [ "$DOGWATCH_RESUMED" = "1" ]; then
+  case "$1" in
+    list-windows) printf '@0\\tdev1\\t1\\t/p\\n' ;;
+    capture-pane) printf 'Do you want to proceed? [y/N]\\nANSWER=no\\nrunning the test suite\\n' ;;
+    display-message) printf 'work_test\\n' ;;
+  esac
+  exit 0
+fi
 case "$1" in
   list-windows)
     printf '@0\\tdev1\\t1\\t/p\\n@1\\tdev2\\t0\\t/p\\n@2\\tqa\\t0\\t/p\\n@3\\tagent1\\t0\\t/p\\n@4\\tshell\\t0\\t/p\\n'
@@ -104,6 +112,18 @@ test('--check è un alias di --once e riscrive un file vuoto quando nessuno è b
     assert.equal(clean.status, 0, clean.stderr);
     assert.deepEqual(pending(clean.stdout), []);
     assert.deepEqual(readPending(box), [], 'questions that disappeared are cleared');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('un prompt già risposto, seguito da nuovo output, non resta in pending (regressione)', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = run(box, ['--once', '--session', 'work_test'], { DOGWATCH_RESUMED: '1' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(pending(out.stdout), []);
+    assert.deepEqual(readPending(box), []);
   } finally {
     box.cleanup();
   }

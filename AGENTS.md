@@ -38,6 +38,7 @@ Nessun dev o QA deve attendere una risposta diretta dall'utente. Tutte le domand
 
 - La sentinella scansiona con `tmux capture-pane` le finestre `dev*`, `qa*` e `agent*` della sessione di progetto, riconoscendo conferme/autorizzazioni (es. `[y/N]`, `Do you want to proceed?`, `Enter to confirm`) e domande aperte.
 - Quando una finestra si blocca, la sentinella crea o aggiorna `.claude/escalation_to_pm.json` con `target`, `question`, `prompt_type`, `options` e `timestamp`.
+- Dentro Work la stessa funzione è nativa: `src-tauri/src/dogwatch.rs` interroga ogni 3 s la sessione dei progetti aperti, aggiorna `.claude/escalation_to_pm.json`, emette l'evento `dogwatch:update` (bridge: `window.work.dogwatch.onUpdate`) ed espone `dogwatch_inspect` / `dogwatch_answer` (`window.work.dogwatch.inspect/answer`). Un prompt è pendente solo finché nessun altro output lo segue. Lo stato appare nella Squadra Agenti.
 - Se il PM può rispondere in autonomia (requisiti tecnici, permessi noti, architettura), risponde direttamente con `tmux-dogwatch.py answer` oppure `tmux send-keys`.
 - Se serve una decisione di prodotto/business, il PM interpella l'utente. L'utente risponde **esclusivamente al PM**, che a sua volta risponde all'agente bloccato.
 

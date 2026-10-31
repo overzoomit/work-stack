@@ -42,11 +42,7 @@ CONFIRMATION_PATTERNS = (
     ("selection", re.compile(r"^\s*[❯>]\s*\d+[.)]\s+\S", re.MULTILINE)),
 )
 
-OPEN_QUESTION = re.compile(
-    r"\b(?:could|can|would) you\b|\bplease (?:clarify|confirm|choose|provide|tell)\b|"
-    r"\bwhich\b|\bwhat\b|\bhow should\b",
-    re.IGNORECASE,
-)
+OPEN_QUESTION = re.compile(r"\bplease (?:clarify|confirm|choose|provide|tell)\b", re.IGNORECASE)
 
 NUMBERED_OPTION = re.compile(r"^\s*(?:[❯>]\s*)?\d+[.)]\s+(.+?)\s*$")
 BARE_FLAG = re.compile(r"^\s*(?:\[[^\]]+\]|\([^)]*\))\s*$")
@@ -153,31 +149,51 @@ def extract_options(lines: list[str]) -> list[str]:
 def extract_question(lines: list[str]) -> str:
     for line in reversed(lines):
         text = line.strip()
-        if not text or NUMBERED_OPTION.match(text) or BARE_FLAG.match(text):
+        if is_prompt_chrome(text):
             continue
         return text
     return lines[-1].strip() if lines else ""
 
 
+# Lines a prompt keeps drawing below its question: options, key hints, box borders.
+PROMPT_CHROME = re.compile(
+    r"^[\s│╭╰╮╯─┌└┐┘]*$|\b(?:esc|enter|tab|ctrl\S*)\b.*\bto\b|\b(?:esc|enter) to \w+",
+    re.IGNORECASE,
+)
+
+
+BOX_EDGE = re.compile(r"^[ \t│]+(?=\S)|[ \t│]+$")
+
+
+def is_prompt_chrome(line: str) -> bool:
+    return bool(NUMBERED_OPTION.match(line) or BARE_FLAG.match(line) or PROMPT_CHROME.search(line))
+
+
 def detect_prompt(text: str) -> dict[str, object] | None:
-    """Return {prompt_type, question, options} for an interactive block, else None."""
-    lines = [line.rstrip() for line in text.splitlines()]
+    """Return {prompt_type, question, options} for a prompt still waiting for input, else None.
+
+    A prompt is pending only when nothing but its own options and key hints
+    follows it: any other later line means the process went on.
+    """
+    lines = [BOX_EDGE.sub("", line) for line in text.splitlines()]
     tail = [line for line in lines if line.strip()][-12:]
     if not tail:
         return None
-    joined = "\n".join(tail)
 
+    start = len(tail)
+    while start > 0 and is_prompt_chrome(tail[start - 1]):
+        start -= 1
+    block = tail[max(0, start - 1):]
+    joined = "\n".join(block)
     prompt_type = next((kind for kind, rx in CONFIRMATION_PATTERNS if rx.search(joined)), None)
-    options = extract_options(tail)
-    question = extract_question(tail)
-
     if prompt_type is None:
         last = tail[-1].strip()
         if not last.endswith("?") and not OPEN_QUESTION.search(last):
             return None
         prompt_type = "question"
+        block = [tail[-1]]
 
-    return {"prompt_type": prompt_type, "question": question, "options": options}
+    return {"prompt_type": prompt_type, "question": extract_question(block), "options": extract_options(block)}
 
 
 def scan_once(

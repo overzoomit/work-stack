@@ -166,6 +166,11 @@
       available: call('agents_available', 'commands'),
       onUpdate: listen('agents:update'),
     },
+    dogwatch: {
+      inspect: call('dogwatch_inspect', 'session'),
+      answer: call('dogwatch_answer', 'session', 'window', 'answer'),
+      onUpdate: listen('dogwatch:update'),
+    },
     tmux: {
       isAvailable: call('tmux_is_available'),
       sessionForProject: call('tmux_session_for_project', 'path'),

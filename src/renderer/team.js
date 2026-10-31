@@ -43,6 +43,7 @@ export const TEAM_ROLES = [
 ];
 
 let pop = null;
+const waitingByProject = new Map();
 let viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
 
 export function hasPm(existingNames = []) {
@@ -112,8 +113,26 @@ export function getAgentMembers(existingNames = []) {
 export const nextGenericName = nextAgentName;
 export const getGenericMembers = getAgentMembers;
 
+// Dogwatch: the team button lights up while any agent waits for an answer.
+function showWaiting(project, count) {
+  waitingByProject.set(project, count);
+  const total = [...waitingByProject.values()].reduce((a, b) => a + b, 0);
+  const btn = $('#agent-team');
+  btn?.classList.toggle('attention', total > 0);
+  if (btn) btn.title = total > 0 ? `${total} agent(s) waiting for an answer` : 'Manage the agent team (PM, Dev1, Dev2, QA, Generic)';
+}
+
+export function statusBadge(prompts, name) {
+  const prompt = prompts.get(name);
+  if (!prompt) return '<span class="tp-badge-status active">Active</span>';
+  return `<span class="tp-badge-status waiting" title="${esc(prompt.question)}">Waiting for answer</span>`;
+}
+
+const dotClass = (prompts, name) => (prompts.has(name) ? 'waiting' : 'active');
+
 export function initTeam({ activeProject }) {
   getProject = activeProject;
+  work?.dogwatch?.onUpdate((project, _session, pending) => showWaiting(project, pending.length));
   const btn = $('#agent-team');
   if (!btn) return;
 
@@ -285,7 +304,10 @@ async function getExistingNames(project) {
     }
   }
 
-  return { isTmux, session, tmuxWindows, openPanes, names: [...names] };
+  const inspection = session ? await work.dogwatch?.inspect(session).catch(() => null) : null;
+  const prompts = new Map((inspection?.windows ?? []).filter((w) => w.prompt).map((w) => [w.name, w.prompt]));
+
+  return { isTmux, session, tmuxWindows, openPanes, prompts, names: [...names] };
 }
 
 // Renders the popover content based on current viewState
@@ -329,7 +351,7 @@ async function renderPopContent() {
   }
 
   // Main squad view
-  const { isTmux, session, tmuxWindows, openPanes, names } = await getExistingNames(p);
+  const { isTmux, session, tmuxWindows, prompts, names } = await getExistingNames(p);
 
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
@@ -347,7 +369,7 @@ async function renderPopContent() {
         <button class="icon-btn" data-act="close" title="Close (Esc)">✕</button>
       </div>
       <div class="tp-sub">
-        ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows` : 'Standard terminal mode (tmux not available)'}
+        ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows${prompts.size ? ` · <b class="tp-waiting">${prompts.size} waiting for an answer</b>` : ''}` : 'Standard terminal mode (tmux not available)'}
       </div>
     </header>
 
@@ -388,12 +410,12 @@ async function renderPopContent() {
         </div>
         ${devList.map((devName) => `
           <div class="tp-row" data-focus-role="${esc(devName)}" title="Click to open the ${esc(devName)} terminal">
-            <span class="tp-status-dot active"></span>
+            <span class="tp-status-dot ${dotClass(prompts, devName)}"></span>
             <span class="tp-role-badge tp-role-dev">[${esc(devName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(devName)}</span>
-                <span class="tp-badge-status active">Active</span>
+                ${statusBadge(prompts, devName)}
               </div>
               <div class="tp-desc">Developer · Click to view</div>
             </div>
@@ -414,12 +436,12 @@ async function renderPopContent() {
         </div>
         ${qaList.map((qaName) => `
           <div class="tp-row" data-focus-role="${esc(qaName)}" title="Click to open the ${esc(qaName)} terminal">
-            <span class="tp-status-dot active"></span>
+            <span class="tp-status-dot ${dotClass(prompts, qaName)}"></span>
             <span class="tp-role-badge tp-role-qa">[${esc(qaName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(qaName)}</span>
-                <span class="tp-badge-status active">Active</span>
+                ${statusBadge(prompts, qaName)}
               </div>
               <div class="tp-desc">QA Engineer · Click to view</div>
             </div>
@@ -440,12 +462,12 @@ async function renderPopContent() {
         </div>
         ${agentList.map((agentName) => `
           <div class="tp-row" data-focus-role="${esc(agentName)}" title="Click to open the ${esc(agentName)} terminal">
-            <span class="tp-status-dot active"></span>
+            <span class="tp-status-dot ${dotClass(prompts, agentName)}"></span>
             <span class="tp-role-badge tp-role-generic">[${esc(agentName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(agentName)}</span>
-                <span class="tp-badge-status active">Active</span>
+                ${statusBadge(prompts, agentName)}
               </div>
               <div class="tp-desc">Generic agent · Click to view</div>
             </div>

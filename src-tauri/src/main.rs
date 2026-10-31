@@ -3,6 +3,7 @@ mod agents;
 mod app;
 mod claudeprocs;
 mod diag;
+mod dogwatch;
 mod fsops;
 mod git;
 mod github;
@@ -134,6 +135,14 @@ fn main() {
             // The first scan reads every transcript ever saved: not before the window.
             let handle = app.handle().clone();
             std::thread::spawn(move || handle.state::<agents::AgentWatcher>().start());
+            let handle = app.handle().clone();
+            let events = app.handle().clone();
+            dogwatch::spawn(
+                move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
+                move |project, session, pending| {
+                    let _ = events.emit("dogwatch:update", (project, session, pending));
+                },
+            );
             app::create_window(app.handle())?;
             Ok(())
         })
@@ -202,6 +211,8 @@ fn main() {
             agents::agents_has_history,
             agents::agents_stop,
             agents::agents_available,
+            dogwatch::dogwatch_inspect,
+            dogwatch::dogwatch_answer,
             tmux::tmux_is_available,
             tmux::tmux_session_for_project,
             tmux::tmux_ensure_session,

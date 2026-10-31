@@ -272,3 +272,10 @@ test('la sezione Generico elenca i membri e avvia l\'agente scelto come agentN',
   await tick(50);
   env.tmuxAvailable = false;
 });
+
+test('statusBadge shows Waiting with the question for a window that waits, Active otherwise', () => {
+  const prompts = new Map([['dev1', { prompt_type: 'permission', question: 'Do you want to proceed?', options: [] }]]);
+  assert.match(Team.statusBadge(prompts, 'dev1'), /waiting.*Waiting for answer/);
+  assert.match(Team.statusBadge(prompts, 'dev1'), /title="Do you want to proceed\?"/);
+  assert.match(Team.statusBadge(prompts, 'qa'), /active.*Active/);
+});

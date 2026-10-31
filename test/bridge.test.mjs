@@ -67,3 +67,15 @@ test('work.tmux exposes tmux IPC commands', async () => {
   assert.equal(windows[0].name, 'shell');
   assert.deepEqual(calls, ['tmux_is_available', 'tmux_session_for_project', 'tmux_list_windows']);
 });
+
+test('work.dogwatch inspects a session and relays the PM answer with named arguments', async () => {
+  const calls = [];
+  const { work } = load((cmd, ...rest) => {
+    calls.push(cmd);
+    return cmd === 'dogwatch_inspect' ? { session: 's', windows: [] } : null;
+  });
+  assert.deepEqual(await work.dogwatch.inspect('s'), { session: 's', windows: [] });
+  await work.dogwatch.answer('s', 'dev1', 'yes');
+  assert.deepEqual(calls, ['dogwatch_inspect', 'dogwatch_answer']);
+  assert.equal(typeof work.dogwatch.onUpdate, 'function');
+});
