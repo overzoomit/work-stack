@@ -79,9 +79,25 @@ pub fn run_tmux(args: &[&str]) -> Result<String, String> {
     }
 }
 
-// Checks if a given session exists.
+// Checks if a session with exactly this name exists ("=": no prefix match,
+// so "work" does not find "work-stack").
 pub fn has_session(session: &str) -> bool {
-    run_tmux(&["has-session", "-t", session]).is_ok()
+    run_tmux(&["has-session", "-t", &format!("={session}")]).is_ok()
+}
+
+// A session the user already runs under the folder's own name (e.g.
+// "work-stack") is adopted; otherwise Work's own hashed session.
+pub fn session_for_project(path: &Path) -> String {
+    let folder = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    // tmux rewrites "." and ":" in session names: only a plain name can match.
+    let plain = !folder.is_empty()
+        && folder
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if plain && has_session(folder) {
+        return folder.to_string();
+    }
+    session_name_for_path(path)
 }
 
 // Ensures a session exists for the given project path, creating a detached session if needed.
@@ -176,9 +192,10 @@ pub fn kill_window(session: &str, window_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Closes a tmux session.
+// Closes the session with exactly this name: a missing "x_pty_1" must not
+// fall back to a prefix match and kill "x_pty_12".
 pub fn kill_session(session: &str) -> Result<(), String> {
-    run_tmux(&["kill-session", "-t", session])?;
+    run_tmux(&["kill-session", "-t", &format!("={session}")])?;
     Ok(())
 }
 
@@ -231,7 +248,7 @@ pub fn tmux_is_available() -> bool {
 
 #[tauri::command]
 pub fn tmux_session_for_project(path: String) -> String {
-    session_name_for_path(Path::new(&path))
+    session_for_project(Path::new(&path))
 }
 
 #[tauri::command]
@@ -374,5 +391,57 @@ mod tests {
         let _ = kill_session(&test_session);
         assert!(!has_session(&client));
         assert!(!has_session(&test_session));
+    }
+
+    fn unique(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{prefix}{nanos:x}")
+    }
+
+    #[test]
+    fn a_session_named_like_the_project_folder_is_adopted() {
+        if !is_available() {
+            return;
+        }
+        let folder = unique("wsproj_");
+        let path = PathBuf::from("/tmp/somewhere").join(&folder);
+        assert_eq!(session_for_project(&path), session_name_for_path(&path), "no session yet: Work's own name");
+
+        ensure_session(&folder, Path::new("/tmp")).unwrap();
+        let adopted = session_for_project(&path);
+        let _ = kill_session(&folder);
+        assert_eq!(adopted, folder);
+    }
+
+    #[test]
+    fn session_lookups_and_kills_never_match_by_prefix_regression() {
+        if !is_available() {
+            return;
+        }
+        let folder = unique("wsprefix_");
+        let longer = format!("{folder}-other");
+        ensure_session(&longer, Path::new("/tmp")).unwrap();
+        let path = PathBuf::from("/tmp").join(&folder);
+
+        let found = has_session(&folder);
+        let resolved = session_for_project(&path);
+        let killed = kill_session(&folder).is_ok();
+        let survived = has_session(&longer);
+        let _ = kill_session(&longer);
+
+        assert!(!found, "\"{folder}\" is not \"{longer}\"");
+        assert_eq!(resolved, session_name_for_path(&path));
+        assert!(!killed && survived, "killing a missing session leaves the longer one alone");
+    }
+
+    #[test]
+    fn a_folder_name_tmux_cannot_use_as_is_falls_back_to_the_canonical_name() {
+        for name in ["my.app", "a:b", "con spazi", ""] {
+            let path = PathBuf::from("/tmp").join(name);
+            assert_eq!(session_for_project(&path), session_name_for_path(&path), "{name:?}");
+        }
     }
 }
