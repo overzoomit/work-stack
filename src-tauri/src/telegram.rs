@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 const API: &str = "https://api.telegram.org";
 const POLL_TIMEOUT_SECS: u64 = 25;
@@ -18,6 +18,7 @@ const HTTP_TIMEOUT_SECS: u64 = 40;
 const MAX_TEXT: usize = 4000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Status {
     pub connected: bool,
     pub bot: Option<String>,
@@ -137,19 +138,12 @@ pub fn inbound(update: &Value, chat_id: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_string())
 }
 
-pub fn format_pending(project: &str, session: &str, pending: &[dogwatch::Pending]) -> String {
-    let mut text = format!("🚨 Agent escalation · {project}\n");
-    if !session.is_empty() {
-        text.push_str(&format!("session: {session}\n"));
-    }
-    for p in pending {
-        text.push_str(&format!("\n• {} — {}", p.target, p.prompt.question));
-        if !p.prompt.options.is_empty() {
-            text.push_str(&format!("\n  options: {}", p.prompt.options.join(" / ")));
-        }
-    }
-    text.push_str("\n\nReply here to bring it to the PM.");
-    text
+// The only message a connection sends on its own: no dev/QA prompt is ever
+// forwarded automatically. The PM decides what to relay with telegram_send.
+pub fn welcome_message(project: &str) -> String {
+    format!(
+        "🤖 Work PM bot connected to {project}.\nMessages here are typed into the PM window. Only this chat is accepted.\nAgent escalations stay in the PM: relay one here only when the PM decides to."
+    )
 }
 
 // ── HTTP client ──────────────────────────────────────────────
@@ -334,19 +328,7 @@ pub fn telegram_connect(
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
     emit_status(&app, &state);
 
-    // The PM already had a question pending when the bot connected.
-    let pending = dogwatch::inspect(&config.session)
-        .map(|i| i.pending())
-        .unwrap_or_default();
-    let hello = if pending.is_empty() {
-        format!(
-            "🤖 Work PM bot connected to {}.\nMessages here are typed into the PM window. Only this chat is accepted.",
-            config.project
-        )
-    } else {
-        format_pending(&config.project, &config.session, &pending)
-    };
-    let welcome = (config.clone(), hello);
+    let welcome = (config.clone(), welcome_message(&config.project));
     thread::spawn(move || {
         if let Ok(client) = client() {
             let _ = send_message(&client, &welcome.0, &welcome.1);
@@ -382,37 +364,6 @@ pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(
         return Err("Il messaggio è vuoto.".into());
     }
     send_message(&client()?, &config, &text)
-}
-
-// Dogwatch changed the pending list of a project: tell the PM's chat, if the
-// bot is connected to that same project. An empty list is not sent.
-pub fn notify_pending(
-    app: &AppHandle,
-    project: &str,
-    session: &str,
-    pending: &[dogwatch::Pending],
-) {
-    if pending.is_empty() {
-        return;
-    }
-    let state = app.state::<Arc<TelegramState>>();
-    let Some(config) = state.config.lock().unwrap().clone() else {
-        return;
-    };
-    if config.project != project || config.session != session {
-        return;
-    }
-    let text = format_pending(project, session, pending);
-    let app = app.clone();
-    thread::spawn(move || {
-        if let Ok(client) = client() {
-            let _ = send_message(&client, &config, &text);
-            let _ = app.emit(
-                "telegram:message",
-                json!({ "direction": "out", "text": text }),
-            );
-        }
-    });
 }
 
 pub fn shutdown(state: &TelegramState) {
@@ -470,16 +421,27 @@ mod tests {
     }
 
     #[test]
-    fn an_escalation_message_names_target_question_and_options() {
-        let pending = vec![dogwatch::Pending {
-            target: "dev1".into(),
-            prompt: dogwatch::parse_prompt("Do you want to proceed?\n❯ 1. Yes\n  2. No\n").unwrap(),
-        }];
-        let text = format_pending("/p", "work_p_1234", &pending);
-        assert!(text.contains("dev1"));
-        assert!(text.contains("Do you want to proceed?"));
-        assert!(text.contains("Yes / No"));
-        assert!(text.contains("work_p_1234"));
+    fn connecting_only_sends_the_welcome_never_an_agent_prompt() {
+        let text = welcome_message("/p");
+        assert!(text.contains("/p"));
+        assert!(text.contains("Only this chat"));
+        assert!(!text.to_lowercase().contains("escalation ·"));
+        assert!(!text.contains("Do you want to proceed"));
+    }
+
+    #[test]
+    fn dogwatch_prompts_are_never_forwarded_to_telegram_automatically() {
+        // The PM-only mediation is architectural: main.rs must not call a
+        // Telegram notifier from the dogwatch loop, and connect must not
+        // inspect pending prompts. Only telegram_send may reach the chat.
+        let main = include_str!("main.rs");
+        let telegram = include_str!("telegram.rs");
+        assert!(!main.contains("notify_pending"));
+        // Built at runtime so this test does not match its own literals.
+        let notifier = ["fn ", "notify_", "pending"].concat();
+        let inspector = ["dogwatch::", "inspect"].concat();
+        assert!(!telegram.contains(&notifier));
+        assert!(!telegram.contains(&inspector));
     }
 
     #[test]
@@ -492,11 +454,15 @@ mod tests {
     }
 
     #[test]
-    fn the_status_never_carries_the_token() {
+    fn the_status_uses_camel_case_and_never_carries_the_token() {
         let state = TelegramState::new();
         let json = serde_json::to_value(state.status()).unwrap();
         assert_eq!(json["connected"], false);
         assert!(json.get("token").is_none());
         assert!(json["bot"].is_null());
+        assert!(json.get("chatId").is_some(), "the panel reads chatId");
+        assert!(json.get("lastError").is_some(), "the panel reads lastError");
+        assert!(json.get("chat_id").is_none(), "no snake_case leak");
+        assert!(json.get("last_error").is_none(), "no snake_case leak");
     }
 }

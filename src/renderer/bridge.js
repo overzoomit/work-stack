@@ -23,7 +23,9 @@
   // Fire and forget, like ipcRenderer.send: a failure has no caller to reach.
   const send = (cmd, ...names) => (...args) => { call(cmd, ...names)(...args).catch(() => {}); };
   const listen = (event) => (cb) => {
-    const off = on(event, (e) => cb(...e.payload));
+    // Most backend events carry a tuple (spread it); telegram:status and
+    // telegram:message carry a single object, which is not iterable.
+    const off = on(event, (e) => (Array.isArray(e.payload) ? cb(...e.payload) : cb(e.payload)));
     return () => off.then((un) => un());
   };
 

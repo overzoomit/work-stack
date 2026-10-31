@@ -8,6 +8,7 @@ const source = readFileSync(new URL('../src/renderer/bridge.js', import.meta.url
 
 function load(answer) {
   const logged = [];
+  const listeners = {};
   let now = 0;
   const window = { addEventListener() {} };
   const ctx = {
@@ -26,10 +27,15 @@ function load(answer) {
         return answer(cmd, (ms) => { now += ms; });
       },
     },
-    event: { listen: async () => () => {} },
+    event: {
+      listen: async (name, cb) => {
+        listeners[name] = cb;
+        return () => {};
+      },
+    },
   };
   vm.runInNewContext(source, ctx);
-  return { work: window.work, logged };
+  return { work: window.work, logged, emit: (name, payload) => listeners[name]({ payload }) };
 }
 
 test('a command slower than 2 s is logged with its name and duration', async () => {
@@ -101,4 +107,22 @@ test('work.telegram exposes status, connect, disconnect, send and events', async
   assert.equal(typeof work.telegram.status, 'function');
   assert.equal(typeof work.telegram.onStatus, 'function');
   assert.equal(typeof work.telegram.onMessage, 'function');
+});
+
+test('object event payloads do not break the spread listener; arrays still spread', async () => {
+  const { work, emit } = load(() => null);
+  const seen = [];
+  work.telegram.onStatus((s) => seen.push(['status', s]));
+  work.telegram.onMessage((m) => seen.push(['message', m]));
+  work.agents.onUpdate((list) => seen.push(['agents', list]));
+
+  emit('telegram:status', { connected: true, chatId: '42', lastError: null });
+  emit('telegram:message', { direction: 'in', text: 'hello' });
+  emit('agents:update', [['claude']]);
+
+  assert.deepEqual(seen, [
+    ['status', { connected: true, chatId: '42', lastError: null }],
+    ['message', { direction: 'in', text: 'hello' }],
+    ['agents', ['claude']],
+  ]);
 });

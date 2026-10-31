@@ -140,12 +140,12 @@ fn main() {
             std::thread::spawn(move || handle.state::<agents::AgentWatcher>().start());
             let handle = app.handle().clone();
             let events = app.handle().clone();
-            let telegram_app = app.handle().clone();
             dogwatch::spawn(
                 move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
                 move |project, session, pending| {
+                    // Dogwatch stays internal to the PM: nothing is forwarded
+                    // to Telegram without an explicit PM decision.
                     let _ = events.emit("dogwatch:update", (project, session, pending));
-                    telegram::notify_pending(&telegram_app, project, session, pending);
                 },
             );
             app::create_window(app.handle())?;
