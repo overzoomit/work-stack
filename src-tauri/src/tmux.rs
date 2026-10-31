@@ -214,6 +214,7 @@ pub fn attach_client_session(
         "-s",
         client_session,
     ])?;
+    let _ = run_tmux(&["set-option", "-t", client_session, "status", "off"]);
     let target = format!("{client_session}:{window_id}");
     let _ = run_tmux(&["select-window", "-t", &target]);
     Ok(())
@@ -391,6 +392,26 @@ mod tests {
         let _ = kill_session(&test_session);
         assert!(!has_session(&client));
         assert!(!has_session(&test_session));
+    }
+
+    #[test]
+    fn client_session_hides_status_bar_but_base_session_keeps_it() {
+        if !is_available() {
+            return;
+        }
+        let base = unique("wsstatus_");
+        let client = format!("{base}_client");
+        ensure_session(&base, Path::new("/tmp")).unwrap();
+        let attached = attach_client_session(&base, &client, "0");
+
+        let client_status = run_tmux(&["show-options", "-v", "-t", &client, "status"]);
+        let base_status = run_tmux(&["show-options", "-v", "-t", &base, "status"]);
+        let _ = kill_session(&client);
+        let _ = kill_session(&base);
+
+        assert!(attached.is_ok());
+        assert_eq!(client_status.unwrap().trim(), "off");
+        assert_ne!(base_status.unwrap_or_default().trim(), "off");
     }
 
     fn unique(prefix: &str) -> String {
