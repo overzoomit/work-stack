@@ -9,6 +9,26 @@ T.initTerminals({ homeDir: '/home/u', changed() {} });
 const Team = await import('../src/renderer/team.js');
 const Launcher = await import('../src/renderer/launcher.js');
 
+// Telegram bridge stub: only the PM control panel uses it.
+const telegramState = { connected: false, bot: null, chatId: null, project: null, session: null, lastError: null };
+const telegramCalls = [];
+globalThis.window.work.telegram = {
+  status: async () => ({ ...telegramState }),
+  connect: async (token, chatId, project, session) => {
+    telegramCalls.push(['connect', token, chatId, project, session]);
+    Object.assign(telegramState, { connected: true, bot: 'work_pm_bot', chatId, project, session, lastError: null });
+    return { ...telegramState };
+  },
+  disconnect: async () => {
+    telegramCalls.push(['disconnect']);
+    Object.assign(telegramState, { connected: false, bot: null, chatId: null, project: null, session: null, lastError: null });
+    return { ...telegramState };
+  },
+  send: async (text) => telegramCalls.push(['send', text]),
+  onStatus: () => {},
+  onMessage: () => {},
+};
+
 test('TEAM_ROLES defines pm, dev1, dev2, and qa with valid properties', () => {
   const roles = Team.TEAM_ROLES;
   assert.equal(roles.length, 4);
@@ -278,4 +298,66 @@ test('statusBadge shows Waiting with the question for a window that waits, Activ
   assert.match(Team.statusBadge(prompts, 'dev1'), /waiting.*Waiting for answer/);
   assert.match(Team.statusBadge(prompts, 'dev1'), /title="Do you want to proceed\?"/);
   assert.match(Team.statusBadge(prompts, 'qa'), /active.*Active/);
+});
+
+test('the BotFather guide explains that only the PM talks to Telegram', () => {
+  const guide = Team.telegramGuide();
+  assert.match(guide, /@BotFather/);
+  assert.match(guide, /\/newbot/);
+  assert.match(guide, /0:pm/);
+  assert.match(guide, /Dev and QA agents do not talk to Telegram/);
+});
+
+test('the Telegram panel appears only while the PM is active', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_tg_panel';
+  env.tmuxWindows = [];
+  const project = { path: '/home/u/tg-panel', focusedId: null, maximizedId: null };
+  Team.initTeam({ activeProject: () => project });
+
+  await Team.openTeamMenu();
+  let pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  assert.doesNotMatch(pop.innerHTML, /Telegram Bot/, 'no PM: no bot controls');
+
+  Team.closeTeamMenu();
+  env.tmuxWindows = [{ id: '@20', name: 'pm', active: false, path: '/home/u/tg-panel' }];
+  Team.initTeam({ activeProject: () => project });
+  await Team.openTeamMenu();
+  pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  assert.match(pop.innerHTML, /Telegram Bot/);
+  assert.match(pop.innerHTML, /data-act="telegram-info"/);
+  assert.match(pop.innerHTML, /data-telegram-form/);
+  assert.match(pop.innerHTML, /id="tg-token"/, 'token field');
+  assert.match(pop.innerHTML, /id="tg-chat"/, 'chat id field');
+  assert.match(pop.innerHTML, /Connect/);
+  env.tmuxAvailable = false;
+});
+
+test('connecting the Telegram form sends token, chat and session; disconnect returns the form', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_tg_connect';
+  env.tmuxWindows = [{ id: '@21', name: 'pm', active: false, path: '/home/u/tg-connect' }];
+  const project = { path: '/home/u/tg-connect', focusedId: null, maximizedId: null };
+  Team.initTeam({ activeProject: () => project });
+  telegramCalls.length = 0;
+
+  await Team.openTeamMenu();
+  let pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  $('#tg-token').value = '123456:AAHm2x3YqW8sVn4Lp6Rt0Zk9Bd1Cf5Gh7J';
+  $('#tg-chat').value = '987654321';
+  await pop.listeners.submit[0]({
+    preventDefault() {},
+    target: { closest: (sel) => (sel === '[data-telegram-form]' ? {} : null) },
+  });
+
+  assert.deepEqual(telegramCalls[0], ['connect', '123456:AAHm2x3YqW8sVn4Lp6Rt0Zk9Bd1Cf5Gh7J', '987654321', '/home/u/tg-connect', 'work_tg_connect']);
+  assert.match(pop.innerHTML, /Connected as @work_pm_bot/);
+  assert.match(pop.innerHTML, /data-act="telegram-disconnect"/);
+
+  await pop.listeners.click[0]({
+    target: { closest: (sel) => (sel === '[data-act]' ? { dataset: { act: 'telegram-disconnect' } } : null) },
+  });
+  assert.deepEqual(telegramCalls.at(-1), ['disconnect']);
+  assert.match(pop.innerHTML, /data-telegram-form/, 'the connection form is back');
+  env.tmuxAvailable = false;
 });

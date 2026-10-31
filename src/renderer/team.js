@@ -1,7 +1,8 @@
 // Orchestrator for Multi-Agent Teams (PM, Dev1, Dev2..., QA1, QA2...) on tmux.
-import { $, esc, leave, toast } from './ui.js';
+import { $, esc, leave, toast, ask } from './ui.js';
 import { openTerminal, closeTerminal, focus, terminalsOf, syncProjectTerminals } from './terminals.js';
 import { AGENTS, commandFor } from './launcher.js';
+import { mcpSection } from './mcp.js';
 
 const { work } = window;
 
@@ -130,9 +131,97 @@ export function statusBadge(prompts, name) {
 
 const dotClass = (prompts, name) => (prompts.has(name) ? 'waiting' : 'active');
 
+// The Info button opens this guide in the shared modal. Only the PM is wired
+// to the bot: dev and QA never get a token or a chat.
+export function telegramGuide() {
+  return [
+    'How to connect the PM to Telegram',
+    '',
+    '1. Open Telegram and search @BotFather.',
+    '2. Send /newbot, choose a name and a username ending in "bot".',
+    '3. Copy the token BotFather gives you (format 123456:ABC…).',
+    '4. Open a chat with your new bot and press Start.',
+    '5. Get your numeric Chat ID (for example from @userinfobot) and paste it here.',
+    '',
+    'The bot forwards only this chat to the PM window (0:pm). Dev and QA agents do not talk to Telegram: their questions go through dogwatch and the PM decides what to escalate.',
+  ].join('\n');
+}
+
+export function telegramLabel(status) {
+  if (!status) return 'Not available';
+  if (status.connected) return `Connected as @${status.bot || 'bot'}`;
+  return status.lastError ? 'Connection error' : 'Not connected';
+}
+
+function telegramPanel(status) {
+  const connected = !!status?.connected;
+  return `
+    <div class="tp-telegram">
+      <div class="tp-telegram-head">
+        <span class="tp-telegram-title">✈️ Telegram Bot</span>
+        <span class="tp-badge-status ${connected ? 'active' : ''}">${esc(telegramLabel(status))}</span>
+        <div class="spacer"></div>
+        <button class="icon-btn tp-act-btn" data-act="telegram-info" title="Guide: create the bot with @BotFather">Info</button>
+      </div>
+      ${connected ? `
+        <div class="tp-telegram-meta">Chat <b>${esc(status.chatId)}</b> · messages go to the PM window (0:pm)</div>
+        ${status.lastError ? `<div class="tp-error">${esc(status.lastError)}</div>` : ''}
+        <button class="tp-add-btn telegram" data-act="telegram-disconnect">Disconnect</button>
+      ` : `
+        <form class="tp-telegram-form" data-telegram-form>
+          <label>Bot token<input class="tp-input" id="tg-token" type="password" autocomplete="off" spellcheck="false" placeholder="123456:ABC…"></label>
+          <label>Chat ID<input class="tp-input" id="tg-chat" inputmode="numeric" autocomplete="off" placeholder="123456789"></label>
+          <button type="submit" class="tp-add-btn telegram">Connect</button>
+        </form>
+        ${status?.lastError ? `<div class="tp-error">${esc(status.lastError)}</div>` : ''}
+      `}
+    </div>`;
+}
+
+async function connectTelegram(project) {
+  const token = $('#tg-token').value.trim();
+  const chatId = $('#tg-chat').value.trim();
+  if (!token || !chatId) {
+    toast('Enter both the bot token and the chat ID.', { error: true });
+    return;
+  }
+  const { session } = await getExistingNames(project);
+  if (!session) {
+    toast('A tmux session is needed: open the project and try again.', { error: true });
+    return;
+  }
+  try {
+    await work.telegram.connect(token, chatId, project.path, session);
+    toast(`Telegram bot connected to ${session}:pm.`);
+    await renderPopContent();
+  } catch (e) {
+    toast(e?.message || String(e), { error: true });
+  }
+}
+
+async function refreshMcp() {
+  const body = pop?.querySelector('.tp-mcp-body');
+  if (!body) return;
+  body.innerHTML = '<div class="tp-desc">Checking…</div>';
+  body.innerHTML = mcpSection(await work.mcp?.status().catch(() => null));
+}
+
+async function launchBrowser(id) {
+  try {
+    toast(await work.mcp.launchBrowser(id));
+  } catch (e) {
+    toast(e?.message || String(e), { error: true });
+    return;
+  }
+  setTimeout(refreshMcp, 2500);
+}
+
 export function initTeam({ activeProject }) {
   getProject = activeProject;
   work?.dogwatch?.onUpdate((project, _session, pending) => showWaiting(project, pending.length));
+  work?.telegram?.onStatus(() => {
+    if (pop) renderPopContent();
+  });
   const btn = $('#agent-team');
   if (!btn) return;
 
@@ -361,6 +450,7 @@ async function renderPopContent() {
   const nextDev = nextDevName(names);
   const nextQa = nextQaName(names);
   const nextAgent = nextAgentName(names);
+  const telegram = pmActive && work?.telegram?.status ? await work.telegram.status().catch(() => null) : null;
 
   pop.innerHTML = `
     <header class="tp-head">
@@ -401,6 +491,7 @@ async function renderPopContent() {
             ＋ Add PM (choose agent)
           </button>
         `}
+        ${pmActive ? telegramPanel(telegram) : ''}
       </div>
 
       <!-- Dev section: multiple (dev1, dev2...) -->
@@ -480,6 +571,13 @@ async function renderPopContent() {
           ＋ Add Generic (${esc(nextAgent)})
         </button>
       </div>
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>🔌 MCP &amp; browsers</span>
+          <button class="icon-btn tp-act-btn" data-act="mcp-check" title="Check MCP servers and browsers">↻</button>
+        </div>
+        <div class="tp-mcp-body"><div class="tp-desc">Checking…</div></div>
+      </div>
     </div>
 
     <div class="tp-actions">
@@ -488,6 +586,7 @@ async function renderPopContent() {
       </button>
     </div>
   `;
+  refreshMcp();
 }
 
 export async function openTeamMenu() {
@@ -531,6 +630,32 @@ export async function openTeamMenu() {
       const reattached = await syncProjectTerminals(p);
       toast(reattached.length ? `Reattached ${reattached.length} tmux windows.` : 'All windows are already in sync.');
       await renderPopContent();
+      return;
+    }
+
+    if (act === 'telegram-info') {
+      await ask({ text: telegramGuide(), input: false, okLabel: 'Close' });
+      return;
+    }
+
+    if (act === 'telegram-disconnect') {
+      if (!work?.telegram?.disconnect) {
+        toast('Telegram is not available in this build.', { error: true });
+        return;
+      }
+      await work.telegram.disconnect();
+      toast('Telegram bot disconnected.');
+      await renderPopContent();
+      return;
+    }
+
+    if (act === 'mcp-check') {
+      await refreshMcp();
+      return;
+    }
+
+    if (act === 'mcp-launch') {
+      await launchBrowser(e.target.closest('[data-browser]')?.dataset.browser);
       return;
     }
 
@@ -630,6 +755,17 @@ export async function openTeamMenu() {
 
   addEventListener('keydown', onKey, true);
   addEventListener('pointerdown', onOutside, true);
+
+  // The PM connection form submits with the button or Enter.
+  pop.addEventListener('submit', async (e) => {
+    if (!e.target.closest?.('[data-telegram-form]')) return;
+    e.preventDefault();
+    if (!work?.telegram?.connect) {
+      toast('Telegram is not available in this build.', { error: true });
+      return;
+    }
+    await connectTelegram(p);
+  });
 }
 
 // Launches or focuses an individual member of the team

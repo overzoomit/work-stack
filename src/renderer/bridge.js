@@ -171,6 +171,14 @@
       answer: call('dogwatch_answer', 'session', 'window', 'answer'),
       onUpdate: listen('dogwatch:update'),
     },
+    telegram: {
+      status: call('telegram_status'),
+      connect: call('telegram_connect', 'token', 'chatId', 'project', 'session'),
+      disconnect: call('telegram_disconnect'),
+      send: call('telegram_send', 'text'),
+      onStatus: listen('telegram:status'),
+      onMessage: listen('telegram:message'),
+    },
     tmux: {
       isAvailable: call('tmux_is_available'),
       sessionForProject: call('tmux_session_for_project', 'path'),

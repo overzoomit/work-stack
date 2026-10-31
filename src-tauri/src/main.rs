@@ -12,11 +12,12 @@ mod pty;
 mod runconfigs;
 mod store;
 mod sysstats;
+mod telegram;
 mod tmux;
 
 use serde_json::Value;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
 struct AppState {
@@ -114,6 +115,7 @@ fn main() {
                 file,
             });
             app.manage(pty::PtyState::new());
+            app.manage(Arc::new(telegram::TelegramState::new()));
             let handle = app.handle().clone();
             app.manage(gitwatch::GitWatcher::new(move |repo, kind| {
                 let _ = handle.emit("git:changed", (repo, kind));
@@ -137,10 +139,12 @@ fn main() {
             std::thread::spawn(move || handle.state::<agents::AgentWatcher>().start());
             let handle = app.handle().clone();
             let events = app.handle().clone();
+            let telegram_app = app.handle().clone();
             dogwatch::spawn(
                 move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
                 move |project, session, pending| {
                     let _ = events.emit("dogwatch:update", (project, session, pending));
+                    telegram::notify_pending(&telegram_app, project, session, pending);
                 },
             );
             app::create_window(app.handle())?;
@@ -213,6 +217,10 @@ fn main() {
             agents::agents_available,
             dogwatch::dogwatch_inspect,
             dogwatch::dogwatch_answer,
+            telegram::telegram_status,
+            telegram::telegram_connect,
+            telegram::telegram_disconnect,
+            telegram::telegram_send,
             tmux::tmux_is_available,
             tmux::tmux_session_for_project,
             tmux::tmux_ensure_session,
@@ -230,6 +238,7 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<pty::PtyState>().mgr.kill_all();
                 app.state::<agents::AgentWatcher>().stop();
+                telegram::shutdown(app.state::<Arc<telegram::TelegramState>>().inner());
             }
         });
 }

@@ -79,3 +79,15 @@ test('work.dogwatch inspects a session and relays the PM answer with named argum
   assert.deepEqual(calls, ['dogwatch_inspect', 'dogwatch_answer']);
   assert.equal(typeof work.dogwatch.onUpdate, 'function');
 });
+
+test('work.telegram exposes status, connect, disconnect, send and events', async () => {
+  const calls = [];
+  const { work } = load((cmd) => { calls.push(cmd); return null; });
+  await work.telegram.connect('t', 'c', '/p', 's');
+  await work.telegram.disconnect();
+  await work.telegram.send('hi');
+  assert.deepEqual(calls, ['telegram_connect', 'telegram_disconnect', 'telegram_send']);
+  assert.equal(typeof work.telegram.status, 'function');
+  assert.equal(typeof work.telegram.onStatus, 'function');
+  assert.equal(typeof work.telegram.onMessage, 'function');
+});
