@@ -41,6 +41,7 @@ Nessun dev o QA deve attendere una risposta diretta dall'utente. Tutte le domand
 - Dentro Work la stessa funzione è nativa: `src-tauri/src/dogwatch.rs` interroga ogni 3 s la sessione dei progetti aperti, aggiorna `.claude/escalation_to_pm.json`, emette l'evento `dogwatch:update` (bridge: `window.work.dogwatch.onUpdate`) ed espone `dogwatch_inspect` / `dogwatch_answer` (`window.work.dogwatch.inspect/answer`). Un prompt è pendente solo finché nessun altro output lo segue. Lo stato appare nella Squadra Agenti.
 - Se il PM può rispondere in autonomia (requisiti tecnici, permessi noti, architettura), risponde direttamente con `tmux-dogwatch.py answer` oppure `tmux send-keys`.
 - Se serve una decisione di prodotto/business, il PM interpella l'utente. L'utente risponde **esclusivamente al PM**, che a sua volta risponde all'agente bloccato.
+- **Canale Telegram ed Esterno:** **SOLO il PM interagisce con il Bot Telegram** e con l'utente da remoto. Nessun dev o QA invia, riceve o legge notifiche o messaggi diretti dal bot: tutte le interazioni con l'utente esterno avvengono esclusivamente mediate dal PM.
 
 ```bash
 # Controllo immediato (JSON su stdout + file di escalation)
