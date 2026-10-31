@@ -8,6 +8,7 @@ mod fsops;
 mod git;
 mod github;
 mod gitwatch;
+mod mcp;
 mod pty;
 mod runconfigs;
 mod store;
@@ -217,6 +218,8 @@ fn main() {
             agents::agents_available,
             dogwatch::dogwatch_inspect,
             dogwatch::dogwatch_answer,
+            mcp::mcp_status,
+            mcp::mcp_launch_browser,
             telegram::telegram_status,
             telegram::telegram_connect,
             telegram::telegram_disconnect,

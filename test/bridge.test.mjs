@@ -80,6 +80,17 @@ test('work.dogwatch inspects a session and relays the PM answer with named argum
   assert.equal(typeof work.dogwatch.onUpdate, 'function');
 });
 
+test('work.mcp asks for the status and launches a browser by id', async () => {
+  const seen = [];
+  const { work } = load((cmd) => {
+    seen.push(cmd);
+    return cmd === 'mcp_status' ? { servers: [], browsers: [], env: [] } : 'Started chrome';
+  });
+  assert.deepEqual(await work.mcp.status(), { servers: [], browsers: [], env: [] });
+  assert.equal(await work.mcp.launchBrowser('chrome'), 'Started chrome');
+  assert.deepEqual(seen, ['mcp_status', 'mcp_launch_browser']);
+});
+
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {
   const calls = [];
   const { work } = load((cmd) => { calls.push(cmd); return null; });

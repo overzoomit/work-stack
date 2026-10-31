@@ -179,6 +179,10 @@
       onStatus: listen('telegram:status'),
       onMessage: listen('telegram:message'),
     },
+    mcp: {
+      status: call('mcp_status'),
+      launchBrowser: call('mcp_launch_browser', 'browser'),
+    },
     tmux: {
       isAvailable: call('tmux_is_available'),
       sessionForProject: call('tmux_session_for_project', 'path'),

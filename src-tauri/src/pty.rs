@@ -251,6 +251,9 @@ impl PtyManager {
         for (k, v) in shell_env(std::env::vars()) {
             cmd.env(k, v);
         }
+        for (k, v) in crate::mcp::graphical_env_now() {
+            cmd.env(k, v);
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "Work");

@@ -100,9 +100,44 @@ pub fn session_for_project(path: &Path) -> String {
     session_name_for_path(path)
 }
 
+// `set-environment` commands chained with ";" (one tmux call) for each variable.
+fn set_environment_args(vars: &[(&str, String)], scope: &[&str]) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    for (name, value) in vars {
+        if !args.is_empty() {
+            args.push(";".into());
+        }
+        args.push("set-environment".into());
+        args.extend(scope.iter().map(|s| s.to_string()));
+        args.extend([name.to_string(), value.clone()]);
+    }
+    args
+}
+
+// A tmux server outlives the app that started it: its environment and its
+// sessions' keep the DISPLAY / Wayland / D-Bus values of that moment, and the
+// agents started in new windows would reach no browser. Work's current ones
+// are set before any session or window is created (windows already running
+// keep theirs). The session scope matters too: it overrides the global one.
+fn sync_graphical_env(session: Option<&str>) {
+    let vars = crate::mcp::graphical_env_now();
+    let run = |scope: &[&str]| {
+        let args = set_environment_args(&vars, scope);
+        if !args.is_empty() {
+            let _ = run_tmux(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        }
+    };
+    run(&["-g"]);
+    if let Some(session) = session {
+        run(&["-t", &format!("={session}")]);
+    }
+}
+
 // Ensures a session exists for the given project path, creating a detached session if needed.
 pub fn ensure_session(session: &str, cwd: &Path) -> Result<(), String> {
-    if has_session(session) {
+    let exists = has_session(session);
+    sync_graphical_env(exists.then_some(session));
+    if exists {
         return Ok(());
     }
     let cwd_str = cwd.to_string_lossy();
@@ -161,6 +196,7 @@ pub fn new_window(
     cwd: &Path,
     command: Option<&str>,
 ) -> Result<String, String> {
+    sync_graphical_env(Some(session));
     let cwd_str = cwd.to_string_lossy();
     let mut args = vec![
         "new-window",
@@ -412,6 +448,38 @@ mod tests {
         assert!(attached.is_ok());
         assert_eq!(client_status.unwrap().trim(), "off");
         assert_ne!(base_status.unwrap_or_default().trim(), "off");
+    }
+
+    #[test]
+    fn environment_commands_are_chained_in_one_call() {
+        let vars = [("DISPLAY", ":1".to_string()), ("XDG_RUNTIME_DIR", "/run/user/1".to_string())];
+        assert_eq!(
+            set_environment_args(&vars, &["-g"]),
+            ["set-environment", "-g", "DISPLAY", ":1", ";", "set-environment", "-g", "XDG_RUNTIME_DIR", "/run/user/1"]
+        );
+        assert!(set_environment_args(&[], &["-g"]).is_empty());
+    }
+
+    #[test]
+    fn a_new_window_gets_works_environment_not_a_stale_session_one_regression() {
+        let Some((name, current)) = crate::mcp::graphical_env_now().into_iter().next() else {
+            return;
+        };
+        if !is_available() {
+            return;
+        }
+        let session = unique("wsenv_");
+        ensure_session(&session, Path::new("/tmp")).unwrap();
+        let stale = [(name, "stale-value".to_string())];
+        let args = set_environment_args(&stale, &["-t", &format!("={session}")]);
+        run_tmux(&args.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+
+        let command = format!("echo \"got=${name}\"; sleep 30");
+        let window = new_window(&session, Some("probe"), Path::new("/tmp"), Some(&command)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let shown = capture_pane(&session, &window, None).unwrap();
+        let _ = kill_session(&session);
+        assert!(shown.contains(&format!("got={current}")), "{shown}");
     }
 
     fn unique(prefix: &str) -> String {
