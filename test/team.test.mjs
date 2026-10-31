@@ -361,3 +361,49 @@ test('connecting the Telegram form sends token, chat and session; disconnect ret
   assert.match(pop.innerHTML, /data-telegram-form/, 'the connection form is back');
   env.tmuxAvailable = false;
 });
+
+test('a dogwatch update refreshes the open popover: badge and count, without probing MCP again', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_live_test';
+  env.tmuxWindows = [{ id: '@1', name: 'dev1', active: false, path: '/home/u/live-proj' }];
+  let inspection = { session: 'work_live_test', windows: [{ id: '@1', name: 'dev1', prompt: null }] };
+  let onUpdate;
+  let probes = 0;
+  window.work.dogwatch = { onUpdate: (cb) => { onUpdate = cb; }, inspect: async () => inspection };
+  window.work.mcp = { status: async () => { probes++; return { servers: [], browsers: [], env: [] }; } };
+
+  const project = { path: '/home/u/live-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  Team.initTeam({ activeProject: () => project });
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  await tick();
+  assert.doesNotMatch(pop.innerHTML, /Waiting for answer/);
+  assert.equal(probes, 1);
+
+  const waiting = { prompt_type: 'permission', question: 'Do you want to proceed?', options: [] };
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting }] };
+  onUpdate(project.path, 'work_live_test', [{ target: 'dev1', ...waiting }]);
+  await tick();
+  assert.match(pop.innerHTML, /Waiting for answer/, 'the badge follows');
+  assert.match(pop.innerHTML, /1 waiting for an answer/, 'and the count');
+  assert.equal(probes, 1, 'the MCP result is kept');
+
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: null }] };
+  onUpdate(project.path, 'work_live_test', []);
+  await tick();
+  assert.doesNotMatch(pop.innerHTML, /Waiting for answer/, 'it clears when answered');
+
+  const before = pop.innerHTML;
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting }] };
+  onUpdate('/another/project', 'other', [{ target: 'dev1', ...waiting }]);
+  await tick();
+  assert.equal(pop.innerHTML, before, 'another project leaves this popover alone');
+
+  Team.closeTeamMenu();
+  delete window.work.dogwatch;
+  delete window.work.mcp;
+  for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
+  await tick(50);
+  env.tmuxAvailable = false;
+});

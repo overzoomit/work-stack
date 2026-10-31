@@ -203,7 +203,8 @@ async function refreshMcp() {
   const body = pop?.querySelector('.tp-mcp-body');
   if (!body) return;
   body.innerHTML = '<div class="tp-desc">Checking…</div>';
-  body.innerHTML = mcpSection(await work.mcp?.status().catch(() => null));
+  lastMcpHtml = mcpSection(await work.mcp?.status().catch(() => null));
+  body.innerHTML = lastMcpHtml;
 }
 
 async function launchBrowser(id) {
@@ -218,7 +219,13 @@ async function launchBrowser(id) {
 
 export function initTeam({ activeProject }) {
   getProject = activeProject;
-  work?.dogwatch?.onUpdate((project, _session, pending) => showWaiting(project, pending.length));
+  work?.dogwatch?.onUpdate((project, _session, pending) => {
+    showWaiting(project, pending.length);
+    // Open popover: badges and count follow, without probing MCP again or
+    // interrupting the agent picker or a half-typed field.
+    const typing = document.activeElement?.tagName === 'INPUT';
+    if (pop && viewState.mode === 'main' && !typing && project === getProject()?.path) renderPopContent(false);
+  });
   work?.telegram?.onStatus(() => {
     if (pop) renderPopContent();
   });
@@ -399,8 +406,10 @@ async function getExistingNames(project) {
   return { isTmux, session, tmuxWindows, openPanes, prompts, names: [...names] };
 }
 
-// Renders the popover content based on current viewState
-async function renderPopContent() {
+// Renders the popover content based on current viewState. `probeMcp: false`
+// keeps the last MCP result instead of probing again.
+let lastMcpHtml = null;
+async function renderPopContent(probeMcp = true) {
   if (!pop) return;
   const p = getProject();
   if (!p) return;
@@ -576,7 +585,7 @@ async function renderPopContent() {
           <span>🔌 MCP &amp; browsers</span>
           <button class="icon-btn tp-act-btn" data-act="mcp-check" title="Check MCP servers and browsers">↻</button>
         </div>
-        <div class="tp-mcp-body"><div class="tp-desc">Checking…</div></div>
+        <div class="tp-mcp-body">${(!probeMcp && lastMcpHtml) || '<div class="tp-desc">Checking…</div>'}</div>
       </div>
     </div>
 
@@ -586,7 +595,7 @@ async function renderPopContent() {
       </button>
     </div>
   `;
-  refreshMcp();
+  if (probeMcp || !lastMcpHtml) refreshMcp();
 }
 
 export async function openTeamMenu() {

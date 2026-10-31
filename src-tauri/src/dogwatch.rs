@@ -280,14 +280,18 @@ fn write_escalation(root: &Path, pending: &[Pending]) -> std::io::Result<()> {
 
 // ── Watcher ──────────────────────────────────────────────────
 
-// True when this project's pending list differs from the one last seen.
+// True when this project's pending list differs from the one last seen. The
+// first look at a project always counts, even if empty: a stale escalation
+// file from a previous run must be cleared then.
 fn changed(seen: &mut HashMap<String, Vec<Pending>>, project: &str, now: Vec<Pending>) -> bool {
-    let before = seen.entry(project.to_string()).or_default();
-    if *before == now {
-        return false;
+    seen.insert(project.to_string(), now.clone()).as_ref() != Some(&now)
+}
+
+// Writes the file when there is something to say, or an old one to clear.
+fn refresh_escalation(root: &Path, pending: &[Pending]) {
+    if !pending.is_empty() || root.join(ESCALATION_FILE).exists() {
+        let _ = write_escalation(root, pending);
     }
-    *before = now;
-    true
 }
 
 // Polls the session of every open project. On a change it refreshes the
@@ -310,9 +314,7 @@ pub fn spawn(
                 if !changed(&mut seen, &project, now.clone()) {
                     continue;
                 }
-                if !now.is_empty() || root.join(ESCALATION_FILE).exists() {
-                    let _ = write_escalation(root, &now);
-                }
+                refresh_escalation(root, &now);
                 on_change(&project, &session, &now);
             }
             std::thread::sleep(POLL);
@@ -451,12 +453,45 @@ mod tests {
             }]
         };
         assert!(
+            changed(&mut seen, "/p", vec![]),
+            "the first look always counts"
+        );
+        assert!(
             !changed(&mut seen, "/p", vec![]),
             "nothing before, nothing now"
         );
         assert!(changed(&mut seen, "/p", q("Continue? [y/N]\n")));
         assert!(!changed(&mut seen, "/p", q("Continue? [y/N]\n")));
         assert!(changed(&mut seen, "/p", vec![]), "the question went away");
+    }
+
+    #[test]
+    fn a_stale_escalation_file_is_cleared_on_the_first_look_regression() {
+        let dir = tempfile::tempdir().unwrap();
+        let stale = vec![Pending {
+            target: "dev1".into(),
+            prompt: prompt("Continue? [y/N]\n"),
+        }];
+        write_escalation(dir.path(), &stale).unwrap();
+
+        let mut seen = HashMap::new();
+        let project = dir.path().to_string_lossy().into_owned();
+        assert!(
+            changed(&mut seen, &project, vec![]),
+            "the first look reaches the cleanup"
+        );
+        refresh_escalation(dir.path(), &[]);
+
+        let text = std::fs::read_to_string(dir.path().join(ESCALATION_FILE)).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["pending"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn no_file_is_created_when_there_is_nothing_to_say() {
+        let dir = tempfile::tempdir().unwrap();
+        refresh_escalation(dir.path(), &[]);
+        assert!(!dir.path().join(ESCALATION_FILE).exists());
     }
 
     fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
