@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposte logo work</title>
+<meta name="color-scheme" content="dark light">
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgba(0, 0, 0, 0.1);
+  --accent: #0a84ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0e11;
+    --card: #16181c;
+    --text: #f5f5f7;
+    --muted: #a1a1a6;
+    --line: rgba(255, 255, 255, 0.1);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0e11;
+  --card: #16181c;
+  --text: #f5f5f7;
+  --muted: #a1a1a6;
+  --line: rgba(255, 255, 255, 0.1);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; margin: 0 0 8px; }
+h2 { font-size: 19px; margin: 40px 0 12px; }
+h3 { font-size: 17px; margin: 0; }
+p { margin: 0 0 10px; }
+.muted { color: var(--muted); }
+code { font: 13px ui-monospace, monospace; }
+
+.toolbar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+  margin: 20px -16px 0; padding: 10px 16px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button {
+  font: inherit; color: inherit; background: none; border: 0;
+  padding: 5px 12px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+select { font: inherit; }
+
+.panel { border-radius: 12px; padding: 16px; overflow-x: auto; }
+[data-bg="dark"] .panel { background: #202326; color: #eff0f1; }
+[data-bg="light"] .panel { background: #eff0f1; color: #232629; }
+[data-bg="wallpaper"] .panel { background: linear-gradient(135deg, #1d99f3, #3b2e6e 60%, #7a2e5f); color: #fff; }
+
+.strip { display: flex; gap: 20px; align-items: flex-end; }
+.item { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
+.item small { font-size: 11px; opacity: 0.75; white-space: nowrap; }
+
+.tile { position: relative; display: block; width: var(--s); height: var(--s); flex: none; }
+.tile img { display: block; width: 100%; height: 100%; }
+.guides .tile::after {
+  content: ""; position: absolute;
+  inset: calc(var(--s) * 20 / 512);
+  outline: 1px dashed #ff453a;
+  pointer-events: none;
+}
+.missing {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  border: 1px dashed currentColor; border-radius: 50%;
+  font-size: 10px; opacity: 0.6; text-align: center;
+}
+
+.concepts { display: grid; gap: 20px; }
+.card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+.card-head { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.card-head img { width: 64px; height: 64px; flex: none; }
+.pros { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 24px; margin: 8px 0 14px; padding: 0; list-style: none; font-size: 14px; }
+.pros li::before { content: "+ "; color: #30d158; font-weight: 600; }
+.pros li.con::before { content: "− "; color: #ff9f0a; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body data-bg="dark">
+<main>
+  <h1>Proposte logo work</h1>
+  <p class="muted">WORKSTACK-20 · cinque concept per la nuova icona di work, dimensionati per KDE Plasma.</p>
+  <p>L'icona attuale (<code>assets/icon-linux.svg</code>) lascia 100 px vuoti per lato su 1024: il corpo occupa l'80% della canvas.
+    Inoltre il corpo <code>#101216</code> non ha bordo, quindi su un pannello scuro si confonde e resta visibile solo il glifo blu, circa il 62% del lato.
+    Tutte le proposte usano una canvas 512 con margine di 20 px: il corpo occupa 472 px (92%), come Firefox (480 px).
+    Le proposte su corpo scuro hanno un bordo chiaro di 8 px, così la sagoma si legge anche su Breeze Dark.</p>
+
+  <div class="toolbar">
+    <span>Sfondo
+      <span class="seg" id="bg">
+        <button data-bg="dark" aria-pressed="true">Breeze Dark</button>
+        <button data-bg="light" aria-pressed="false">Breeze Light</button>
+        <button data-bg="wallpaper" aria-pressed="false">Wallpaper</button>
+      </span>
+    </span>
+    <label><input type="checkbox" id="guides"> Guide margine 20/512</label>
+    <label>Dimensione confronto
+      <select id="size"></select>
+    </label>
+    <span class="muted" id="dpr"></span>
+  </div>
+
+  <h2>Confronto nel pannello</h2>
+  <p class="muted">Firefox e VS Code vengono letti dalle icone di sistema (<code>/usr/share/…</code>): aprire la pagina come file locale. Se non le trova, mostra un segnaposto.</p>
+  <div class="panel"><div class="strip" id="compare"></div></div>
+
+  <h2>Concept</h2>
+  <div class="concepts" id="concepts"></div>
+
+  <h2>Dimensionamento</h2>
+  <p class="muted">Misure sul render a 512 px (<code>rsvg-convert</code> + <code>magick</code>): ingombro dei pixel non trasparenti e percentuale di canvas coperta.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Icona</th><th>Ingombro su 512</th><th>Margine</th><th>Copertura</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Firefox</td><td>480 × 496</td><td>0–16 px</td><td>62%</td><td>Cerchio quasi a piena canvas.</td></tr>
+        <tr><td>VS Code</td><td>450 × 453</td><td>31 px</td><td>42%</td><td>Forma aperta, senza corpo.</td></tr>
+        <tr><td>Attuale</td><td>412 × 412</td><td>50 px</td><td>62%</td><td>Corpo scuro senza bordo: su pannello scuro si legge solo il glifo (≈ 320 px).</td></tr>
+        <tr><td>Proposte A–E</td><td>472 × 472</td><td>20 px</td><td>75%</td><td>Squircle pieno; bordo chiaro di 8 px sui corpi scuri.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Dopo la scelta</h2>
+  <p>Il concept scelto diventa <code>assets/icon-linux.svg</code> (e la variante macOS). Da lì si generano i PNG 32, 48, 64, 128, 256 e 512, <code>icon.icns</code> e le icone in <code>src-tauri/icons/</code> per il bundle Tauri e il file <code>.desktop</code>.</p>
+</main>
+
+<script>
+const SIZES = [24, 32, 48, 64, 128, 256, 512];
+
+const REFERENCES = [
+  { name: 'Firefox', sources: [
+    'file:///usr/share/icons/hicolor/scalable/apps/firefox.svg',
+    'file:///usr/share/icons/hicolor/256x256/apps/firefox.png',
+    'file:///usr/lib/firefox/browser/chrome/icons/default/default128.png',
+  ] },
+  { name: 'VS Code', sources: [
+    'file:///usr/share/pixmaps/vscode.png',
+    'file:///usr/share/pixmaps/visual-studio-code.png',
+    'file:///usr/share/pixmaps/com.visualstudio.code.png',
+    'file:///usr/share/icons/hicolor/512x512/apps/code.png',
+    'file:///usr/share/icons/hicolor/scalable/apps/code-oss.svg',
+  ] },
+  { name: 'Attuale', sources: ['../../assets/icon-linux.svg'] },
+];
+
+const CONCEPTS = [
+  {
+    id: 'A', name: 'Stack', file: 'logos/a-stack.svg',
+    idea: 'Tre terminali impilati: i progetti e le sessioni tmux uno sopra l\'altro, con il prompt >_ su quello in primo piano. Racconta alla lettera il nome work-stack.',
+    pros: ['Metafora immediata: terminali multipli', 'Il blocco blu in primo piano resta leggibile a 24 px'],
+    cons: ['Il prompt >_ è comune a molti terminali (Konsole, GNOME Terminal)'],
+  },
+  {
+    id: 'B', name: 'Flow', file: 'logos/b-flow.svg',
+    idea: 'Evoluzione del marchio attuale: tre flussi (PM → Dev → QA) che convergono in un nodo. Tratto più spesso, gradiente blu → viola, glifo più grande del 20%.',
+    pros: ['Continuità con l\'icona e il sito attuali', 'Migrazione a costo minimo'],
+    cons: ['Meno riconoscibile come strumento per sviluppatori', 'A 24 px curve e nodo si fondono'],
+  },
+  {
+    id: 'C', name: 'Prompt w', file: 'logos/c-prompt.svg',
+    idea: 'Monogramma: una «w» minuscola seguita dal cursore del terminale, su corpo pieno blu → viola. È l\'identità di marca più forte delle cinque.',
+    pros: ['Massima presenza nel pannello, su tema chiaro e scuro', 'Riconoscibile anche a 16–24 px'],
+    cons: ['Racconta il marchio, non la funzione', 'Il corpo pieno è il più pesante visivamente'],
+  },
+  {
+    id: 'D', name: 'Panes', file: 'logos/d-panes.svg',
+    idea: 'Layout a pannelli come tmux e come work: un terminale principale con il prompt e due pannelli agenti con indicatore di stato (verde attivo, viola in attesa).',
+    pros: ['Descrive l\'app reale: terminali + Squadra Agenti', 'Struttura netta a 48 px e oltre'],
+    cons: ['Sotto 48 px righe e pallini spariscono', 'A 24 px resta un rettangolo blu'],
+  },
+  {
+    id: 'E', name: 'Loop', file: 'logos/e-loop.svg',
+    idea: 'Ciclo di tre agenti (PM, Dev, QA) attorno a un nodo-terminale centrale, su corpo chiaro. È l\'unica proposta chiara.',
+    pros: ['Si stacca dalle icone scure del pannello', 'Racconta il flusso multi-agente'],
+    cons: ['Su tema chiaro regge solo grazie al bordo grigio', 'A 24 px il nodo centrale si impasta'],
+  },
+];
+
+function loadFirst(img, sources) {
+  let i = 0;
+  img.onerror = () => {
+    i += 1;
+    if (i < sources.length) {
+      img.src = sources[i];
+      return;
+    }
+    const missing = document.createElement('span');
+    missing.className = 'missing';
+    missing.textContent = 'non trovata';
+    img.replaceWith(missing);
+  };
+  img.src = sources[0];
+}
+
+function tile(sources, size, alt) {
+  const box = document.createElement('span');
+  box.className = 'tile';
+  box.style.setProperty('--s', `${size}px`);
+  const img = document.createElement('img');
+  img.alt = alt;
+  img.width = size;
+  img.height = size;
+  box.append(img);
+  loadFirst(img, sources);
+  return box;
+}
+
+function item(sources, size, label) {
+  const el = document.createElement('div');
+  el.className = 'item';
+  const caption = document.createElement('small');
+  caption.textContent = label;
+  el.append(tile(sources, size, label), caption);
+  return el;
+}
+
+function renderCompare(size) {
+  const icons = [
+    ...REFERENCES,
+    ...CONCEPTS.map((c) => ({ name: `${c.id} · ${c.name}`, sources: [c.file] })),
+  ];
+  document.getElementById('compare').replaceChildren(...icons.map((i) => item(i.sources, size, i.name)));
+}
+
+function list(items, className) {
+  return items.map((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    if (className) li.className = className;
+    return li;
+  });
+}
+
+function renderConcept(c) {
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="card-head">
+      <img src="${c.file}" alt="">
+      <div><h3>${c.id} · ${c.name}</h3><code class="muted">docs/mockups/${c.file}</code></div>
+    </div>
+    <p></p>
+    <ul class="pros"></ul>
+    <div class="panel"><div class="strip"></div></div>`;
+  card.querySelector('p').textContent = c.idea;
+  card.querySelector('.pros').append(...list(c.pros), ...list(c.cons, 'con'));
+  card.querySelector('.strip').append(...SIZES.map((s) => item([c.file], s, `${s} px`)));
+  return card;
+}
+
+const sizeSelect = document.getElementById('size');
+sizeSelect.append(...SIZES.slice(0, -1).map((s) => new Option(`${s} px`, s, false, s === 48)));
+sizeSelect.addEventListener('change', () => renderCompare(Number(sizeSelect.value)));
+
+document.getElementById('bg').addEventListener('click', (e) => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  document.body.dataset.bg = button.dataset.bg;
+  for (const b of e.currentTarget.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button));
+});
+
+document.getElementById('guides').addEventListener('change', (e) => {
+  document.body.classList.toggle('guides', e.target.checked);
+});
+
+document.getElementById('dpr').textContent = `Scala schermo ×${window.devicePixelRatio}: le misure sono in px logici, zoom del browser al 100%.`;
+
+renderCompare(48);
+document.getElementById('concepts').append(...CONCEPTS.map(renderConcept));
+</script>
+</body>
+</html>
