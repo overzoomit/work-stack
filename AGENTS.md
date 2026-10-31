@@ -118,6 +118,10 @@ WORK_DEVTOOLS=1 npm run dev
 
 Plane, progetto WORKSTACK. Vedi `docs/agents/issue-tracker.md`.
 
-### Domain docs
+### Domain docs & Knowledge Base
 
-Single-context. Vedi `docs/agents/domain.md`.
+- Glossario di dominio: [`GLOSSARY.md`](file:///home/flavio/workspace/work-stack/GLOSSARY.md)
+- Knowledge Base architetturale consolidata: [`docs/KNOWLEDGE_BASE.md`](file:///home/flavio/workspace/work-stack/docs/KNOWLEDGE_BASE.md)
+- Architecture Decision Records (ADR): [`docs/adr/`](file:///home/flavio/workspace/work-stack/docs/adr/)
+- Dettaglio domain docs: [`docs/agents/domain.md`](file:///home/flavio/workspace/work-stack/docs/agents/domain.md)
+
