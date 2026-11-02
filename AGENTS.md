@@ -32,6 +32,7 @@ Posizione script: `/home/flavio/.claude/scripts/plane_cli.py`
    - In caso di anomalie/bug: sposta in **`"Re-open"`** con dettagliata descrizione del problema.
 
 > **Regola Fondamentale:** Titoli, descrizioni, criteri di accettazione e tutti i commenti tecnici/QA su Plane devono essere scritti tassativamente in **lingua italiana**.
+> **Dettaglio Ticket per Agenti AI:** Poiché Plane è il portale operativo degli agenti AI, il **titolo** deve essere chiaro e comprensibile per gli umani (`Ambito: Descrizione sintetica`), mentre la **descrizione** deve essere **estremamente dettagliata per gli agenti AI**: percorsi esatti dei file coinvolti, contratti IPC completi (firme comandi, payload eventi, tipi Rust/TS), gestione esplicita delle race condition e dei casi limite, vincoli di sicurezza e test di regressione richiesti.
 
 ### Protocollo di Escalation e Sentinella tmux-dogwatch
 Nessun dev o QA deve attendere una risposta diretta dall'utente. Tutte le domande e le richieste di conferma sono catturate da `scripts/tmux-dogwatch.py` e inoltrate al PM.
