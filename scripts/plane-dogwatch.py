@@ -403,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session", help="tmux session name (default: current or project session)")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root with .plane.json (default: cwd)")
     parser.add_argument("--devs", default="dev1,dev2", help="dev windows, in order of preference")
-    parser.add_argument("--qa", default="dev2", help="QA windows, in order of preference (default: dev2)")
+    parser.add_argument("--qa", default="qa1,dev2,qa", help="QA windows, in order of preference (default: qa1,dev2,qa)")
     parser.add_argument("--tmux-bin", help="tmux executable (tests can point at a stub)")
     parser.add_argument("--telegram", type=Path, help="telegram-pm.py to notify the PM (default: scripts/telegram-pm.py)")
     mode = parser.add_mutually_exclusive_group(required=True)

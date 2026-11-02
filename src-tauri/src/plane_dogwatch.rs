@@ -28,9 +28,9 @@ const DEFAULT_BASE_URL: &str = "https://plane.overzoom.it";
 const DEFAULT_WORKSPACE: &str = "overzoom";
 const MAX_TEXT: usize = 3000;
 const CAPTURE_LINES: &str = "-40";
-// Windows in order of preference: dev2 is prioritized for QA validation, with qa as fallback.
+// Windows in order of preference: qa1 dedicated QA agent, dev2 as fallback, then qa.
 const DEVS: [&str; 2] = ["dev1", "dev2"];
-const QA: [&str; 2] = ["dev2", "qa"];
+const QA: [&str; 3] = ["qa1", "dev2", "qa"];
 // Agent TUIs show these while they run.
 const BUSY: [&str; 4] = [
     "esc to interrupt",
@@ -1336,24 +1336,24 @@ mod tests {
             "issue-3".into(),
             vec![json!({ "created_at": "x", "comment_html": "<p>Modificati: a.rs. Test: npm test</p>" })],
         );
-        let a = agents(&["dev2", "qa"]);
+        let a = agents(&["qa1", "dev2"]);
         let r = b.cycle(&a);
         assert_eq!(
             moves(&r),
-            [(Some(3), "test".into(), "test".into(), Some("dev2".into()))]
+            [(Some(3), "test".into(), "test".into(), Some("qa1".into()))]
         );
         assert!(a.sent.borrow()[0]
             .1
             .contains("Note del dev (file modificati e test): Modificati: a.rs. Test: npm test"));
         assert!(b.mock.writes().is_empty(), "QA moves it, not the dogwatch");
-        assert_eq!(r.assignments[0].window, "dev2");
+        assert_eq!(r.assignments[0].window, "qa1");
 
         let b = scenario(vec![issue(3, "s-test")]);
-        let a = agents(&["qa"]);
+        let a = agents(&["dev2"]);
         assert_eq!(
             b.cycle(&a).actions[0].target.as_deref(),
-            Some("qa"),
-            "no dev2 window: qa"
+            Some("dev2"),
+            "no dedicated qa window: dev2"
         );
     }
 
