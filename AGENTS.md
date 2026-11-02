@@ -57,6 +57,20 @@ python3 scripts/tmux-dogwatch.py --daemon --interval 5
 python3 scripts/tmux-dogwatch.py answer dev1 "sì, procedi"
 ```
 
+### Sentinella plane-dogwatch (delega automatica dei ticket)
+`scripts/plane-dogwatch.py` legge i ticket del progetto su Plane (`.plane.json`, chiave da `PLANE_API_KEY` o dal `plane_cli.py` globale) e li delega alle finestre della sessione tmux del progetto:
+- `Re-open` (priorità massima): al dev che aveva il ticket, se libero, altrimenti al primo dev libero; il ticket passa a `In Progress` e il prompt include l'ultimo commento del QA.
+- `Todo`: al primo dev libero (`--devs`, default `dev1,dev2`); il ticket passa a `In Progress` con commento automatico.
+- `Test`: all'agente QA (`--qa`, default `dev2`), con l'ordine di spostare in `Done` o `Re-open`.
+- `Done`: registrato; se il ticket era stato visto in un altro stato, notifica al PM via `scripts/telegram-pm.py`.
+
+Un agente riceve un prompt solo se la sua finestra è inattiva e non ha già un ticket delegato in lavorazione. `.claude/plane_dogwatch_state.json` conserva stato, hash e timestamp di ogni ticket: un ticket invariato non viene mai delegato due volte.
+
+```bash
+python3 scripts/plane-dogwatch.py --once --session <sessione>    # un ciclo, JSON su stdout (--check è un alias)
+python3 scripts/plane-dogwatch.py --daemon --interval 5          # polling continuo, termina pulito con SIGINT/SIGTERM
+```
+
 ---
 
 ## 2. Architettura & Stack Tecnologico
