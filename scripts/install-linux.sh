@@ -22,9 +22,10 @@ npx tauri build --no-bundle
 
 echo "==> Installazione"
 install -Dm755 src-tauri/target/release/work "$BIN_DIR/work"
-install -Dm644 src-tauri/icons/32x32.png "$SHARE_DIR/icons/hicolor/32x32/apps/work.png"
-install -Dm644 src-tauri/icons/128x128.png "$SHARE_DIR/icons/hicolor/128x128/apps/work.png"
-install -Dm644 src-tauri/icons/128x128@2x.png "$SHARE_DIR/icons/hicolor/256x256/apps/work.png"
+for s in 32 48 64 128 256 512; do
+  install -Dm644 "src-tauri/icons/${s}x${s}.png" "$SHARE_DIR/icons/hicolor/${s}x${s}/apps/work.png"
+done
+install -Dm644 assets/icon-linux.svg "$SHARE_DIR/icons/hicolor/scalable/apps/work.svg"
 
 mkdir -p "$SHARE_DIR/applications"
 cat > "$SHARE_DIR/applications/work.desktop" <<EOF

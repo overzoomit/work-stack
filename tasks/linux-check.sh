@@ -17,9 +17,10 @@ npm test >/tmp/work-npm-test.log 2>&1 && ok "npm test" || ko "npm test (log: /tm
 
 echo "== 9. installazione"
 [ -x "$BIN" ] && ok "$BIN" || ko "manca $BIN"
-for s in 32x32 128x128 256x256; do
-  [ -f "$SHARE/icons/hicolor/$s/apps/work.png" ] && ok "icona $s" || ko "icona $s"
+for s in 32 48 64 128 256 512; do
+  [ -f "$SHARE/icons/hicolor/${s}x${s}/apps/work.png" ] && ok "icona ${s}x${s}" || ko "icona ${s}x${s}"
 done
+[ -f "$SHARE/icons/hicolor/scalable/apps/work.svg" ] && ok "icona scalable" || ko "icona scalable"
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$SHARE/applications/work.desktop" && ok "work.desktop valido" || ko "work.desktop non valido"
 else
