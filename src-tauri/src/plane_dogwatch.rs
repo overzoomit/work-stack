@@ -28,9 +28,9 @@ const DEFAULT_BASE_URL: &str = "https://plane.overzoom.it";
 const DEFAULT_WORKSPACE: &str = "overzoom";
 const MAX_TEXT: usize = 3000;
 const CAPTURE_LINES: &str = "-40";
-// Windows in order of preference: qa1 dedicated QA agent, dev2 as fallback, then qa.
+// Windows in order of preference: dev1 and dev2 develop; qa1 and qa perform QA.
 const DEVS: [&str; 2] = ["dev1", "dev2"];
-const QA: [&str; 3] = ["qa1", "dev2", "qa"];
+const QA: [&str; 2] = ["qa1", "qa"];
 // Agent TUIs show these while they run.
 const BUSY: [&str; 4] = [
     "esc to interrupt",
@@ -1330,7 +1330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_goes_to_the_qa_window_or_dev2_and_the_state_is_left_to_qa() {
+    fn test_goes_to_qa1_or_qa_and_devs_do_not_take_qa_tickets() {
         let b = scenario(vec![issue(3, "s-test")]);
         b.mock.comments.lock().unwrap().insert(
             "issue-3".into(),
@@ -1349,12 +1349,18 @@ mod tests {
         assert_eq!(r.assignments[0].window, "qa1");
 
         let b = scenario(vec![issue(3, "s-test")]);
-        let a = agents(&["dev2"]);
+        let a = agents(&["qa"]);
         assert_eq!(
             b.cycle(&a).actions[0].target.as_deref(),
-            Some("dev2"),
-            "no dedicated qa window: dev2"
+            Some("qa"),
+            "fallback to qa"
         );
+
+        let b = scenario(vec![issue(3, "s-test")]);
+        let a = agents(&["dev1", "dev2"]);
+        let r = b.cycle(&a);
+        assert!(r.actions.is_empty(), "devs do not take QA tickets");
+        assert_eq!(r.waiting[0].reason, "QA busy");
     }
 
     #[test]

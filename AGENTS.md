@@ -61,12 +61,12 @@ python3 scripts/tmux-dogwatch.py answer dev1 "sì, procedi"
 `scripts/plane-dogwatch.py` legge i ticket del progetto su Plane (`.plane.json`, chiave da `PLANE_API_KEY` o dal `plane_cli.py` globale) e li delega alle finestre della sessione tmux del progetto:
 - `Re-open` (priorità massima): al dev che aveva il ticket, se libero, altrimenti al primo dev libero; il ticket passa a `In Progress` e il prompt include l'ultimo commento del QA.
 - `Todo`: al primo dev libero (`--devs`, default `dev1,dev2`); il ticket passa a `In Progress` con commento automatico.
-- `Test`: all'agente QA (`--qa`, default `dev2`), con l'ordine di spostare in `Done` o `Re-open`.
+- `Test`: all'agente QA (`--qa`, default `qa1,qa`), con l'ordine di spostare in `Done` o `Re-open`.
 - `Done`: registrato; se il ticket era stato visto in un altro stato, notifica al PM via `scripts/telegram-pm.py`.
 
 Un agente riceve un prompt solo se la sua finestra è inattiva e non ha già un ticket delegato in lavorazione. `.claude/plane_dogwatch_state.json` conserva stato, hash e timestamp di ogni ticket: un ticket invariato non viene mai delegato due volte.
 
-Dentro Work la stessa funzione è nativa: `src-tauri/src/plane_dogwatch.rs` esegue un ciclo ogni 5 s per ogni progetto aperto con `.plane.json` e sessione tmux (QA: finestre `qa1`, `qa`, altrimenti `dev2`), emette l'evento `plane_dogwatch:update` ed espone `plane_dogwatch_status` / `plane_dogwatch_sync_now` (`window.work.planeDogwatch`). La Squadra Agenti mostra sotto ogni agente il ticket assegnato. Script e modulo nativo condividono il file di stato e tengono `.claude/plane_dogwatch.lock` per tutto il ciclo: possono girare insieme senza deleghe doppie.
+Dentro Work la stessa funzione è nativa: `src-tauri/src/plane_dogwatch.rs` esegue un ciclo ogni 5 s per ogni progetto aperto con `.plane.json` e sessione tmux (QA: finestre `qa1`, `qa`), emette l'evento `plane_dogwatch:update` ed espone `plane_dogwatch_status` / `plane_dogwatch_sync_now` (`window.work.planeDogwatch`). La Squadra Agenti mostra sotto ogni agente il ticket assegnato. Script e modulo nativo condividono il file di stato e tengono `.claude/plane_dogwatch.lock` per tutto il ciclo: possono girare insieme senza deleghe doppie.
 
 ```bash
 python3 scripts/plane-dogwatch.py --once --session <sessione>    # un ciclo, JSON su stdout (--check è un alias)

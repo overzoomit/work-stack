@@ -16,7 +16,7 @@ const skip = !hasPython;
 const FAKE_TMUX = `#!/bin/sh
 printf '%s\\n' "$*" >> "$TMUX_LOG"
 case "$1" in
-  list-windows) printf '@0\\tpm\\n@1\\tdev1\\n@2\\tdev2\\n@3\\tqa\\n' ;;
+  list-windows) printf '@0\\tpm\\n@1\\tdev1\\n@2\\tdev2\\n@3\\tqa1\\n' ;;
   capture-pane)
     for w in $FAKE_BUSY; do
       case "$*" in *":$w "*) printf 'running\\n* Working (12s - esc to interrupt)\\n> \\n'; exit 0 ;; esac
@@ -161,7 +161,7 @@ test('an unchanged ticket is never delegated twice, not even to another free age
     assert.equal(box.sends().length, 2, 'Todo to dev1, Test to the QA agent');
     const before = api.requests.filter((r) => r.method !== 'GET').length;
 
-    const again = await run(box, ['--check', '--qa', 'qa']);
+    const again = await run(box, ['--check', '--qa', 'qa1']);
     assert.equal(again.status, 0, again.stderr);
     assert.deepEqual(again.json().actions, []);
     assert.equal(box.sends().length, 2, 'no new prompt');
@@ -205,10 +205,10 @@ test('Test: the QA agent gets the validation request, the state is left to QA', 
     async (api, box) => {
       const out = await run(box, ['--once']);
       assert.equal(out.status, 0, out.stderr);
-      assert.deepEqual(out.json().actions.map((a) => [a.issue, a.from, a.to, a.target]), [[3, 'test', 'test', 'dev2']]);
+      assert.deepEqual(out.json().actions.map((a) => [a.issue, a.from, a.to, a.target]), [[3, 'test', 'test', 'qa1']]);
       assert.equal(patches(api).length, 0, 'QA moves the ticket itself');
       const [send] = box.sends();
-      assert.match(send, /-t work_test:dev2 /);
+      assert.match(send, /-t work_test:qa1 /);
       assert.match(send, /Valida il Ticket \[3\]/);
       assert.match(send, /Files: src\/a\.js\. npm test ok/);
       assert.match(send, /'Done'.*'Re-open'/);
