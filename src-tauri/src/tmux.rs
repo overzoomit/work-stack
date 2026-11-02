@@ -119,8 +119,10 @@ fn set_environment_args(vars: &[(&str, String)], scope: &[&str]) -> Vec<String> 
 // agents started in new windows would reach no browser. Work's current ones
 // are set before any session or window is created (windows already running
 // keep theirs). The session scope matters too: it overrides the global one.
-fn sync_graphical_env(session: Option<&str>) {
-    let vars = crate::mcp::graphical_env_now();
+// The shared plugins folder travels the same way.
+fn sync_agent_env(session: Option<&str>) {
+    let mut vars = crate::mcp::graphical_env_now();
+    vars.push(crate::plugins::env());
     let run = |scope: &[&str]| {
         let args = set_environment_args(&vars, scope);
         if !args.is_empty() {
@@ -136,7 +138,7 @@ fn sync_graphical_env(session: Option<&str>) {
 // Ensures a session exists for the given project path, creating a detached session if needed.
 pub fn ensure_session(session: &str, cwd: &Path) -> Result<(), String> {
     let exists = has_session(session);
-    sync_graphical_env(exists.then_some(session));
+    sync_agent_env(exists.then_some(session));
     if exists {
         return Ok(());
     }
@@ -196,7 +198,7 @@ pub fn new_window(
     cwd: &Path,
     command: Option<&str>,
 ) -> Result<String, String> {
-    sync_graphical_env(Some(session));
+    sync_agent_env(Some(session));
     let cwd_str = cwd.to_string_lossy();
     let mut args = vec![
         "new-window",

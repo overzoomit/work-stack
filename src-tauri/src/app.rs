@@ -273,6 +273,7 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         &[
             &P::about(app, None, None)?,
             &tauri::menu::MenuItem::with_id(app, "check-update", "Controlla aggiornamenti…", true, None::<&str>)?,
+            &tauri::menu::MenuItem::with_id(app, "plugins", "Plugins…", true, None::<&str>)?,
             &P::separator(app)?,
             &P::services(app, None)?,
             &P::separator(app)?,
@@ -308,6 +309,9 @@ pub fn on_menu(app: &AppHandle, event: tauri::menu::MenuEvent) {
     // The page checks and answers, like for the ⋯ item on Linux.
     if event.id() == "check-update" {
         let _ = app.emit("app:check-update", json!([]));
+    }
+    if event.id() == "plugins" {
+        let _ = app.emit("app:open-plugins", json!([]));
     }
     if event.id() != "export-log" {
         return;

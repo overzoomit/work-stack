@@ -9,6 +9,7 @@ mod git;
 mod github;
 mod gitwatch;
 mod mcp;
+mod plugins;
 mod pty;
 mod runconfigs;
 mod store;
@@ -229,6 +230,11 @@ fn main() {
             dogwatch::dogwatch_answer,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
+            plugins::plugins_list,
+            plugins::plugins_check_updates,
+            plugins::plugins_install,
+            plugins::plugins_update,
+            plugins::plugins_remove,
             telegram::telegram_status,
             telegram::telegram_connect,
             telegram::telegram_disconnect,

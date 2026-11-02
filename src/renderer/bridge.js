@@ -100,6 +100,7 @@
       onStalled: listen('diag:stalled'),
       onQuitRequested: listen('app:quit-requested'),
       onCheckUpdate: listen('app:check-update'),
+      onOpenPlugins: listen('app:open-plugins'),
       onUpdateProgress: listen('app:update-progress'),
     },
     projects: {
@@ -185,6 +186,13 @@
     mcp: {
       status: call('mcp_status'),
       launchBrowser: call('mcp_launch_browser', 'browser'),
+    },
+    plugins: {
+      list: call('plugins_list'),
+      checkUpdates: call('plugins_check_updates'),
+      install: call('plugins_install', 'url'),
+      update: call('plugins_update', 'id'),
+      remove: call('plugins_remove', 'id'),
     },
     tmux: {
       isAvailable: call('tmux_is_available'),

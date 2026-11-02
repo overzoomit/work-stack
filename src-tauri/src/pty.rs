@@ -254,6 +254,7 @@ impl PtyManager {
         for (k, v) in crate::mcp::graphical_env_now() {
             cmd.env(k, v);
         }
+        cmd.env(crate::plugins::ENV_VAR, crate::plugins::dir());
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "Work");

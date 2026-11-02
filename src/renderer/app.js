@@ -19,6 +19,7 @@ import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { initTeam, showLiveLed } from './team.js';
 import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
+import { openPluginsDialog } from './plugins.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
 import { isRefreshKey, isCloseTerminalKey } from './keys.js';
@@ -698,11 +699,16 @@ async function refreshStats() {
 work.app.onLogExported(logExported);
 work.app.onLogExportFailed((msg) => toastError(msg));
 work.app.onStalled(stalledToast);
+// macOS: Work › Plugins… in the menu bar.
+work.app.onOpenPlugins(openPluginsDialog);
 
 // ⋯ opens on pointerdown, like a native menu; Enter or Space (a click with
 // no pointer) open it with the focus on the first item.
 const more = $('#more');
-const moreItems = [{ label: 'Check for updates…', run: () => checkUpdate({ manual: true }) }];
+const moreItems = [
+  { label: 'Check for updates…', run: () => checkUpdate({ manual: true }) },
+  { label: 'Plugins…', run: openPluginsDialog },
+];
 more.onpointerdown = (e) => {
   if (e.button !== 0) return;
   if (more.classList.contains('open')) closeMenu();

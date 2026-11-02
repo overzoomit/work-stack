@@ -24,7 +24,7 @@ function load(answer) {
       Channel: class {},
       invoke: async (cmd, args) => {
         if (cmd === 'debug_log') { logged.push(`${args.level} ${args.msg}`); return; }
-        return answer(cmd, (ms) => { now += ms; });
+        return answer(cmd, (ms) => { now += ms; }, args);
       },
     },
     event: {
@@ -95,6 +95,24 @@ test('work.mcp asks for the status and launches a browser by id', async () => {
   assert.deepEqual(await work.mcp.status(), { servers: [], browsers: [], env: [] });
   assert.equal(await work.mcp.launchBrowser('chrome'), 'Started chrome');
   assert.deepEqual(seen, ['mcp_status', 'mcp_launch_browser']);
+});
+
+test('work.plugins sends the url and id under the names the Rust commands take', async () => {
+  const seen = [];
+  const { work } = load((cmd, _wait, args) => { seen.push([cmd, { ...args }]); return cmd.endsWith('remove') ? null : []; });
+  await work.plugins.list();
+  await work.plugins.checkUpdates();
+  await work.plugins.install('https://github.com/o/r');
+  await work.plugins.update('r');
+  await work.plugins.remove('r');
+  assert.deepEqual(seen, [
+    ['plugins_list', {}],
+    ['plugins_check_updates', {}],
+    ['plugins_install', { url: 'https://github.com/o/r' }],
+    ['plugins_update', { id: 'r' }],
+    ['plugins_remove', { id: 'r' }],
+  ]);
+  assert.equal(typeof work.app.onOpenPlugins, 'function');
 });
 
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {

@@ -21,7 +21,7 @@ const CHROME_PROFILE: &str = ".chrome-mcp-profile";
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1500);
 const LOCAL_TIMEOUT: Duration = Duration::from_millis(300);
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default()
