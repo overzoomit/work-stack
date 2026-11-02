@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
 const API: &str = "https://api.telegram.org";
@@ -146,6 +146,109 @@ pub fn welcome_message(project: &str) -> String {
     )
 }
 
+// ── PM reply capture ─────────────────────────────────────────
+// When the PM answers a Telegram message, its output is on screen in the
+// pm window. After typing the message we watch that pane and send the new,
+// non-decoration lines back to the authorized chat.
+
+const REPLY_SCAN_LINES: u32 = 120;
+const REPLY_POLL: Duration = Duration::from_millis(750);
+const REPLY_IDLE: Duration = Duration::from_secs(3);
+const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn capture_pm(session: &str) -> Option<String> {
+    crate::tmux::capture_pane(session, "pm", Some(REPLY_SCAN_LINES)).ok()
+}
+
+// The part of `after` that follows the last screen still visible from
+// `before`. When the pane scrolled, the suffix overlap finds the new tail;
+// otherwise the unchanged head is dropped and the appended reply remains.
+pub fn new_lines(before: &str, after: &str) -> String {
+    let b: Vec<&str> = before.lines().collect();
+    let a: Vec<&str> = after.lines().collect();
+    for k in (1..=a.len().min(b.len())).rev() {
+        if a[..k] == b[b.len() - k..] {
+            return a[k..].join("\n");
+        }
+    }
+    // No scroll overlap: drop the unchanged head (the reply is appended below).
+    let common = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
+    a[common..].join("\n")
+}
+
+// Box-drawing and progress bars around an agent TUI are not part of the answer.
+fn is_chrome(line: &str) -> bool {
+    let text = line.trim();
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_whitespace() || "╭╮╰╯─│┌┐└┘├┤┬┴┼═║╔╗╚╝█▀▄".contains(c))
+}
+
+fn is_echo(line: &str, sent: &str) -> bool {
+    let text = line.trim().trim_start_matches(['>', '❯', '│']).trim();
+    text == sent.trim()
+}
+
+// The text to send back: new lines only, without the echoed user message,
+// empty lines and the TUI decoration. None when the PM said nothing new.
+pub fn reply_text(before: &str, after: &str, sent: &str) -> Option<String> {
+    if before == after {
+        return None;
+    }
+    let fresh = new_lines(before, after);
+    let text = fresh
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter(|line| !is_chrome(line))
+        .filter(|line| !is_echo(line, sent))
+        .map(|line| line.trim_matches(|c: char| c.is_whitespace() || c == '│'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    (!text.is_empty()).then(|| truncate(&text, MAX_TEXT))
+}
+
+// Wait until the reply stops changing, then return it. `stopped` observes a
+// disconnect or a new connection; `capture` reads the pm pane.
+pub fn collect_reply(
+    baseline: &str,
+    capture: impl Fn() -> Option<String>,
+    stopped: impl Fn() -> bool,
+    sent: &str,
+    poll: Duration,
+    idle: Duration,
+    timeout: Duration,
+) -> Option<String> {
+    let start = Instant::now();
+    let mut last_screen: Option<String> = None;
+    let mut last_reply: Option<String> = None;
+    let mut last_change = Instant::now();
+    loop {
+        if stopped() {
+            return None;
+        }
+        if let Some(screen) = capture() {
+            if last_screen.as_deref() != Some(screen.as_str()) {
+                last_screen = Some(screen.clone());
+                last_change = Instant::now();
+            }
+            if let Some(reply) = reply_text(baseline, &screen, sent) {
+                last_reply = Some(reply);
+            }
+            // A non-empty reply that stopped moving is complete enough to send.
+            if last_reply.is_some() && last_change.elapsed() >= idle {
+                return last_reply;
+            }
+        }
+        if start.elapsed() >= timeout {
+            return last_reply;
+        }
+        thread::sleep(poll);
+    }
+}
+
 // ── HTTP client ──────────────────────────────────────────────
 
 fn client() -> Result<reqwest::blocking::Client, String> {
@@ -238,16 +341,48 @@ fn poll(app: AppHandle, state: Arc<TelegramState>, config: Config, generation: u
                     }
                     if let Some(text) = inbound(update, &config.chat_id) {
                         // The PM window is the only destination of the bot.
+                        // Capture it first so the reply is only the new output.
+                        let baseline = capture_pm(&config.session).unwrap_or_default();
                         let typed = dogwatch::answer(&config.session, "pm", &text);
+                        let error = typed.as_ref().err().cloned();
                         let _ = app.emit(
                             "telegram:message",
                             json!({
                                 "direction": "in",
                                 "text": text,
                                 "typed": typed.is_ok(),
-                                "error": typed.err(),
+                                "error": error,
                             }),
                         );
+                        if typed.is_err() {
+                            continue;
+                        }
+                        // The PM's answer is typed in the pm pane: send the new
+                        // text back to the same authorized chat.
+                        let stopped = || state.generation() != generation;
+                        let reply = collect_reply(
+                            &baseline,
+                            || capture_pm(&config.session),
+                            stopped,
+                            &text,
+                            REPLY_POLL,
+                            REPLY_IDLE,
+                            REPLY_TIMEOUT,
+                        );
+                        if let Some(reply) = reply {
+                            match send_message(&client, &config, &reply) {
+                                Ok(()) => {
+                                    let _ = app.emit(
+                                        "telegram:message",
+                                        json!({ "direction": "out", "text": reply }),
+                                    );
+                                }
+                                Err(e) => {
+                                    state.set_error(Some(e));
+                                    emit_status(&app, &state);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -374,6 +509,7 @@ pub fn shutdown(state: &TelegramState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn update(chat: i64, text: &str) -> Value {
         json!({
@@ -451,6 +587,119 @@ mod tests {
         assert_eq!(cut.chars().count(), MAX_TEXT);
         assert!(cut.ends_with('…'));
         assert_eq!(truncate("short", MAX_TEXT), "short");
+    }
+
+    #[test]
+    fn only_new_pm_output_is_sent_back_without_echo_and_chrome() {
+        let before = "working\n> \n";
+        let after = "working\n> hello\nAnswer: hi\nMore detail\n";
+        assert_eq!(
+            reply_text(before, after, "hello").as_deref(),
+            Some("Answer: hi\nMore detail")
+        );
+        assert_eq!(reply_text(before, before, "hello"), None, "no new output");
+        assert_eq!(
+            reply_text(before, "working\n> hello\n", "hello"),
+            None,
+            "the echoed message alone is not a reply"
+        );
+        assert_eq!(
+            reply_text(before, "working\n╭────╮\n╰────╯\n", "hello"),
+            None,
+            "decoration alone is not a reply"
+        );
+    }
+
+    #[test]
+    fn a_scrolled_pane_still_yields_the_new_tail() {
+        let before = "a\nb\nc\n";
+        let after = "b\nc\nAnswer\n";
+        assert_eq!(reply_text(before, after, "q").as_deref(), Some("Answer"));
+    }
+
+    #[test]
+    fn the_reply_is_returned_after_the_pane_stops_changing() {
+        let screens = [
+            "baseline\n> \n",
+            "baseline\n> hello\n",
+            "baseline\n> hello\nThinking...\n",
+            "baseline\n> hello\nAnswer: 42\nMore detail\n",
+            "baseline\n> hello\nAnswer: 42\nMore detail\n",
+        ];
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let reply = collect_reply(
+            screens[0],
+            || {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                Some(screens[n.min(screens.len() - 1)].to_string())
+            },
+            || false,
+            "hello",
+            Duration::from_millis(2),
+            Duration::from_millis(20),
+            Duration::from_secs(1),
+        );
+        let reply = reply.expect("a reply");
+        assert!(reply.contains("Answer: 42"), "{reply}");
+        assert!(reply.contains("More detail"), "{reply}");
+        assert!(
+            !reply.contains("hello"),
+            "the echoed message is not sent back"
+        );
+    }
+
+    #[test]
+    fn no_reply_is_returned_when_the_connection_stops() {
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let reply = collect_reply(
+            "baseline\n",
+            || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Some("baseline\n> hello\n".into())
+            },
+            || calls.load(Ordering::SeqCst) > 1,
+            "hello",
+            Duration::from_millis(2),
+            Duration::from_millis(20),
+            Duration::from_secs(1),
+        );
+        assert_eq!(reply, None);
+    }
+
+    #[test]
+    fn a_real_pm_window_reply_is_captured_and_returned() {
+        if !crate::tmux::is_available() {
+            return;
+        }
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let session = format!("wstg_{nanos:x}");
+        crate::tmux::ensure_session(&session, std::path::Path::new("/tmp")).unwrap();
+        let command = "printf 'ready\\n'; read line; printf 'Answer: %s\\n' \"$line\"; sleep 30";
+        crate::tmux::new_window(
+            &session,
+            Some("pm"),
+            std::path::Path::new("/tmp"),
+            Some(command),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let before = capture_pm(&session).unwrap_or_default();
+        dogwatch::answer(&session, "pm", "hello").unwrap();
+        let reply = collect_reply(
+            &before,
+            || capture_pm(&session),
+            || false,
+            "hello",
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+            Duration::from_secs(5),
+        );
+        let _ = crate::tmux::kill_session(&session);
+        let reply = reply.unwrap_or_default();
+        assert!(reply.contains("Answer: hello"), "reply: {reply:?}");
     }
 
     #[test]
