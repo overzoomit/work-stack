@@ -45,6 +45,7 @@ export const TEAM_ROLES = [
 
 let pop = null;
 const waitingByProject = new Map();
+const liveByProject = new Map();
 let viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
 
 export function hasPm(existingNames = []) {
@@ -121,6 +122,29 @@ function showWaiting(project, count) {
   const btn = $('#agent-team');
   btn?.classList.toggle('attention', total > 0);
   if (btn) btn.title = total > 0 ? `${total} agent(s) waiting for an answer` : 'Manage the agent team (PM, Dev1, Dev2, QA, Generic)';
+}
+
+export function ledState(live, waiting) {
+  if (!live) return 'off';
+  return waiting > 0 ? 'escalation' : 'live';
+}
+
+const LED_TITLES = {
+  off: () => 'Dogwatch off: no tmux session for this project',
+  live: () => 'Dogwatch live: watching the agents of this project',
+  escalation: (n) => `Dogwatch: ${n} agent(s) waiting for an answer`,
+};
+
+// The LED follows the active project: call it after a dogwatch update or a project switch.
+export function showLiveLed() {
+  const led = $('#dogwatch-led');
+  if (!led) return;
+  const project = getProject()?.path;
+  const waiting = waitingByProject.get(project) || 0;
+  const state = ledState(liveByProject.get(project) === true, waiting);
+  led.dataset.state = state;
+  led.title = LED_TITLES[state](waiting);
+  led.querySelector('.led-label').textContent = state === 'off' ? 'Off' : 'Live';
 }
 
 export function statusBadge(prompts, name) {
@@ -219,8 +243,10 @@ async function launchBrowser(id) {
 
 export function initTeam({ activeProject }) {
   getProject = activeProject;
-  work?.dogwatch?.onUpdate((project, _session, pending) => {
+  work?.dogwatch?.onUpdate((project, _session, pending, live) => {
+    liveByProject.set(project, live === true);
     showWaiting(project, pending.length);
+    showLiveLed();
     // Open popover: badges and count follow, without probing MCP again or
     // interrupting the agent picker or a half-typed field.
     const typing = document.activeElement?.tagName === 'INPUT';

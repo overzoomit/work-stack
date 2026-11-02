@@ -280,11 +280,14 @@ fn write_escalation(root: &Path, pending: &[Pending]) -> std::io::Result<()> {
 
 // ── Watcher ──────────────────────────────────────────────────
 
-// True when this project's pending list differs from the one last seen. The
-// first look at a project always counts, even if empty: a stale escalation
-// file from a previous run must be cleared then.
-fn changed(seen: &mut HashMap<String, Vec<Pending>>, project: &str, now: Vec<Pending>) -> bool {
-    seen.insert(project.to_string(), now.clone()).as_ref() != Some(&now)
+type Seen = HashMap<String, (bool, Vec<Pending>)>;
+
+// True when this project's session state (live or not) or pending list
+// differs from the one last seen. The first look at a project always counts,
+// even if empty: a stale escalation file from a previous run must be cleared then.
+fn changed(seen: &mut Seen, project: &str, live: bool, now: Vec<Pending>) -> bool {
+    let state = (live, now);
+    seen.insert(project.to_string(), state.clone()).as_ref() != Some(&state)
 }
 
 // Writes the file when there is something to say, or an old one to clear.
@@ -296,10 +299,11 @@ fn refresh_escalation(root: &Path, pending: &[Pending]) {
 
 // Polls the session of every open project. On a change it refreshes the
 // escalation file (only if there is something to say, or a stale file to
-// clear) and calls on_change(project, session, pending).
+// clear) and calls on_change(project, session, pending, live); live is false
+// when the project has no tmux session to watch.
 pub fn spawn(
     projects: impl Fn() -> Vec<String> + Send + 'static,
-    on_change: impl Fn(&str, &str, &[Pending]) + Send + 'static,
+    on_change: impl Fn(&str, &str, &[Pending], bool) + Send + 'static,
 ) {
     if !tmux::is_available() {
         return;
@@ -310,12 +314,14 @@ pub fn spawn(
             for project in projects() {
                 let root = Path::new(&project);
                 let session = tmux::session_for_project(root);
-                let now = inspect(&session).map(|i| i.pending()).unwrap_or_default();
-                if !changed(&mut seen, &project, now.clone()) {
+                let inspection = inspect(&session).ok();
+                let live = inspection.is_some();
+                let now = inspection.map(|i| i.pending()).unwrap_or_default();
+                if !changed(&mut seen, &project, live, now.clone()) {
                     continue;
                 }
                 refresh_escalation(root, &now);
-                on_change(&project, &session, &now);
+                on_change(&project, &session, &now, live);
             }
             std::thread::sleep(POLL);
         }
@@ -445,7 +451,7 @@ mod tests {
 
     #[test]
     fn only_a_different_pending_list_counts_as_a_change() {
-        let mut seen = HashMap::new();
+        let mut seen = Seen::new();
         let q = |text: &str| {
             vec![Pending {
                 target: "dev1".into(),
@@ -453,16 +459,31 @@ mod tests {
             }]
         };
         assert!(
-            changed(&mut seen, "/p", vec![]),
+            changed(&mut seen, "/p", true, vec![]),
             "the first look always counts"
         );
         assert!(
-            !changed(&mut seen, "/p", vec![]),
+            !changed(&mut seen, "/p", true, vec![]),
             "nothing before, nothing now"
         );
-        assert!(changed(&mut seen, "/p", q("Continue? [y/N]\n")));
-        assert!(!changed(&mut seen, "/p", q("Continue? [y/N]\n")));
-        assert!(changed(&mut seen, "/p", vec![]), "the question went away");
+        assert!(changed(&mut seen, "/p", true, q("Continue? [y/N]\n")));
+        assert!(!changed(&mut seen, "/p", true, q("Continue? [y/N]\n")));
+        assert!(
+            changed(&mut seen, "/p", true, vec![]),
+            "the question went away"
+        );
+    }
+
+    #[test]
+    fn a_session_that_appears_or_goes_away_counts_as_a_change() {
+        let mut seen = Seen::new();
+        assert!(changed(&mut seen, "/p", false, vec![]));
+        assert!(!changed(&mut seen, "/p", false, vec![]));
+        assert!(
+            changed(&mut seen, "/p", true, vec![]),
+            "the session started"
+        );
+        assert!(changed(&mut seen, "/p", false, vec![]), "the session ended");
     }
 
     #[test]
@@ -474,10 +495,10 @@ mod tests {
         }];
         write_escalation(dir.path(), &stale).unwrap();
 
-        let mut seen = HashMap::new();
+        let mut seen = Seen::new();
         let project = dir.path().to_string_lossy().into_owned();
         assert!(
-            changed(&mut seen, &project, vec![]),
+            changed(&mut seen, &project, true, vec![]),
             "the first look reaches the cleanup"
         );
         refresh_escalation(dir.path(), &[]);

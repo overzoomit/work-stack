@@ -407,3 +407,51 @@ test('a dogwatch update refreshes the open popover: badge and count, without pro
   await tick(50);
   env.tmuxAvailable = false;
 });
+
+test('ledState: off without a tmux session, live while watching, escalation while agents wait', () => {
+  assert.equal(Team.ledState(false, 0), 'off');
+  assert.equal(Team.ledState(true, 0), 'live');
+  assert.equal(Team.ledState(true, 2), 'escalation');
+});
+
+test('the Dogwatch LED follows the active project: off, Live, escalation and back', () => {
+  let onUpdate;
+  window.work.dogwatch = { onUpdate: (cb) => { onUpdate = cb; } };
+  let project = { path: '/home/u/led-proj' };
+  Team.initTeam({ activeProject: () => project });
+  const led = $('#dogwatch-led');
+  const label = led.querySelector('.led-label');
+
+  onUpdate(project.path, 'work_led', [], false);
+  assert.equal(led.dataset.state, 'off', 'no tmux session: the LED is off');
+  assert.equal(label.textContent, 'Off');
+  assert.match(led.title, /no tmux session/);
+
+  onUpdate(project.path, 'work_led', [], true);
+  assert.equal(led.dataset.state, 'live', 'the session is watched');
+  assert.equal(label.textContent, 'Live');
+
+  const waiting = { target: 'dev1', prompt_type: 'permission', question: 'Proceed?', options: [] };
+  onUpdate(project.path, 'work_led', [waiting, { ...waiting, target: 'qa' }], true);
+  assert.equal(led.dataset.state, 'escalation', 'agents waiting: orange');
+  assert.equal(label.textContent, 'Live');
+  assert.match(led.title, /2 agent\(s\) waiting/);
+
+  onUpdate('/another/project', 'other', [], false);
+  assert.equal(led.dataset.state, 'escalation', 'another project leaves the LED alone');
+
+  project = { path: '/another/project' };
+  Team.showLiveLed();
+  assert.equal(led.dataset.state, 'off', 'switching project shows that project state');
+
+  project = null;
+  Team.showLiveLed();
+  assert.equal(led.dataset.state, 'off', 'no project: off');
+
+  project = { path: '/home/u/led-proj' };
+  onUpdate(project.path, 'work_led', [], true);
+  assert.equal(led.dataset.state, 'live', 'the answer clears the escalation');
+
+  onUpdate('/home/u/led-proj', 'work_led', [], false);
+  delete window.work.dogwatch;
+});

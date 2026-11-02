@@ -16,7 +16,7 @@ import { initUpdate, check as checkUpdate } from './update.js';
 import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
-import { initTeam } from './team.js';
+import { initTeam, showLiveLed } from './team.js';
 import { openAppearance } from './appearance.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
@@ -84,6 +84,7 @@ async function activateProject(p) {
   p.tree.mount($('#tree'));
   $('#status-repo').textContent = tildify(p.path, info.home);
   renderAgentList();
+  showLiveLed();
   showRun(p);
   showGithub();
   await showGit(p);
@@ -131,6 +132,7 @@ function showWelcome() {
   showRun(null);
   showGit(null);
   renderAgentList();
+  showLiveLed();
 }
 
 function renderProjectTabs() {
