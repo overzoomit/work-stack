@@ -6,11 +6,13 @@
 use crate::dogwatch;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const API: &str = "https://api.telegram.org";
 const POLL_TIMEOUT_SECS: u64 = 25;
@@ -90,6 +92,63 @@ impl Default for TelegramState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── PM CLI configuration ─────────────────────────────────────
+// The bot token and the authorized chat are saved here on connect, so the PM
+// can send with scripts/telegram-pm.py from its own window. The CLI has no
+// recipient argument: it can only write to the chat configured by Work.
+const CONFIG_FILE: &str = "telegram.json";
+
+fn config_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(CONFIG_FILE))
+}
+
+fn write_config_file(path: &Path, config: &Config) {
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let body = json!({
+        "token": config.token,
+        "chat_id": config.chat_id,
+        "bot": config.bot,
+    });
+    let tmp = path.with_extension("json.tmp");
+    if fs::write(&tmp, body.to_string()).is_err() {
+        return;
+    }
+    // The token is a secret: keep it readable by the user only.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+    }
+    let _ = fs::rename(&tmp, path);
+}
+
+fn remove_config_file(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
+fn save_config(app: &AppHandle, config: &Config) {
+    if let Some(path) = config_file(app) {
+        write_config_file(&path, config);
+    }
+}
+
+fn clear_config(app: &AppHandle) {
+    if let Some(path) = config_file(app) {
+        remove_config_file(&path);
+    }
+}
+
+// A crash can leave the CLI credentials behind; at start-up the bot is not
+// connected yet, so the file must not authorize anything.
+pub fn clear_saved_config(app: &AppHandle) {
+    clear_config(app);
 }
 
 // ── Validation and parsing ───────────────────────────────────
@@ -436,6 +495,7 @@ pub fn telegram_connect(
     state.generation.fetch_add(1, Ordering::SeqCst);
     *state.config.lock().unwrap() = None;
     state.set_error(None);
+    clear_config(&app);
 
     let http = client()?;
     let me = call(&http, &token, "getMe", None).map_err(|e| {
@@ -460,6 +520,7 @@ pub fn telegram_connect(
         session,
     };
     *state.config.lock().unwrap() = Some(config.clone());
+    save_config(&app, &config);
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
     emit_status(&app, &state);
 
@@ -483,6 +544,7 @@ pub fn telegram_disconnect(app: AppHandle, state: State<Arc<TelegramState>>) -> 
     state.generation.fetch_add(1, Ordering::SeqCst);
     *state.config.lock().unwrap() = None;
     state.set_error(None);
+    clear_config(&app);
     emit_status(&app, &state);
     state.status()
 }
@@ -501,9 +563,10 @@ pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(
     send_message(&client()?, &config, &text)
 }
 
-pub fn shutdown(state: &TelegramState) {
+pub fn shutdown(app: &AppHandle, state: &TelegramState) {
     state.generation.fetch_add(1, Ordering::SeqCst);
     *state.config.lock().unwrap() = None;
+    clear_config(app);
 }
 
 #[cfg(test)]
@@ -713,5 +776,39 @@ mod tests {
         assert!(json.get("lastError").is_some(), "the panel reads lastError");
         assert!(json.get("chat_id").is_none(), "no snake_case leak");
         assert!(json.get("last_error").is_none(), "no snake_case leak");
+    }
+
+    #[test]
+    fn the_pm_cli_config_is_private_and_removed_on_disconnect() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telegram.json");
+        let config = Config {
+            token: "123456:AAHm2x3YqW8sVn4Lp6Rt0Zk9Bd1Cf5Gh7J".into(),
+            chat_id: "987654321".into(),
+            bot: "work_pm_bot".into(),
+            project: "/p".into(),
+            session: "work_test".into(),
+        };
+
+        write_config_file(&path, &config);
+        let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["token"], config.token);
+        assert_eq!(saved["chat_id"], config.chat_id);
+        assert_eq!(saved["bot"], config.bot);
+        assert!(
+            !path.with_extension("json.tmp").exists(),
+            "no temp file left"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "the token file stays private");
+        }
+
+        remove_config_file(&path);
+        assert!(!path.exists());
+        remove_config_file(&path);
     }
 }

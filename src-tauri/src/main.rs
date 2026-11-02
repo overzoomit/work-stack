@@ -96,6 +96,7 @@ fn main() {
             };
             diag::init(&log.join("work.log"));
             app::log_start(app.handle());
+            telegram::clear_saved_config(app.handle());
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let main = handle.clone();
@@ -241,7 +242,7 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<pty::PtyState>().mgr.kill_all();
                 app.state::<agents::AgentWatcher>().stop();
-                telegram::shutdown(app.state::<Arc<telegram::TelegramState>>().inner());
+                telegram::shutdown(app, app.state::<Arc<telegram::TelegramState>>().inner());
             }
         });
 }
