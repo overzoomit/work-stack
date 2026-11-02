@@ -135,11 +135,27 @@ const LED_TITLES = {
   escalation: (n) => `Dogwatch: ${n} agent(s) waiting for an answer`,
 };
 
+// Startup race: the first dogwatch update can fire before onUpdate is
+// registered, and the watcher stays silent until something changes. A project
+// with no known state is asked directly; an update that lands first wins.
+const probing = new Set();
+async function probeLive(path) {
+  probing.add(path);
+  const session = await work?.tmux?.sessionForProject(path).catch(() => null);
+  const inspection = session ? await work?.dogwatch?.inspect(session).catch(() => null) : null;
+  probing.delete(path);
+  if (liveByProject.has(path)) return;
+  liveByProject.set(path, Boolean(inspection));
+  showWaiting(path, inspection?.windows.filter((w) => w.prompt).length ?? 0);
+  showLiveLed();
+}
+
 // The LED follows the active project: call it after a dogwatch update or a project switch.
 export function showLiveLed() {
   const led = $('#dogwatch-led');
   if (!led) return;
   const project = getProject()?.path;
+  if (project && !liveByProject.has(project) && !probing.has(project)) probeLive(project);
   const waiting = waitingByProject.get(project) || 0;
   const state = ledState(liveByProject.get(project) === true, waiting);
   led.dataset.state = state;

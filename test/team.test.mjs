@@ -455,3 +455,49 @@ test('the Dogwatch LED follows the active project: off, Live, escalation and bac
   onUpdate('/home/u/led-proj', 'work_led', [], false);
   delete window.work.dogwatch;
 });
+
+test('startup with an existing tmux session: the LED asks dogwatch and turns Live without any update (regression)', async () => {
+  let inspection = { session: 'work_test', windows: [{ id: '@1', name: 'dev1', prompt: null }] };
+  window.work.dogwatch = { onUpdate: () => {}, inspect: async () => inspection };
+  let project = { path: '/home/u/boot-live' };
+  Team.initTeam({ activeProject: () => project });
+  const led = $('#dogwatch-led');
+
+  Team.showLiveLed();
+  await tick();
+  assert.equal(led.dataset.state, 'live', 'the missed first update does not leave the LED off');
+  assert.equal(led.querySelector('.led-label').textContent, 'Live');
+
+  inspection = { session: 'work_test', windows: [{ id: '@1', name: 'dev1', prompt: { prompt_type: 'permission', question: 'Proceed?', options: [] } }] };
+  project = { path: '/home/u/boot-waiting' };
+  Team.showLiveLed();
+  await tick();
+  assert.equal(led.dataset.state, 'escalation', 'a prompt already pending at startup is orange');
+
+  window.work.dogwatch.inspect = async () => { throw new Error('no session'); };
+  project = { path: '/home/u/boot-off' };
+  Team.showLiveLed();
+  await tick();
+  assert.equal(led.dataset.state, 'off', 'no tmux session: off');
+  delete window.work.dogwatch;
+});
+
+test('an update that lands while the startup check is in flight wins over the check', async () => {
+  let onUpdate;
+  let release;
+  window.work.dogwatch = {
+    onUpdate: (cb) => { onUpdate = cb; },
+    inspect: () => new Promise((resolve) => { release = () => resolve({ session: 'work_test', windows: [] }); }),
+  };
+  const project = { path: '/home/u/boot-race' };
+  Team.initTeam({ activeProject: () => project });
+  const led = $('#dogwatch-led');
+
+  Team.showLiveLed();
+  await tick();
+  onUpdate(project.path, 'work_test', [], false);
+  release();
+  await tick();
+  assert.equal(led.dataset.state, 'off', 'the newer update is kept');
+  delete window.work.dogwatch;
+});
