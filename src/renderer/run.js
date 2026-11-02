@@ -3,6 +3,7 @@
 import { $, esc, ask, toast, contextMenu } from './ui.js';
 import { openTerminal, closeTerminal, sendInput, killTerminal } from './terminals.js';
 import { findLocalUrl } from './runurl.js';
+import { initNgrok, openNgrokPanel, refreshTunnel, copyTunnelUrl } from './ngrok.js';
 
 const { work } = window;
 
@@ -23,6 +24,12 @@ export function initRun(opts) {
     const r = current();
     if (r?.url) work.app.openExternal(r.url);
   };
+  $('#run-ngrok').onclick = () => active && copyTunnelUrl(active);
+  initNgrok({ save: () => hooks.save(), changed: () => render(), suggestPort: livePort });
+  // An agent ended (stopped, crashed): the chip and the menu follow.
+  work.ngrok.onUpdate((path) => {
+    if (active?.path === path) refreshTunnel(active).then(() => render());
+  });
 
   addEventListener('keydown', (e) => {
     if (!active) return;
@@ -46,6 +53,7 @@ export async function showRun(project) {
   active = project;
   if (project) {
     ensure(project);
+    refreshTunnel(project).then(() => project === active && render());
     if (!project.detected) await detect(project);
   }
   render();
@@ -77,6 +85,16 @@ function current() {
 }
 
 export const isRunning = (r) => !!r && (r.status === 'running' || r.status === 'stopping');
+
+// The port of the address a running command printed: what a tunnel should expose.
+function livePort(p) {
+  const sel = selected(p);
+  const url = [p.runs.get(sel?.id), ...p.runs.values()].find((r) => isRunning(r) && r.url)?.url;
+  if (!url) return null;
+  const u = new URL(url);
+  return Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+}
+
 export const runningIn = (p) => !!p?.runs && [...p.runs.values()].some(isRunning);
 
 // ── Actions ──
@@ -193,6 +211,7 @@ function openMenu() {
   items.push('-');
   const r = current();
   if (r?.t) items.push({ label: 'Show output', run: () => showOutput(p, r) });
+  items.push({ label: 'ngrok Tunnel…', hint: p.tunnel?.active ? '● active' : '', run: () => openNgrokPanel(p) });
   items.push({ label: 'Add command…', run: addCustom });
   if (sel?.custom) {
     items.push({
@@ -215,6 +234,9 @@ function openMenu() {
 // Closing a project stops its processes (marked as stopped on purpose, so
 // no failure toast or restart follows) and drops their consoles.
 export function forgetProject(p) {
+  // A tunnel left open would keep the port public with no chip to show it.
+  work.ngrok.stop(p.path).catch(() => {});
+  p.tunnel = null;
   if (!p.runs) return;
   for (const r of p.runs.values()) {
     r.status = 'stopping';
@@ -311,5 +333,12 @@ export function render() {
   if (r?.url) {
     url.innerHTML = `${esc(r.url.replace(/^https?:\/\//, ''))}<span>↗</span>`;
     url.title = `Open ${r.url} in the browser`;
+  }
+  const t = active.tunnel;
+  const tunnel = $('#run-ngrok');
+  tunnel.hidden = !t?.active;
+  if (t?.active) {
+    tunnel.innerHTML = `<span class="i-tunnel">⇄</span><span class="dot running"></span>${esc(t.public_url.replace(/^\w+:\/\//, ''))}`;
+    tunnel.title = `ngrok: ${t.public_url} → localhost:${t.port}\nClick to copy the public URL`;
   }
 }

@@ -127,6 +127,27 @@ mod tests {
         );
     }
 
+    // The renderer keeps the last tunnel settings in the project's run field
+    // (run.js, ngrok.js): they come back after a restart as they were saved.
+    #[test]
+    fn keeps_each_projects_ngrok_tunnel_settings() {
+        let d = dir();
+        let f = d.path().join("state.json");
+        let ngrok = json!({ "port": 5173, "protocol": "tls", "domain": "mia-app.ngrok-free.app" });
+        let state = json!({
+            "projects": [
+                { "path": "/a", "run": { "selected": "npm:dev", "custom": [], "ngrok": ngrok } },
+                { "path": "/b", "run": { "selected": null, "custom": [] } },
+            ],
+            "active": "/a",
+        });
+        save(&f, &state).unwrap();
+        let mut s = load(&f, None);
+        merge(&mut s, json!({ "active": "/b" }));
+        assert_eq!(s["projects"][0]["run"]["ngrok"], ngrok);
+        assert!(s["projects"][1]["run"].get("ngrok").is_none());
+    }
+
     #[test]
     fn merge_keeps_keys_not_sent() {
         let mut s = json!({ "projects": [], "active": null, "theme": "x" });

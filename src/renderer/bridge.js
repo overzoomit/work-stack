@@ -192,6 +192,12 @@
       status: call('mcp_status'),
       launchBrowser: call('mcp_launch_browser', 'browser'),
     },
+    ngrok: {
+      start: call('ngrok_start', 'project', 'port', 'protocol', 'customDomain'),
+      stop: call('ngrok_stop', 'project'),
+      status: call('ngrok_status', 'project'),
+      onUpdate: listen('ngrok:update'),
+    },
     plugins: {
       list: call('plugins_list'),
       checkUpdates: call('plugins_check_updates'),

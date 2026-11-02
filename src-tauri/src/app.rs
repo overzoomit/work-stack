@@ -414,6 +414,7 @@ pub fn app_update_restart(app: AppHandle) -> Result<(), String> {
     }
     app.state::<crate::pty::PtyState>().mgr.kill_all();
     app.state::<crate::agents::AgentWatcher>().stop();
+    app.state::<std::sync::Arc<crate::ngrok::Tunnels>>().stop_all();
     app.restart()
 }
 

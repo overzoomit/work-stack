@@ -138,6 +138,9 @@ export const env = {
     for (const fn of winListeners.keydown || []) fn(e);
   },
   exit(id, code) { env.onExit(id, code); },
+  // ngrok: calls in order; `status` is what ngrok.status answers, `start` what
+  // ngrok.start answers (an Error rejects), `gate` holds the next start.
+  ngrok: { calls: [], status: { active: false }, start: null, gate: null, onUpdate: null },
 };
 let nextId = 1;
 globalThis.window = {
@@ -160,6 +163,17 @@ globalThis.window = {
     },
     agents: { available: () => env.agentsReply, hasHistory: async (dir) => env.history.has(dir) },
     run: { detect: async () => env.detected || [] },
+    ngrok: {
+      status: async (project) => { env.ngrok.calls.push(['status', project]); return env.ngrok.status; },
+      start: async (...args) => {
+        env.ngrok.calls.push(['start', ...args]);
+        await env.ngrok.gate;
+        if (env.ngrok.start instanceof Error) throw env.ngrok.start;
+        return env.ngrok.start;
+      },
+      stop: async (project) => { env.ngrok.calls.push(['stop', project]); return { active: false }; },
+      onUpdate: (fn) => { env.ngrok.onUpdate = fn; },
+    },
     tmux: {
       isAvailable: async () => env.tmuxAvailable ?? false,
       sessionForProject: async (path) => env.tmuxSession ?? 'work_test',

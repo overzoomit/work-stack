@@ -115,6 +115,23 @@ test('work.plugins sends the url and id under the names the Rust commands take',
   assert.equal(typeof work.app.onOpenPlugins, 'function');
 });
 
+test('work.ngrok sends start/stop/status with the argument names the Rust commands take', async () => {
+  const seen = [];
+  const { work, emit } = load((cmd, _wait, args) => { seen.push([cmd, { ...args }]); return { active: cmd === 'ngrok_start' }; });
+  assert.deepEqual(await work.ngrok.start('/p', 3000, 'http', 'mia-app.ngrok-free.app'), { active: true });
+  await work.ngrok.status('/p');
+  await work.ngrok.stop('/p');
+  assert.deepEqual(seen, [
+    ['ngrok_start', { project: '/p', port: 3000, protocol: 'http', customDomain: 'mia-app.ngrok-free.app' }],
+    ['ngrok_status', { project: '/p' }],
+    ['ngrok_stop', { project: '/p' }],
+  ]);
+  const ended = [];
+  work.ngrok.onUpdate((project) => ended.push(project));
+  emit('ngrok:update', ['/p']);
+  assert.deepEqual(ended, ['/p']);
+});
+
 test('work.planeDogwatch exposes status, syncNow and the update event', async () => {
   const seen = [];
   const { work, emit } = load((cmd) => { seen.push(cmd); return cmd === 'plane_dogwatch_status' ? { projects: [] } : null; });

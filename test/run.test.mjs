@@ -152,3 +152,43 @@ test('scorciatoie di WebStorm: Shift+F10 avvia, Ctrl+F2 ferma; il tab Run ha gli
   await tick();
   assert.equal($('#run-tab-stop').disabled, true);
 });
+
+test('ngrok Tunnel… nel menu Run: suggerisce la porta del server avviato; il chip mostra il tunnel e copia l\'URL; chiudere il progetto lo ferma', async () => {
+  const N = await import('../src/renderer/ngrok.js');
+  const live = { active: true, port: 5173, protocol: 'http', domain: null, public_url: 'https://ab12.ngrok-free.app', inspect_url: 'http://127.0.0.1:4040', error: null };
+  await R.showRun(project);
+  project.run.selected = 'npm:dev';
+  const id = await start();
+  env.output(id, '  ➜  Local:   http://localhost:5173/\r\n');
+  await tick();
+  assert.equal($('#run-ngrok').hidden, true, 'no chip without a tunnel');
+
+  $('#run-config').onpointerdown({ button: 0 });
+  let item = openMenuItems()['ngrok Tunnel…'];
+  assert.ok(item, 'the Run menu has the ngrok entry');
+  assert.doesNotMatch(item.innerHTML, /active/);
+  item.onclick();
+  await tick();
+  const sheet = document.body.children.filter((c) => c.className === 'sheet ngrok-sheet').at(-1);
+  assert.equal(sheet.querySelector('.ng-port').value, '5173', 'the port the dev server printed');
+  N.closeNgrokPanel();
+
+  // The backend says the agent changed: the bar reads the status again.
+  env.ngrok.status = live;
+  env.ngrok.onUpdate('/p');
+  await tick();
+  assert.equal($('#run-ngrok').hidden, false);
+  assert.match($('#run-ngrok').innerHTML, /<span class="dot running"><\/span>ab12\.ngrok-free\.app$/);
+  assert.match($('#run-ngrok').title, /localhost:5173/);
+  $('#run-ngrok').onclick();
+  assert.equal(env.copied.at(-1), 'https://ab12.ngrok-free.app');
+  $('#run-config').onpointerdown({ button: 0 });
+  item = openMenuItems()['ngrok Tunnel…'];
+  assert.match(item.innerHTML, /<kbd>● active<\/kbd>/);
+
+  env.ngrok.status = { active: false };
+  R.forgetProject(project);
+  assert.deepEqual(env.ngrok.calls.at(-1), ['stop', '/p']);
+  assert.equal(project.tunnel, null);
+  await tick(700);
+});

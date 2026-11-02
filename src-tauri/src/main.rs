@@ -9,6 +9,7 @@ mod git;
 mod github;
 mod gitwatch;
 mod mcp;
+mod ngrok;
 mod plane_dogwatch;
 mod plugins;
 mod pty;
@@ -119,6 +120,10 @@ fn main() {
                 file,
             });
             app.manage(pty::PtyState::new());
+            let handle = app.handle().clone();
+            app.manage(Arc::new(ngrok::Tunnels::new(move |project| {
+                let _ = handle.emit("ngrok:update", [project]);
+            })));
             let telegram = Arc::new(telegram::TelegramState::new());
             app.manage(Arc::clone(&telegram));
             let notifier = Arc::clone(&telegram);
@@ -246,6 +251,9 @@ fn main() {
             plane_dogwatch::plane_dogwatch_sync_now,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
+            ngrok::ngrok_start,
+            ngrok::ngrok_stop,
+            ngrok::ngrok_status,
             plugins::plugins_list,
             plugins::plugins_check_updates,
             plugins::plugins_install,
@@ -272,6 +280,7 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<pty::PtyState>().mgr.kill_all();
                 app.state::<agents::AgentWatcher>().stop();
+                app.state::<Arc<ngrok::Tunnels>>().stop_all();
                 telegram::shutdown(app.state::<Arc<telegram::TelegramState>>().inner());
             }
         });
