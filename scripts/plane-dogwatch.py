@@ -54,7 +54,7 @@ WORKING = {"dev": "in progress", "qa": "test"}
 # Agent TUIs show these while they run; a shell or agent waiting for input
 # shows an input marker on one of its last lines.
 BUSY_MARKER = re.compile(r"esc to (?:interrupt|cancel)|\bctrl\+c to (?:interrupt|stop)\b", re.IGNORECASE)
-INPUT_LINE = re.compile(r"^\s*(?:[│|]\s*)?[>❯›]\s?.*$|[$#%❯>]\s*$")
+INPUT_LINE = re.compile(r"^\s*(?:[│|┃]\s*)?[>❯›]\s?.*$|[$#%❯>]\s*$|\bctrl\+p commands\b")
 
 
 def load_module(name: str, path: Path):
