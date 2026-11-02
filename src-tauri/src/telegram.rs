@@ -323,13 +323,62 @@ pub fn new_lines(before: &str, after: &str) -> String {
     a[common..].join("\n")
 }
 
-// Box-drawing and progress bars around an agent TUI are not part of the answer.
-fn is_chrome(line: &str) -> bool {
+// Box-drawing, progress bars and agent TUI markers (bullets, spinners, status)
+// are not part of the PM's text reply.
+pub fn is_chrome(line: &str) -> bool {
     let text = line.trim();
-    !text.is_empty()
-        && text
-            .chars()
-            .all(|c| c.is_whitespace() || "╭╮╰╯─│┌┐└┘├┤┬┴┼═║╔╗╚╝█▀▄".contains(c))
+    if text.is_empty() {
+        return false;
+    }
+    // Box-drawing, dividers and separator lines
+    if text
+        .chars()
+        .all(|c| c.is_whitespace() || "╭╮╰╯─│┌┐└┘├┤┬┴┼═║╔╗╚╝█▀▄".contains(c))
+    {
+        return true;
+    }
+    // Agent status/tool lines, thinking headers and braille spinners
+    // e.g. "● Ran 4 commands...", "● Edited 1 file...", "○ Thought for...", "▸ Thought for..."
+    if text.starts_with(['●', '○', '▸', '◆', '◇']) {
+        return true;
+    }
+    // Braille spinner lines (e.g. "⣾ Running command...")
+    if text
+        .chars()
+        .next()
+        .is_some_and(|c| ('\u{2800}'..='\u{28FF}').contains(&c))
+    {
+        return true;
+    }
+    // TUI controls, cancellation hints and status bar headers
+    let lower = text.to_lowercase();
+    if lower.starts_with("wait for background task")
+        || lower.contains("conversation compacted")
+        || lower.starts_with("tip:")
+        || lower.starts_with("press esc to")
+        || lower.starts_with("esc to cancel")
+        || lower.starts_with("esc to interrupt")
+        || lower.starts_with("ctrl+c to interrupt")
+        || lower.starts_with("ctrl+o to expand")
+        || (lower.contains("gemini") && lower.contains("flash"))
+        || (lower.contains("claude") && lower.contains("code"))
+    {
+        return true;
+    }
+    false
+}
+
+pub fn is_agent_busy(screen: &str) -> bool {
+    screen.lines().any(|line| {
+        let text = line.trim();
+        let lower = text.to_lowercase();
+        text.chars().any(|c| ('\u{2800}'..='\u{28FF}').contains(&c))
+            || lower.contains("running command")
+            || lower.contains("esc to cancel")
+            || lower.contains("esc to interrupt")
+            || lower.contains("ctrl+c to interrupt")
+            || lower.starts_with("thinking...")
+    })
 }
 
 fn is_echo(line: &str, sent: &str) -> bool {
@@ -343,17 +392,37 @@ pub fn reply_text(before: &str, after: &str, sent: &str) -> Option<String> {
     if before == after {
         return None;
     }
-    let fresh = new_lines(before, after);
-    let text = fresh
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter(|line| !is_chrome(line))
-        .filter(|line| !is_echo(line, sent))
-        .map(|line| line.trim_matches(|c: char| c.is_whitespace() || c == '│'))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
+    // When the sent message appears in `after`, any text before that line
+    // belongs to previous turns and must never be included in the reply.
+    let after_lines: Vec<&str> = after.lines().collect();
+    let prompt_idx = after_lines.iter().rposition(|line| is_echo(line, sent));
+
+    let fresh_slice = match prompt_idx {
+        Some(idx) => &after_lines[idx + 1..],
+        None => {
+            // Fallback: if the echoed prompt scrolled out of the capture buffer,
+            // compute new lines between before and after.
+            let fresh = new_lines(before, after);
+            return clean_reply(fresh.lines(), sent);
+        }
+    };
+    clean_reply(fresh_slice.iter().copied(), sent)
+}
+
+fn clean_reply<'a>(lines: impl Iterator<Item = &'a str>, sent: &str) -> Option<String> {
+    let mut collected = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() || is_chrome(line) || is_echo(line, sent) {
+            continue;
+        }
+        let clean = line.trim_matches(|c: char| c.is_whitespace() || c == '│');
+        // Drop lone prompt characters like ">" or "❯" at the very bottom
+        if clean == ">" || clean == "❯" {
+            continue;
+        }
+        collected.push(clean);
+    }
+    let text = collected.join("\n").trim().to_string();
     (!text.is_empty()).then(|| truncate(&text, MAX_TEXT))
 }
 
@@ -377,6 +446,7 @@ pub fn collect_reply(
             return None;
         }
         if let Some(screen) = capture() {
+            let busy = is_agent_busy(&screen);
             if last_screen.as_deref() != Some(screen.as_str()) {
                 last_screen = Some(screen.clone());
                 last_change = Instant::now();
@@ -384,8 +454,9 @@ pub fn collect_reply(
             if let Some(reply) = reply_text(baseline, &screen, sent) {
                 last_reply = Some(reply);
             }
-            // A non-empty reply that stopped moving is complete enough to send.
-            if last_reply.is_some() && last_change.elapsed() >= idle {
+            // A non-empty reply is complete only when the agent has stopped working
+            // (no spinners or cancellation hints) and the output has stayed idle.
+            if !busy && last_reply.is_some() && last_change.elapsed() >= idle {
                 return last_reply;
             }
         }
@@ -774,6 +845,45 @@ mod tests {
             reply_text(before, "working\n╭────╮\n╰────╯\n", "hello"),
             None,
             "decoration alone is not a reply"
+        );
+    }
+
+    #[test]
+    fn terminal_history_and_ai_cli_tool_noise_are_stripped() {
+        let before = "Old output\nAnother old turn\n";
+        let after = "\
+Old conversation history line 1
+Old conversation history line 2
+### Screenshot Aggiornato
+────────────────────────────────────────────────────────────
+> ciao pm, ci sei?08:56
+
+● Ran 4 commands (+3 · python3 list) (ctrl+o to expand)
+○ Thought for 12.2s
+⣾ Running command...
+Wait for background task task-1 to finish.
+
+  Ciao! Sì, sono qui, operativo e pronto.
+
+  Tutto il backlog di Plane è attualmente completato.
+
+────────────────────────────────────────────────────────────
+>
+";
+        let reply = reply_text(before, after, "ciao pm, ci sei?08:56").unwrap();
+        assert!(!reply.contains("Old conversation"), "{reply}");
+        assert!(!reply.contains("Screenshot"), "{reply}");
+        assert!(!reply.contains("Ran 4 commands"), "{reply}");
+        assert!(!reply.contains("Thought for"), "{reply}");
+        assert!(!reply.contains("Running command"), "{reply}");
+        assert!(!reply.contains("Wait for background"), "{reply}");
+        assert!(
+            reply.contains("Ciao! Sì, sono qui, operativo e pronto."),
+            "{reply}"
+        );
+        assert!(
+            reply.contains("Tutto il backlog di Plane è attualmente completato."),
+            "{reply}"
         );
     }
 
