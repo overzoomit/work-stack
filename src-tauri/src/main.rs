@@ -96,7 +96,6 @@ fn main() {
             };
             diag::init(&log.join("work.log"));
             app::log_start(app.handle());
-            telegram::clear_saved_config(app.handle());
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let main = handle.clone();
@@ -111,13 +110,21 @@ fn main() {
             });
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
+            let active_project = state["active"].as_str().map(String::from);
             allow_projects(app.handle(), &state);
             app.manage(AppState {
                 state: Mutex::new(state),
                 file,
             });
             app.manage(pty::PtyState::new());
-            app.manage(Arc::new(telegram::TelegramState::new()));
+            let telegram = Arc::new(telegram::TelegramState::new());
+            app.manage(Arc::clone(&telegram));
+            // Restore the connection saved before the restart, off the UI
+            // thread so a slow network does not hold up the window.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                telegram::restore(&handle, &telegram, active_project.as_deref());
+            });
             let handle = app.handle().clone();
             app.manage(gitwatch::GitWatcher::new(move |repo, kind| {
                 let _ = handle.emit("git:changed", (repo, kind));
@@ -242,7 +249,7 @@ fn main() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<pty::PtyState>().mgr.kill_all();
                 app.state::<agents::AgentWatcher>().stop();
-                telegram::shutdown(app, app.state::<Arc<telegram::TelegramState>>().inner());
+                telegram::shutdown(app.state::<Arc<telegram::TelegramState>>().inner());
             }
         });
 }

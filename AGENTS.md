@@ -43,7 +43,7 @@ Nessun dev o QA deve attendere una risposta diretta dall'utente. Tutte le domand
 - Se il PM può rispondere in autonomia (requisiti tecnici, permessi noti, architettura), risponde direttamente con `tmux-dogwatch.py answer` oppure `tmux send-keys`.
 - Se serve una decisione di prodotto/business, il PM interpella l'utente. L'utente risponde **esclusivamente al PM**, che a sua volta risponde all'agente bloccato.
 - **Canale Telegram ed Esterno:** **SOLO il PM interagisce con il Bot Telegram** e con l'utente da remoto. Nessun dev o QA invia, riceve o legge notifiche o messaggi diretti dal bot: tutte le interazioni con l'utente esterno avvengono esclusivamente mediate dal PM.
-- Il PM invia notifiche o risposte dirette alla chat autorizzata con `python3 scripts/telegram-pm.py send "<testo>"`. Lo script legge token e `chat_id` salvati da Work alla connessione del bot (o da `WORK_TELEGRAM_TOKEN` / `WORK_TELEGRAM_CHAT_ID`) e non accetta destinatari alternativi.
+- Il PM invia notifiche o risposte dirette alla chat autorizzata con `python3 scripts/telegram-pm.py send "<testo>"`. Lo script legge token e `chat_id` salvati da Work alla connessione del bot (o da `WORK_TELEGRAM_TOKEN` / `WORK_TELEGRAM_CHAT_ID`) e non accetta destinatari alternativi. Work conserva la configurazione in `telegram.json` (permessi 0600) e la ripristina automaticamente al riavvio; il file viene rimosso solo con `Disconnect`.
 
 ```bash
 # Controllo immediato (JSON su stdout + file di escalation)

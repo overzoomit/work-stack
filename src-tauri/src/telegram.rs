@@ -4,7 +4,7 @@
 // whether a product/user decision is needed. Dev and QA windows never talk to
 // the bot: they only go through the PM and dogwatch.
 use crate::dogwatch;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -107,6 +107,21 @@ fn config_file(app: &AppHandle) -> Option<PathBuf> {
         .map(|dir| dir.join(CONFIG_FILE))
 }
 
+// On disk the bot configuration is also what lets Work reconnect on the next
+// start. The token never leaves this file: the status sent to the UI has only
+// the bot name and the chat id.
+#[derive(Clone, Debug, Deserialize)]
+struct SavedConfig {
+    token: String,
+    chat_id: String,
+    #[serde(default)]
+    bot: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    session: Option<String>,
+}
+
 fn write_config_file(path: &Path, config: &Config) {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
@@ -115,6 +130,8 @@ fn write_config_file(path: &Path, config: &Config) {
         "token": config.token,
         "chat_id": config.chat_id,
         "bot": config.bot,
+        "project": config.project,
+        "session": config.session,
     });
     let tmp = path.with_extension("json.tmp");
     if fs::write(&tmp, body.to_string()).is_err() {
@@ -127,6 +144,11 @@ fn write_config_file(path: &Path, config: &Config) {
         let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
     }
     let _ = fs::rename(&tmp, path);
+}
+
+fn read_config_file(path: &Path) -> Option<SavedConfig> {
+    let saved: SavedConfig = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    (valid_token(&saved.token) && valid_chat_id(&saved.chat_id)).then_some(saved)
 }
 
 fn remove_config_file(path: &Path) {
@@ -145,10 +167,76 @@ fn clear_config(app: &AppHandle) {
     }
 }
 
-// A crash can leave the CLI credentials behind; at start-up the bot is not
-// connected yet, so the file must not authorize anything.
-pub fn clear_saved_config(app: &AppHandle) {
-    clear_config(app);
+// The saved connection knows its project and session. Older files only had
+// the bot fields: fall back to the active project of this start-up.
+fn restore_target(
+    saved: SavedConfig,
+    fallback_project: Option<&str>,
+    fallback_session: Option<&str>,
+) -> Option<Config> {
+    let project = saved
+        .project
+        .filter(|p| !p.is_empty())
+        .or_else(|| fallback_project.filter(|p| !p.is_empty()).map(String::from))?;
+    let session = saved
+        .session
+        .filter(|s| !s.is_empty())
+        .or_else(|| fallback_session.filter(|s| !s.is_empty()).map(String::from))?;
+    Some(Config {
+        token: saved.token,
+        chat_id: saved.chat_id,
+        bot: saved.bot.unwrap_or_else(|| "bot".into()),
+        project,
+        session,
+    })
+}
+
+// Load the saved connection and hand it to `connect`. None means there is
+// nothing to restore (no file, invalid file, or no project/session to use).
+fn restore_from<F>(
+    path: &Path,
+    fallback_project: Option<&str>,
+    fallback_session: Option<&str>,
+    connect: F,
+) -> Option<Result<Status, String>>
+where
+    F: FnOnce(Config) -> Result<Status, String>,
+{
+    let target = restore_target(read_config_file(path)?, fallback_project, fallback_session)?;
+    Some(connect(target))
+}
+
+// Called once at start-up: if the app was connected before the restart, the
+// same bot and chat are reconnected without asking the user again. A failure
+// is shown in the Telegram panel, but the saved file stays for the next try.
+pub fn restore(app: &AppHandle, state: &Arc<TelegramState>, active_project: Option<&str>) {
+    if state.config.lock().unwrap().is_some() {
+        return;
+    }
+    let Some(path) = config_file(app) else {
+        return;
+    };
+    let fallback_session = active_project.map(|p| crate::tmux::session_for_project(Path::new(p)));
+    let connected = restore_from(
+        &path,
+        active_project,
+        fallback_session.as_deref(),
+        |config| {
+            connect_inner(
+                app,
+                state,
+                config.token,
+                config.chat_id,
+                config.project,
+                config.session,
+                false,
+            )
+        },
+    );
+    if let Some(Err(error)) = connected {
+        state.set_error(Some(error));
+        emit_status(app, state);
+    }
 }
 
 // ── Validation and parsing ───────────────────────────────────
@@ -477,6 +565,18 @@ pub fn telegram_connect(
     project: String,
     session: String,
 ) -> Result<Status, String> {
+    connect_inner(&app, state.inner(), token, chat_id, project, session, true)
+}
+
+fn connect_inner(
+    app: &AppHandle,
+    state: &Arc<TelegramState>,
+    token: String,
+    chat_id: String,
+    project: String,
+    session: String,
+    replace_saved: bool,
+) -> Result<Status, String> {
     let token = token.trim().to_string();
     let chat_id = chat_id.trim().to_string();
     if !valid_token(&token) {
@@ -495,7 +595,12 @@ pub fn telegram_connect(
     state.generation.fetch_add(1, Ordering::SeqCst);
     *state.config.lock().unwrap() = None;
     state.set_error(None);
-    clear_config(&app);
+    // A manual connect replaces the old saved bot; a start-up restore keeps
+    // the file until the token is accepted, so a temporary failure does not
+    // erase the connection the user configured.
+    if replace_saved {
+        clear_config(app);
+    }
 
     let http = client()?;
     let me = call(&http, &token, "getMe", None).map_err(|e| {
@@ -520,9 +625,9 @@ pub fn telegram_connect(
         session,
     };
     *state.config.lock().unwrap() = Some(config.clone());
-    save_config(&app, &config);
+    save_config(app, &config);
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    emit_status(&app, &state);
+    emit_status(app, state);
 
     let welcome = (config.clone(), welcome_message(&config.project));
     thread::spawn(move || {
@@ -532,7 +637,7 @@ pub fn telegram_connect(
     });
 
     let app2 = app.clone();
-    let state2 = Arc::clone(state.inner());
+    let state2 = Arc::clone(state);
     let config2 = config.clone();
     thread::spawn(move || poll(app2, state2, config2, generation, 0));
 
@@ -563,10 +668,9 @@ pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(
     send_message(&client()?, &config, &text)
 }
 
-pub fn shutdown(app: &AppHandle, state: &TelegramState) {
+pub fn shutdown(state: &TelegramState) {
     state.generation.fetch_add(1, Ordering::SeqCst);
     *state.config.lock().unwrap() = None;
-    clear_config(app);
 }
 
 #[cfg(test)]
@@ -778,23 +882,49 @@ mod tests {
         assert!(json.get("last_error").is_none(), "no snake_case leak");
     }
 
+    const TOKEN: &str = "123456:AAHm2x3YqW8sVn4Lp6Rt0Zk9Bd1Cf5Gh7J";
+    const CHAT: &str = "987654321";
+
+    fn saved_config() -> Config {
+        Config {
+            token: TOKEN.into(),
+            chat_id: CHAT.into(),
+            bot: "work_pm_bot".into(),
+            project: "/saved/project".into(),
+            session: "work_saved".into(),
+        }
+    }
+
+    fn restored_status(config: &Config) -> Result<Status, String> {
+        Ok(Status {
+            connected: true,
+            bot: Some(config.bot.clone()),
+            chat_id: Some(config.chat_id.clone()),
+            project: Some(config.project.clone()),
+            session: Some(config.session.clone()),
+            last_error: None,
+        })
+    }
+
     #[test]
-    fn the_pm_cli_config_is_private_and_removed_on_disconnect() {
+    fn the_saved_connection_is_private_and_keeps_its_project() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("telegram.json");
-        let config = Config {
-            token: "123456:AAHm2x3YqW8sVn4Lp6Rt0Zk9Bd1Cf5Gh7J".into(),
-            chat_id: "987654321".into(),
-            bot: "work_pm_bot".into(),
-            project: "/p".into(),
-            session: "work_test".into(),
-        };
+        let config = saved_config();
 
         write_config_file(&path, &config);
         let saved: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved["token"], config.token);
         assert_eq!(saved["chat_id"], config.chat_id);
         assert_eq!(saved["bot"], config.bot);
+        assert_eq!(
+            saved["project"], config.project,
+            "restore needs the project"
+        );
+        assert_eq!(
+            saved["session"], config.session,
+            "restore needs the session"
+        );
         assert!(
             !path.with_extension("json.tmp").exists(),
             "no temp file left"
@@ -806,9 +936,125 @@ mod tests {
             let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "the token file stays private");
         }
+    }
 
-        remove_config_file(&path);
-        assert!(!path.exists());
-        remove_config_file(&path);
+    #[test]
+    fn startup_restore_reconnects_to_the_saved_project_and_chat() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telegram.json");
+        write_config_file(&path, &saved_config());
+
+        let mut restored = None;
+        let result = restore_from(
+            &path,
+            Some("/other/project"),
+            Some("work_other"),
+            |config| {
+                let status = restored_status(&config);
+                restored = Some(config);
+                status
+            },
+        );
+        assert!(matches!(result, Some(Ok(_))));
+        let config = restored.unwrap();
+        assert_eq!(config.project, "/saved/project", "the saved project wins");
+        assert_eq!(config.session, "work_saved", "the saved session wins");
+        assert_eq!(config.chat_id, CHAT, "only the authorized chat is restored");
+        assert_eq!(config.token, TOKEN);
+    }
+
+    #[test]
+    fn an_old_config_without_project_falls_back_to_the_active_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telegram.json");
+        fs::write(
+            &path,
+            json!({ "token": TOKEN, "chat_id": CHAT, "bot": "work_pm_bot" }).to_string(),
+        )
+        .unwrap();
+
+        let mut restored = None;
+        let result = restore_from(
+            &path,
+            Some("/active/project"),
+            Some("work_active"),
+            |config| {
+                restored = Some(config);
+                Ok(Status {
+                    connected: true,
+                    bot: Some("work_pm_bot".into()),
+                    chat_id: Some(CHAT.into()),
+                    project: Some("/active/project".into()),
+                    session: Some("work_active".into()),
+                    last_error: None,
+                })
+            },
+        );
+        assert!(matches!(result, Some(Ok(_))));
+        let config = restored.unwrap();
+        assert_eq!(config.project, "/active/project");
+        assert_eq!(config.session, "work_active");
+        assert_eq!(config.bot, "work_pm_bot");
+    }
+
+    #[test]
+    fn startup_restore_does_nothing_without_a_valid_saved_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telegram.json");
+        let mut called = false;
+
+        let mut attempt = |fallback_project: Option<&str>, fallback_session: Option<&str>| {
+            restore_from(&path, fallback_project, fallback_session, |config| {
+                called = true;
+                restored_status(&config)
+            })
+            .is_some()
+        };
+
+        assert!(!attempt(Some("/active"), Some("work_active")), "no file");
+        fs::write(&path, "{ rotto").unwrap();
+        assert!(
+            !attempt(Some("/active"), Some("work_active")),
+            "broken JSON"
+        );
+        fs::write(
+            &path,
+            json!({ "token": "bad", "chat_id": CHAT }).to_string(),
+        )
+        .unwrap();
+        assert!(!attempt(Some("/active"), Some("work_active")), "bad token");
+        fs::write(
+            &path,
+            json!({ "token": TOKEN, "chat_id": CHAT }).to_string(),
+        )
+        .unwrap();
+        assert!(
+            !attempt(None, None),
+            "no project or session to reconnect to"
+        );
+        assert!(!called, "nothing was connected");
+    }
+
+    #[test]
+    fn a_failed_restore_keeps_the_saved_connection_for_the_next_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("telegram.json");
+        write_config_file(&path, &saved_config());
+
+        let result = restore_from(&path, Some("/active"), Some("work_active"), |_| {
+            Err("Telegram non raggiungibile".into())
+        });
+        assert_eq!(result.unwrap().unwrap_err(), "Telegram non raggiungibile");
+        assert!(path.exists(), "the token is kept for the next start");
+    }
+
+    #[test]
+    fn startup_restores_the_saved_connection_instead_of_erasing_it() {
+        let main = include_str!("main.rs");
+        assert!(main.contains("telegram::restore"), "startup reconnects");
+        assert!(
+            !main.contains("clear_saved_config"),
+            "startup must not erase the saved connection"
+        );
     }
 }

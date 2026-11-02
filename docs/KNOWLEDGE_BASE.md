@@ -36,7 +36,7 @@ Work Stack è una dashboard desktop moderna pensata per sviluppatori (Linux e ma
   - `tree.js`, `changes.js`, `graph.js`, `github.js`, `run.js`: Moduli delle sezioni informative.
 - **Tooling & Ops:**
   - `scripts/tmux-dogwatch.py`: Sentinella per il rilevamento di prompt e l'escalation al PM.
-  - `scripts/telegram-pm.py`: CLI PM-only per inviare notifiche o risposte alla chat Telegram autorizzata.
+  - `scripts/telegram-pm.py`: CLI PM-only per inviare notifiche o risposte alla chat Telegram autorizzata. Work salva la connessione in `telegram.json` (0600) e la ripristina all'avvio.
   - `scripts/vendor.mjs`: Download e aggiornamento librerie vendor (xterm 6, marked, DOMPurify).
 
 ---
