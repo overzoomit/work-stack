@@ -85,6 +85,7 @@ python3 scripts/plane-dogwatch.py --daemon --interval 5          # polling conti
   - `src/agents.rs` & `src/claudeprocs.rs`: rilevamento e controllo dei processi e sessioni degli agenti AI CLI.
   - `src/fsops.rs`: operazioni sicure sui file (protezione sandbox con `Roots` / canonicalize).
   - `src/runconfigs.rs`: autodiscovery dei comandi di avvio del progetto.
+  - `src/ngrok.rs`: un tunnel ngrok per progetto (menu Run › `ngrok Tunnel…`, IPC `ngrok_start/stop/status`, evento `ngrok:update`); URL pubblico letto dall'API di ispezione dell'agente, porta presa dal suo log JSON; tunnel chiusi all'uscita da Work.
   - `src/store.rs`: persistenza atomica dello stato tra sessioni.
   - `src/diag.rs`: logging diagnostico ed esportazione log.
   - `src/app.rs`: ciclo di vita finestra, menu di sistema e aggiornamenti.
