@@ -101,6 +101,33 @@ mod tests {
     }
 
     #[test]
+    fn keeps_each_projects_terminals_next_to_the_older_fields() {
+        let d = dir();
+        let f = d.path().join("state.json");
+        let state = json!({
+            "projects": [
+                { "path": "/a", "run": { "selected": null, "custom": [] }, "terminals": [
+                    { "title": "dev1", "tmuxWindow": "@3", "tmuxName": "dev1", "cwd": "/a" },
+                    { "title": "Terminal 2", "tmuxWindow": null, "tmuxName": "Terminal 2", "cwd": null },
+                ] },
+                { "path": "/b", "run": null, "terminals": [] },
+                { "path": "/c", "terminals": null },
+                { "path": "/old" },
+            ],
+            "active": "/a",
+        });
+        save(&f, &state).unwrap();
+        assert_eq!(load(&f, None), state);
+
+        let mut s = load(&f, None);
+        merge(&mut s, json!({ "active": "/b" }));
+        assert_eq!(
+            s["projects"], state["projects"],
+            "saving the active project alone keeps the terminals"
+        );
+    }
+
+    #[test]
     fn merge_keeps_keys_not_sent() {
         let mut s = json!({ "projects": [], "active": null, "theme": "x" });
         merge(&mut s, json!({ "active": "/a" }));

@@ -184,6 +184,7 @@ fn main() {
             pty::pty_resize,
             pty::pty_kill,
             pty::pty_cwd,
+            pty::pty_tmux_window,
             git::git_root,
             git::git_status,
             git::git_log,

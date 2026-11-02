@@ -147,6 +147,7 @@ globalThis.window = {
       write: (id, data) => env.input.push([id, data]),
       resize() {},
       cwd: async (id) => env.cwds.get(id) || null,
+      tmuxWindow: async (id) => env.tmuxWindowOf?.(id) ?? null,
       ack() {},
       kill: (id) => env.killed.push(id),
       onData: (fn) => { env.onData = fn; },

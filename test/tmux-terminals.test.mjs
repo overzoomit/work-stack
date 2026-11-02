@@ -81,6 +81,102 @@ test('ensureInitialTerminal re-attaches every window the tmux session kept alive
   env.tmuxAvailable = false;
 });
 
+const closeAll = async (p) => {
+  for (const t of T.terminalsOf(p)) T.closeTerminal(t.id);
+  await new Promise((r) => setTimeout(r, 700));
+};
+
+test('after closing a pane, a restart reopens only the tmux windows that were still open', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_porto-genova_abcdef';
+  env.tmuxWindows = ['shell', 'pm', 'dev1', 'qa'].map((name, i) => ({ id: `@${i}`, name, active: i === 0, path: '/home/u/porto-genova' }));
+  env.createdWindows = [];
+
+  const before = { path: '/home/u/porto-genova', focusedId: null, maximizedId: null, savedTerminals: null };
+  T.showProject(before);
+  assert.equal((await T.ensureInitialTerminal(before)).length, 4, 'no saved state yet: every window of the session');
+  T.closeTerminal(T.terminalsOf(before).find((t) => t.title === 'pm').id);
+  const saved = JSON.parse(JSON.stringify(T.terminalLayout(before)));
+  assert.deepEqual(saved, [
+    { title: 'shell', tmuxWindow: '@0', tmuxName: 'shell', cwd: '/home/u/porto-genova' },
+    { title: 'dev1', tmuxWindow: '@2', tmuxName: 'dev1', cwd: '/home/u/porto-genova' },
+    { title: 'qa', tmuxWindow: '@3', tmuxName: 'qa', cwd: '/home/u/porto-genova' },
+  ]);
+  await closeAll(before);
+
+  // Work restarts: the closed window is still alive in tmux, but is not reopened.
+  env.created = [];
+  const after = { path: '/home/u/porto-genova', focusedId: null, maximizedId: null, savedTerminals: saved };
+  T.showProject(after);
+  const reopened = await T.ensureInitialTerminal(after);
+  assert.deepEqual(reopened.map((t) => [t.title, t.tmuxWindow]), [['shell', '@0'], ['dev1', '@2'], ['qa', '@3']]);
+  assert.deepEqual(env.created.map((o) => o.tmux_window), ['@0', '@2', '@3'], 'attaches the saved windows only');
+  assert.deepEqual(env.createdWindows, [], 'creates no window');
+  assert.deepEqual(after.savedTerminals, [], 'restored once');
+
+  await closeAll(after);
+  assert.equal((await T.ensureInitialTerminal(after)).length, 1, 'closing every pane later does not bring the windows back');
+  assert.equal(env.created.at(-1).tmux_window, undefined, 'a fresh shell instead');
+  await closeAll(after);
+  env.tmuxAvailable = false;
+});
+
+test('restore follows the saved order and titles and skips windows gone from tmux', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_order_proj';
+  env.tmuxWindows = ['shell', 'pm', 'dev1'].map((name, i) => ({ id: `@${i}`, name, active: false, path: '/home/u/order' }));
+  const p = {
+    path: '/home/u/order', focusedId: null, maximizedId: null,
+    savedTerminals: [
+      { title: 'my dev', tmuxWindow: '@2', tmuxName: 'dev1', cwd: null },
+      { title: 'gone', tmuxWindow: '@9', tmuxName: 'gone', cwd: null },
+      { title: 'shell', tmuxWindow: '@0', tmuxName: 'shell', cwd: null },
+    ],
+  };
+  T.showProject(p);
+
+  await T.ensureInitialTerminal(p);
+  assert.deepEqual(T.terminalsOf(p).map((t) => [t.title, t.tmuxWindow, t.tmuxName]), [['my dev', '@2', 'dev1'], ['shell', '@0', 'shell']]);
+  await closeAll(p);
+  env.tmuxAvailable = false;
+});
+
+test('an empty saved list, or saved windows all gone, open one fresh shell', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_fresh_proj';
+  for (const savedTerminals of [[], [{ title: 'pm', tmuxWindow: '@1', tmuxName: 'pm', cwd: null }]]) {
+    env.tmuxWindows = [{ id: '@5', name: 'dev1', active: true, path: '/home/u/fresh' }];
+    env.created = [];
+    const p = { path: '/home/u/fresh', focusedId: null, maximizedId: null, savedTerminals };
+    T.showProject(p);
+
+    const opened = await T.ensureInitialTerminal(p);
+    assert.equal(opened.length, 1, JSON.stringify(savedTerminals));
+    assert.equal(env.created[0].tmux_window, undefined, 'does not reattach the unsaved dev1 window');
+    await closeAll(p);
+  }
+  env.tmuxAvailable = false;
+});
+
+test('a new tmux terminal saves the window it opened; an unshown project keeps its saved list', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_new_term';
+  env.tmuxWindowOf = () => '@7';
+  const p = { path: '/home/u/new-term', focusedId: null, maximizedId: null };
+  T.showProject(p);
+
+  const t = await T.openTerminal(p);
+  assert.deepEqual(T.terminalLayout(p), [{ title: t.title, tmuxWindow: '@7', tmuxName: null, cwd: '/home/u/new-term' }]);
+  await closeAll(p);
+  env.tmuxWindowOf = null;
+  env.tmuxAvailable = false;
+
+  const saved = [{ title: 'pm', tmuxWindow: '@1', tmuxName: 'pm', cwd: null }];
+  assert.deepEqual(T.terminalLayout({ path: '/x', savedTerminals: saved }), saved);
+  assert.equal(T.terminalLayout({ path: '/y', savedTerminals: null }), null);
+  assert.deepEqual(T.terminalLayout({ path: '/z', savedTerminals: [] }), []);
+});
+
 test('ensureInitialTerminal opens one plain shell when tmux has no windows or is missing', async () => {
   for (const tmuxAvailable of [true, false]) {
     env.tmuxAvailable = tmuxAvailable;

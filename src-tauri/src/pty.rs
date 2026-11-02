@@ -401,6 +401,14 @@ impl PtyManager {
         )
     }
 
+    // The tmux window a pane shows ("@3"): the renderer saves it to reattach
+    // exactly that window after a restart.
+    pub fn tmux_window(&self, id: u32) -> Option<String> {
+        let s = self.get(id)?;
+        let (_, window) = s.tmux_target.as_deref()?.rsplit_once(':')?;
+        Some(window.to_string())
+    }
+
     #[cfg(test)]
     fn is_paused(&self, id: u32) -> bool {
         self.get(id).is_some_and(|s| s.flow.lock().unwrap().paused)
@@ -520,6 +528,11 @@ pub fn pty_kill(s: tauri::State<PtyState>, id: u32) {
 #[tauri::command(async)]
 pub fn pty_cwd(s: tauri::State<PtyState>, id: u32) -> Option<String> {
     s.mgr.cwd(id)
+}
+
+#[tauri::command]
+pub fn pty_tmux_window(s: tauri::State<PtyState>, id: u32) -> Option<String> {
+    s.mgr.tmux_window(id)
 }
 
 #[cfg(target_os = "linux")]
@@ -763,6 +776,9 @@ mod tests {
         wait_exit(pm);
         assert!(!crate::tmux::has_session(&client(pm)), "its client session is gone");
         assert!(crate::tmux::has_session(&client(dev1)), "the other terminal stays attached");
+        let window = m.tmux_window(dev1).expect("a tmux pane knows its window");
+        let windows = crate::tmux::list_windows(&session).unwrap();
+        assert!(windows.iter().any(|w| w.id == window && w.name == "dev1"), "{window} in {windows:?}");
 
         m.kill_all(); // the app quits
         wait_exit(dev1);

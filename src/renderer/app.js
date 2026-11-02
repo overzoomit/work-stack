@@ -8,7 +8,7 @@ import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
-  syncProjectTerminals, ensureInitialTerminal,
+  syncProjectTerminals, ensureInitialTerminal, terminalLayout,
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
@@ -32,10 +32,19 @@ let active = null;
 
 // ── Projects ─────────────────────────────────────────────────
 
-const serialize = () => projects.map((p) => ({ path: p.path, run: p.run }));
+const serialize = () => projects.map((p) => ({ path: p.path, run: p.run, terminals: terminalLayout(p) }));
 
 function save() {
   work.projects.save({ projects: serialize(), active: active?.path || null });
+}
+
+// Panes repaint on every title change: write only when the layout differs.
+let savedLayout = '';
+function saveTerminalLayout() {
+  const layout = JSON.stringify(serialize());
+  if (layout === savedLayout) return;
+  savedLayout = layout;
+  save();
 }
 
 function projectFor(cwd) {
@@ -43,7 +52,7 @@ function projectFor(cwd) {
   return projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0] || null;
 }
 
-async function addProject(path, { activate = true, withTerminal = true, run = null } = {}) {
+async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null } = {}) {
   const existing = projects.find((p) => p.path === path);
   if (existing) {
     if (activate) await activateProject(existing);
@@ -58,6 +67,7 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
     focusedId: null,
     maximizedId: null,
     run: run || { selected: null, custom: [] },
+    savedTerminals: Array.isArray(terminals) ? terminals : null,
   };
   p.tree = new ProjectTree(p, treeHooks(p));
   if (p.root) work.git.watch(p.root);
@@ -712,7 +722,10 @@ more.onclick = (e) => {
 
   initTerminals({
     homeDir: info.home,
-    changed: () => active && renderTermList(active),
+    changed: () => {
+      if (active) renderTermList(active);
+      saveTerminalLayout();
+    },
     openAppearance,
     activity: onTerminalActivity,
     menu: terminalMenu,
@@ -783,7 +796,7 @@ more.onclick = (e) => {
       // folder removed since last session
     }
   }
-  for (const { path, run } of valid) await addProject(path, { activate: false, withTerminal: false, run });
+  for (const { path, run, terminals } of valid) await addProject(path, { activate: false, withTerminal: false, run, terminals });
   // `work <folder>` from a terminal: that folder wins over the last active one.
   const opened = info.open && await addProject(info.open, { activate: false, withTerminal: false });
   if (!projects.length) {

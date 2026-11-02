@@ -113,6 +113,7 @@
       resize: send('pty_resize', 'id', 'cols', 'rows'),
       kill: send('pty_kill', 'id'),
       cwd: call('pty_cwd', 'id'),
+      tmuxWindow: call('pty_tmux_window', 'id'),
       onData: ptyListen(ptyData),
       onExit: ptyListen(ptyExit),
     },
