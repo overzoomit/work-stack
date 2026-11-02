@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Work</title>
-<meta name="description" content="Terminali, git e agenti AI in un'unica dashboard desktop per macOS e Linux. Nativa, leggera, scritta in Rust.">
+<title>Work Stack — Dashboard Desktop per Sviluppatori &amp; Agenti AI</title>
+<meta name="description" content="Dashboard desktop per sviluppatori che unifica gestione multi-progetto, orchestrazione tmux, Squadra Agenti AI, Git e monitoraggio sentinella Dogwatch. Nativa, leggera, in Rust.">
 <meta name="color-scheme" content="dark light">
-<meta property="og:title" content="Work">
-<meta property="og:description" content="Terminali, git e agenti AI in un'unica dashboard desktop.">
+<meta property="og:title" content="Work Stack">
+<meta property="og:description" content="Orchestrazione tmux, Git e Squadra Agenti AI in un'unica dashboard desktop.">
 <meta property="og:image" content="screenshot.webp">
 <link rel="icon" href="icon.png">
 <script>document.documentElement.classList.add('js')</script>
@@ -211,7 +211,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 
 <nav id="nav">
   <div class="wrap">
-    <a class="brand" href="#"><img src="icon.png" alt="">Work</a>
+    <a class="brand" href="#"><img src="icon.png" alt="Icona Work Stack">Work Stack</a>
     <div class="links">
       <a href="#funzioni">Funzioni</a>
       <a href="#prestazioni">Prestazioni</a>
@@ -221,9 +221,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 </nav>
 
 <header class="hero wrap">
-  <img class="icon" src="icon.png" alt="Icona di Work" width="112" height="112">
-  <h1>Work.</h1>
-  <p class="lead"><strong>Terminali, git e agenti AI</strong> in un'unica finestra. Per chi lavora su più repository e lascia lavorare Claude Code, Codex e Gemini accanto a sé.</p>
+  <img class="icon" src="icon.png" alt="Icona di Work Stack" width="112" height="112">
+  <h1>Work Stack.</h1>
+  <p class="lead"><strong>Orchestrazione tmux, Git e Squadra Agenti AI</strong> in un'unica finestra. Coordina PM, Dev e QA con sentinella Dogwatch, ponte remoto Telegram e strumenti completi per sviluppatori.</p>
   <div class="actions">
     <a class="btn" id="hero-dl" href="#download">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>
@@ -231,11 +231,11 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
     </a>
     <a class="btn ghost" href="#funzioni">Scopri le funzioni</a>
   </div>
-  <p class="meta" id="hero-meta">Gratis · macOS 11+ (Apple Silicon) e Linux (Ubuntu 22.04+)</p>
+  <p class="meta" id="hero-meta">Gratis · macOS 11+ (Apple Silicon) e Linux (Ubuntu 22.04+, Arch, Fedora)</p>
 </header>
 
 <div class="shot reveal">
-  <img src="screenshot.webp" alt="La finestra di Work: a sinistra terminali e sessioni degli agenti, al centro un terminale, a destra il graph git del progetto" width="2400" height="1399">
+  <img src="screenshot.webp" alt="La finestra di Work Stack: a sinistra sidebar accordion con Squadra Agenti, al centro i terminali tmux e a destra il graph git del progetto" width="2400" height="1399">
 </div>
 
 <section id="funzioni">
@@ -245,41 +245,46 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
     <p class="sub reveal">Ogni progetto è un tab con i suoi terminali, il suo albero e il suo stato git. Apri, sposti, fai commit e segui gli agenti senza cambiare app.</p>
     <div class="grid">
       <article class="card reveal">
-        <span class="glyph" aria-hidden="true">⌘</span>
-        <h3>Terminali in griglia</h3>
-        <p>Tutti i terminali che vuoi, disposti in automatico. Si ingrandiscono, si riordinano trascinandoli e si spostano da un progetto all'altro. Ognuno mostra la sua cartella corrente.</p>
-      </article>
-      <article class="card reveal">
-        <span class="glyph" aria-hidden="true">⎇</span>
-        <h3>Git completo</h3>
-        <p>Stage, commit (anche amend), branch, stash, fetch, pull e push. Il graph mostra tutti i branch. Il diff è affiancato e mette in evidenza le parole cambiate.</p>
-      </article>
-      <article class="card reveal">
         <span class="glyph" aria-hidden="true">✦</span>
-        <h3>Agenti in tempo reale</h3>
-        <p>Vedi cosa sta facendo ogni sessione di Claude Code, a partire da quelle del progetto aperto. Puoi riprendere una sessione chiusa o chiudere quella che non serve più.</p>
+        <h3>Squadra Agenti AI</h3>
+        <p>Ruoli strutturati: PM unico (<code>0:pm</code>), Dev incrementali (<code>dev1</code>, <code>dev2</code>), QA multipli (<code>qa1</code>, <code>qa2</code>) e Agenti Generici. Avvio istantaneo e flag bypass permessi configurabile per singolo agente.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">⌘</span>
+        <h3>Orchestrazione tmux</h3>
+        <p>Adozione automatica delle sessioni di progetto, riaggancio immediato di tutte le finestre esistenti, riquadri terminale puliti senza status bar e detach controllato alla chiusura.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">◉</span>
+        <h3>Sentinella Dogwatch &amp; LED Live</h3>
+        <p>Rilevamento intelligente di conferme (<code>[y/N]</code>, scelte, prompt) senza falsi positivi dai log. Diodo luminoso in topbar: Verde brillante (Live), Grigio (Off) o Arancione pulsante (Escalation).</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">✈</span>
+        <h3>Ponte Telegram (PM-Only)</h3>
+        <p>Ricevi escalation e rispondi direttamente dal tuo smartphone via bot Telegram con configurazione guidata <code>@BotFather</code>. Canale isolato e rigorosamente riservato al PM.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">▤</span>
-        <h3>Albero del progetto</h3>
-        <p>I file sono colorati secondo lo stato git. Crei, rinomini, trascini per spostare (con "Annulla") e trascini file dal Finder. Markdown e HTML hanno l'anteprima.</p>
+        <h3>Layout Accordion VS Code</h3>
+        <p>Sidebar a colonna singola con sezioni espandibili: Agenti (sessioni e transcript), Project (albero con anteprima Markdown/HTML), Changes, Graph interattivo, GitHub e Run.</p>
       </article>
       <article class="card reveal">
-        <span class="glyph" aria-hidden="true">▶</span>
-        <h3>Run</h3>
-        <p>Trova da solo i comandi del progetto: script npm, Make, Cargo, Go, Django e Docker Compose. Li avvii, li riavvii e li fermi con un clic. Un chip apre il server locale nel browser.</p>
+        <span class="glyph" aria-hidden="true">⎇</span>
+        <h3>Git Completo &amp; Diff Accurato</h3>
+        <p>Stage, commit (anche amend), branch, stash, fetch, pull e push. Graph visivo dei rami e diff affiancato o unificato che evidenzia ogni singola parola cambiata.</p>
       </article>
       <article class="card reveal">
-        <span class="glyph" aria-hidden="true">Aa</span>
-        <h3>Il tuo terminale</h3>
-        <p>Profili colore nello stile di Terminal.app, che provi dal vivo passandoci sopra. Scegli la dimensione del testo, la forma del cursore e il lampeggio.</p>
+        <span class="glyph" aria-hidden="true">⚡</span>
+        <h3>Browser &amp; Strumenti MCP</h3>
+        <p>Preservazione delle variabili grafiche per Firefox DevTools, Chrome Remote Debugging (porta 9222) e connettori Model Context Protocol per agenti avanzati.</p>
       </article>
       <article class="card wide reveal">
-        <h3>Un clic, qualsiasi agente</h3>
-        <p>Il pulsante ✦ Agente elenca gli agenti CLI installati sulla tua macchina e ti fa installare quelli che mancano. Il flag <b>bypass</b> avvia l'agente senza richieste di conferma e viene ricordato agente per agente.</p>
+        <h3>Ciclo Continuo &amp; Sentinella Plane-Dogwatch</h3>
+        <p>La sentinella autonoma <code>plane-dogwatch</code> collega il backlog Plane alle finestre tmux del progetto: delega Todo e Re-open prioritari ai Dev liberi, assegna la validazione al QA e notifica la chiusura al PM via Telegram.</p>
         <div class="agents" aria-label="Agenti supportati">
-          <span>Claude Code</span><span>Codex</span><span>Gemini CLI</span><span>Copilot CLI</span><span>OpenCode</span>
-          <span>Aider</span><span>Cursor Agent</span><span>Amp</span><span>Qwen Code</span><span>Goose</span>
+          <span>Claude Code</span><span>Antigravity CLI</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span>
+          <span>Copilot CLI</span><span>Aider</span><span>Cursor Agent</span><span>Qwen Code</span><span>Goose</span>
         </div>
       </article>
     </div>
@@ -304,8 +309,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 <section id="download">
   <div class="wrap">
     <p class="eyebrow">Download</p>
-    <h2 class="reveal">Scarica Work.</h2>
-    <p class="sub reveal">Gratis, per macOS e Linux. L'unico requisito è <code>git</code>.</p>
+    <h2 class="reveal">Scarica Work Stack.</h2>
+    <p class="sub reveal">Gratis, per macOS e Linux. Requisito base <code>git</code> (e <code>tmux</code> per l'orchestrazione terminali).</p>
     <div class="dl">
       <article class="card reveal" data-os="mac">
         <div class="os">
@@ -317,7 +322,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
         </div>
         <details>
           <summary>Al primo avvio macOS lo blocca?</summary>
-          <p>Work è firmato, ma non ancora notarizzato da Apple, quindi Gatekeeper lo blocca al primo avvio. Apri <b>Impostazioni di Sistema → Privacy e sicurezza</b> e scegli <b>Apri comunque</b>. In alternativa, dal Terminale: <code>xattr -dr com.apple.quarantine /Applications/Work.app</code></p>
+          <p>Work Stack è firmato, ma non ancora notarizzato da Apple, quindi Gatekeeper lo blocca al primo avvio. Apri <b>Impostazioni di Sistema → Privacy e sicurezza</b> e scegli <b>Apri comunque</b>. In alternativa, dal Terminale: <code>xattr -dr com.apple.quarantine /Applications/Work.app</code></p>
         </details>
       </article>
       <article class="card reveal" data-os="linux">
@@ -364,7 +369,7 @@ npm run build    # installer in src-tauri/target/release/bundle/</code></pre>
 
 <footer>
   <div class="wrap">
-    <span>Work · Overzoom</span>
+    <span>Work Stack · Overzoom</span>
     <span><a href="https://github.com/overzoomit/work-stack">Codice sorgente</a> · <a href="https://github.com/overzoomit/work-stack/releases">Versioni</a></span>
   </div>
 </footer>

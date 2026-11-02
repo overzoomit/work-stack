@@ -1,4 +1,4 @@
-# Work
+# Work Stack
 
 Desktop dashboard per sviluppatori (Linux e macOS) che unifica gestione multi-progetto, orchestrazione di terminali tmux, Squadra Agenti AI, albero file con editing e anteprima, Git/GitHub, sentinella Dogwatch e ponte remoto Telegram per il PM.
 
