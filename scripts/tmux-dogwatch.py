@@ -319,8 +319,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             while True:
                 resolved = resolve_session(args.session, binary)
-                pending = scan_once(resolved, lines=args.lines, binary=binary)
-                emit({"session": resolved, **write_escalation(path, pending)})
+                stamp = now_iso()
+                pending = scan_once(resolved, lines=args.lines, binary=binary, timestamp=stamp)
+                emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
                 sys.stdout.flush()
                 time.sleep(max(0.1, args.interval))
         except KeyboardInterrupt:
@@ -332,11 +333,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.once or args.check:
         try:
             resolved = resolve_session(args.session, binary)
-            pending = scan_once(resolved, lines=args.lines, binary=binary)
+            stamp = now_iso()
+            pending = scan_once(resolved, lines=args.lines, binary=binary, timestamp=stamp)
         except RuntimeError as exc:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False))
             return 2
-        emit({"session": resolved, **write_escalation(path, pending)})
+        emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
         return 0
 
     parser.print_help()

@@ -17,6 +17,7 @@ import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot,
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
 import { initTeam, showLiveLed } from './team.js';
+import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
@@ -135,17 +136,38 @@ function showWelcome() {
   showLiveLed();
 }
 
+function updateProjectLed(p) {
+  if (!p?.path) return;
+  const box = $('#project-tabs');
+  if (!box) return;
+  let tab = null;
+  for (const el of box.children) {
+    if (el.dataset?.path === p.path) {
+      tab = el;
+      break;
+    }
+  }
+  if (!tab) return;
+  const led = tab.querySelector('.ptab-led');
+  if (!led) return;
+  const working = isProjectWorking(p);
+  const targetClass = `ptab-led ${working ? 'working' : 'idle'}`;
+  if (led.className !== targetClass) {
+    led.className = targetClass;
+    led.title = working ? 'Tmux terminal working' : 'Idle (no tmux terminal working)';
+  }
+}
+
 function renderProjectTabs() {
   $('#search-field').hidden = !active;
   if (active) $('#search-field .search-field-text').textContent = `Search in ${active.name}`;
   const box = $('#project-tabs');
   const changed = setHtml(box, projects.map((p, i) => {
-    const agent = agentStateFor(p.path);
     const branch = p.gitStatus?.branch.name;
     const changes = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
     return `<div class="ptab${p === active ? ' active' : ''}" data-i="${i}" data-path="${esc(p.path)}" title="${esc(p.path)}">
       ${runningIn(p) ? '<span class="ptab-run" title="Running"></span>' : ''}
-      ${agent ? `<span class="dot ${agent}"></span>` : ''}
+      ${projectLedHtml(p)}
       <span class="ptab-name">${esc(p.name)}</span>
       ${branch ? `<span class="ptab-branch">${esc(branch)}${changes ? '<i>•</i>' : ''}</span>` : ''}
       <button class="ptab-close" title="Close project">✕</button>
@@ -434,6 +456,10 @@ function throttle(timers, key, fn) {
   }, 2500));
 }
 function onTerminalActivity(t) {
+  if (t?.project?.path) {
+    recordProjectActivity(t.project.path, () => updateProjectLed(t.project));
+    updateProjectLed(t.project);
+  }
   // Only interactive shells change folder; agents and Run consoles don't `cd`.
   if (t.kind === 'shell') throttle(cwdTimers, t, () => !t.exited && pollCwd(t));
   throttle(gitTimers, t.project, () => projects.includes(t.project) && refreshGit(t.project));
