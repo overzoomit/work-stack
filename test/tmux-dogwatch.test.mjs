@@ -36,7 +36,7 @@ case "$1" in
     ;;
   capture-pane)
     case "$*" in
-      *:dev1*) printf 'Do you want to proceed?\\n\\u276f 1. Yes\\n  2. No\\n' ;;
+      *:dev1*) printf 'Do you want to proceed?\\n❯ 1. Yes\\n  2. No\\n' ;;
       *:qa*) printf 'Continue with the deploy? [y/N]\\n' ;;
       *:agent1*) printf 'Could you clarify which file should I edit?\\n' ;;
       *) printf 'just working\\n' ;;
