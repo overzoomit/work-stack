@@ -42,5 +42,6 @@ EOF
 
 update-desktop-database "$SHARE_DIR/applications" 2>/dev/null || true
 gtk-update-icon-cache -f -t "$SHARE_DIR/icons/hicolor" 2>/dev/null || true
+kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null || true
 
 echo "==> Work $(node -p "require('./package.json').version") installato in $BIN_DIR/work"

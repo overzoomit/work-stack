@@ -201,11 +201,15 @@ pub fn log_start(app: &AppHandle) {
 pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
     let dev = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
-    let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Work")
         .inner_size(1600.0, 980.0)
         .min_inner_size(1100.0, 640.0)
-        .background_color(tauri::window::Color(12, 13, 16, 255))
+        .background_color(tauri::window::Color(12, 13, 16, 255));
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone())?;
+    }
+    let builder = builder
         .on_navigation(move |url| is_own_page(url, dev.as_ref()))
         // Tauri's own drop handler takes every drag over the window, those
         // inside the page too (tree, terminals, tabs): the page handles them.
