@@ -69,11 +69,20 @@ test('rows show name, version, repository and the update badge', () => {
 });
 
 test('only plugins installed by Work get Update and Remove', () => {
-  const html = pluginsHtml([oz, stripe]);
+  const html = pluginsHtml([oz, stripe, { ...stripe, id: 'lsp@official', update_available: false }]);
   assert.match(html, /data-act="update" data-id="oz"/);
   assert.match(html, /data-act="remove" data-id="oz"/);
-  assert.doesNotMatch(html, /data-id="stripe@official"/);
+  assert.doesNotMatch(html, /data-id="stripe@official"/, 'unknown: no Update');
+  assert.doesNotMatch(html, /data-id="lsp@official"/, 'up to date: no Update');
   assert.doesNotMatch(pluginsHtml([oz]), /pl-badge/, 'not checked yet: no badge');
+});
+
+test('a Claude Code plugin with an update shows the badge and Update, never Remove', () => {
+  const html = pluginsHtml([{ ...stripe, update_available: true }]);
+  assert.match(html, /<span class="pl-badge">Claude Code<\/span><span class="pl-badge update">Update available<\/span>/);
+  assert.match(html, /data-act="update" data-id="stripe@official">Update</);
+  assert.doesNotMatch(html, /data-act="remove"/);
+  assert.match(pluginsHtml([{ ...stripe, update_available: false }]), /Claude Code<\/span><span class="pl-badge ok">Up to date/);
 });
 
 test('a running operation disables every row and names itself', () => {
@@ -186,11 +195,39 @@ test('update all updates only the outdated ones and goes on after a failure', as
   await tick();
   backend.update.oz = new Error('Not possible to fast-forward, aborting.');
   backend.update.lint = { ...lint, update_available: false };
+  backend.update['stripe@official'] = { ...stripe, version: '0.12.0', update_available: false };
   click('all');
   await tick();
-  assert.deepEqual(calls.filter(([c]) => c === 'update'), [['update', 'oz'], ['update', 'lint']]);
+  assert.deepEqual(calls.filter(([c]) => c === 'update'), [['update', 'oz'], ['update', 'lint'], ['update', 'stripe@official']], 'Work and Claude Code plugins alike');
   assert.match(list(), /<b>lint<\/b>[\s\S]*?Up to date/);
+  assert.match(list(), /<b>stripe<\/b><span class="pl-version">v0\.12\.0[\s\S]*?Up to date/);
   assert.ok($('#toasts').children.some((t) => t.firstChild.textContent === 'oz: Not possible to fast-forward, aborting.'));
+});
+
+test('updating a Claude Code plugin says its sessions need a restart', async () => {
+  reset();
+  backend.list = [{ ...stripe, update_available: true }];
+  await openPluginsDialog();
+  backend.update['stripe@official'] = { ...stripe, version: '0.12.0', update_available: false };
+  click('update', { id: 'stripe@official' });
+  await tick();
+  assert.deepEqual(calls.at(-1), ['update', 'stripe@official']);
+  assert.equal(lastToast().firstChild.textContent, 'Updated stripe: restart Claude Code sessions to load it');
+  assert.doesNotMatch(list(), /data-act="update"/, 'up to date now: Update goes away');
+});
+
+test('a Claude Code plugin that cannot be checked is not a failed check', async () => {
+  reset();
+  backend.list = [oz, stripe];
+  await openPluginsDialog();
+  backend.checked = [{ ...oz, update_available: false }, { ...stripe, update_available: null }];
+  click('check');
+  await tick();
+  assert.equal(lastToast().firstChild.textContent, 'All plugins are up to date');
+  backend.checked = [{ ...oz, update_available: false }, { ...stripe, update_available: true }];
+  click('check');
+  await tick();
+  assert.equal(lastToast().firstChild.textContent, '1 update available');
 });
 
 test('remove asks first; cancelling keeps the plugin', async () => {

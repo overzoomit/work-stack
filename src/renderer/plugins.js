@@ -1,6 +1,6 @@
 // Plugins… (⋯ menu, macOS app menu): the plugins every agent Work starts can
 // use, installed from GitHub (backend: plugins.rs). Claude Code's own are
-// listed read-only: Claude Code manages them.
+// updated through its CLI and never removed from here: Claude Code manages them.
 import { $, esc, ask, toast, toastError, leave } from './ui.js';
 
 const { work } = window;
@@ -14,18 +14,23 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const managed = (p) => p.source === 'work';
 
 function badge(p) {
-  if (!managed(p)) return '<span class="pl-badge">Claude Code</span>';
-  if (p.update_available === true) return '<span class="pl-badge update">Update available</span>';
-  if (p.update_available === false) return '<span class="pl-badge ok">Up to date</span>';
-  return '';
+  const source = managed(p) ? '' : '<span class="pl-badge">Claude Code</span>';
+  if (p.update_available === true) return `${source}<span class="pl-badge update">Update available</span>`;
+  if (p.update_available === false) return `${source}<span class="pl-badge ok">Up to date</span>`;
+  return source;
 }
 
+// A Claude Code plugin gets Update only when one is known to be available.
 function actions(p, now) {
-  if (!managed(p)) return '';
   const id = esc(p.id);
   const off = now ? ' disabled' : '';
-  return `<button class="btn btn-small" data-act="update" data-id="${id}"${off}>${now === `update:${p.id}` ? 'Updating…' : 'Update'}</button>
-    <button class="btn btn-small btn-danger-text" data-act="remove" data-id="${id}"${off}>${now === `remove:${p.id}` ? 'Removing…' : 'Remove'}</button>`;
+  const update = managed(p) || p.update_available
+    ? `<button class="btn btn-small" data-act="update" data-id="${id}"${off}>${now === `update:${p.id}` ? 'Updating…' : 'Update'}</button>`
+    : '';
+  const remove = managed(p)
+    ? `<button class="btn btn-small btn-danger-text" data-act="remove" data-id="${id}"${off}>${now === `remove:${p.id}` ? 'Removing…' : 'Remove'}</button>`
+    : '';
+  return update + remove;
 }
 
 function row(p, now) {
@@ -62,7 +67,7 @@ function render() {
   };
   button('.pl-install-btn', 'install', '+ Install', 'Installing…');
   button('.pl-check', 'check', 'Check for updates', 'Checking…');
-  button('.pl-all', 'all', 'Update all', 'Updating…').hidden = !plugins.some((p) => managed(p) && p.update_available);
+  button('.pl-all', 'all', 'Update all', 'Updating…').hidden = !plugins.some((p) => p.update_available);
 }
 
 // One operation at a time: the buttons are disabled until it ends.
@@ -99,9 +104,10 @@ export function install(url) {
 
 export const checkUpdates = () => run('check', async () => {
   plugins = await work.plugins.checkUpdates();
-  const mine = plugins.filter(managed);
-  const unknown = mine.filter((p) => p.update_available == null).length;
-  const updates = mine.filter((p) => p.update_available).length;
+  // Only Work's own count as failed checks: a Claude Code plugin without
+  // release tags simply cannot be judged.
+  const unknown = plugins.filter((p) => managed(p) && p.update_available == null).length;
+  const updates = plugins.filter((p) => p.update_available).length;
   if (unknown) toast(`Could not check ${plural(unknown, 'plugin', 'plugins')}: is GitHub reachable?`, { error: true });
   else if (updates) toast(`${plural(updates, 'update', 'updates')} available`);
   else toast('All plugins are up to date');
@@ -110,12 +116,12 @@ export const checkUpdates = () => run('check', async () => {
 export const update = (id) => run(`update:${id}`, async () => {
   const p = await work.plugins.update(id);
   upsert(p);
-  toast(`Updated ${p.name}`);
+  toast(managed(p) ? `Updated ${p.name}` : `Updated ${p.name}: restart Claude Code sessions to load it`);
 });
 
 // A failure is reported and the others still update.
 export const updateAll = () => run('all', async () => {
-  for (const p of plugins.filter((x) => managed(x) && x.update_available)) {
+  for (const p of plugins.filter((x) => x.update_available)) {
     try {
       upsert(await work.plugins.update(p.id));
     } catch (e) {
