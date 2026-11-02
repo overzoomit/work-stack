@@ -26,6 +26,8 @@ never printed.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import html
 import importlib.util
@@ -42,6 +44,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 STATE_FILE = Path(".claude") / "plane_dogwatch_state.json"
+# Held for a whole cycle: Work's built-in plane dogwatch (plane_dogwatch.rs) takes it too.
+LOCK_FILE = Path(".claude") / "plane_dogwatch.lock"
 DEFAULT_PLANE_CLI = Path.home() / ".claude" / "scripts" / "plane_cli.py"
 DEFAULT_BASE_URL = "https://plane.overzoom.it"
 DEFAULT_WORKSPACE = "overzoom"
@@ -248,6 +252,15 @@ def load_state(path: Path) -> dict:
     return data if isinstance(data, dict) and isinstance(data.get("issues"), dict) else {"issues": {}}
 
 
+@contextlib.contextmanager
+def cycle_lock(root: Path):
+    path = root / LOCK_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def save_state(path: Path, state: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -417,7 +430,8 @@ def main(argv: list[str] | None = None) -> int:
 
     def cycle() -> dict:
         session = Session(tmux.resolve_session(args.session, args.tmux_bin), args.tmux_bin)
-        return run_cycle(plane, session, state_path, devs, qa, telegram)
+        with cycle_lock(root):
+            return run_cycle(plane, session, state_path, devs, qa, telegram)
 
     if not args.daemon:
         try:

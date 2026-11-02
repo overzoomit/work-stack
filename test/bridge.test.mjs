@@ -115,6 +115,18 @@ test('work.plugins sends the url and id under the names the Rust commands take',
   assert.equal(typeof work.app.onOpenPlugins, 'function');
 });
 
+test('work.planeDogwatch exposes status, syncNow and the update event', async () => {
+  const seen = [];
+  const { work, emit } = load((cmd) => { seen.push(cmd); return cmd === 'plane_dogwatch_status' ? { projects: [] } : null; });
+  assert.deepEqual(await work.planeDogwatch.status(), { projects: [] });
+  await work.planeDogwatch.syncNow();
+  assert.deepEqual(seen, ['plane_dogwatch_status', 'plane_dogwatch_sync_now']);
+  const reports = [];
+  work.planeDogwatch.onUpdate((r) => reports.push(r));
+  emit('plane_dogwatch:update', { project: '/p', assignments: [] });
+  assert.equal(reports[0].project, '/p', 'one report object, not spread');
+});
+
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {
   const calls = [];
   const { work } = load((cmd) => { calls.push(cmd); return null; });

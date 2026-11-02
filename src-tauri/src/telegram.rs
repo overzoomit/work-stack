@@ -725,8 +725,8 @@ pub fn telegram_disconnect(app: AppHandle, state: State<Arc<TelegramState>>) -> 
     state.status()
 }
 
-#[tauri::command]
-pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(), String> {
+// The authorized chat only, as for the PM: Work's own notices (plane dogwatch) go there too.
+pub fn notify(state: &TelegramState, text: &str) -> Result<(), String> {
     let config = state
         .config
         .lock()
@@ -736,7 +736,12 @@ pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(
     if text.trim().is_empty() {
         return Err("Il messaggio è vuoto.".into());
     }
-    send_message(&client()?, &config, &text)
+    send_message(&client()?, &config, text)
+}
+
+#[tauri::command]
+pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(), String> {
+    notify(&state, &text)
 }
 
 pub fn shutdown(state: &TelegramState) {

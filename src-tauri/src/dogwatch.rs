@@ -243,7 +243,7 @@ pub fn answer(session: &str, window: &str, text: &str) -> Result<(), String> {
 
 // ── Escalation file ──────────────────────────────────────────
 
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

@@ -501,3 +501,14 @@ test('an update that lands while the startup check is in flight wins over the ch
   assert.equal(led.dataset.state, 'off', 'the newer update is kept');
   delete window.work.dogwatch;
 });
+
+test('an agent row shows the Plane ticket the plane dogwatch gave it', () => {
+  const assignments = [
+    { window: 'dev1', issue: 26, id: 'u-26', state: 'In Progress', name: 'Plugin <updates>' },
+    { window: 'qa', issue: 25, id: 'u-25', state: 'Test', name: 'Plugins' },
+  ];
+  assert.equal(Team.ticketLine(assignments, 'dev1'), '<div class="tp-ticket" title="Plugin &lt;updates&gt;">Ticket [26]: In Progress</div>');
+  assert.match(Team.ticketLine(assignments, 'qa'), /Ticket \[25\]: Test/);
+  assert.equal(Team.ticketLine(assignments, 'dev2'), '', 'no ticket, no line');
+  assert.equal(Team.ticketLine([], 'dev1'), '');
+});

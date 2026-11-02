@@ -171,6 +171,13 @@ export function statusBadge(prompts, name) {
 
 const dotClass = (prompts, name) => (prompts.has(name) ? 'waiting' : 'active');
 
+// The Plane ticket a window is working on, as the plane dogwatch delegated it.
+export function ticketLine(assignments, name) {
+  const a = assignments.find((x) => x.window === name);
+  if (!a) return '';
+  return `<div class="tp-ticket" title="${esc(a.name)}">Ticket [${esc(a.issue ?? '?')}]: ${esc(a.state)}</div>`;
+}
+
 // The Info button opens this guide in the shared modal. Only the PM is wired
 // to the bot: dev and QA never get a token or a chat.
 export function telegramGuide() {
@@ -267,6 +274,10 @@ export function initTeam({ activeProject }) {
     // interrupting the agent picker or a half-typed field.
     const typing = document.activeElement?.tagName === 'INPUT';
     if (pop && viewState.mode === 'main' && !typing && project === getProject()?.path) renderPopContent(false);
+  });
+  work?.planeDogwatch?.onUpdate((report) => {
+    const typing = document.activeElement?.tagName === 'INPUT';
+    if (pop && viewState.mode === 'main' && !typing && report.project === getProject()?.path) renderPopContent(false);
   });
   work?.telegram?.onStatus(() => {
     if (pop) renderPopContent();
@@ -502,6 +513,8 @@ async function renderPopContent(probeMcp = true) {
   const nextQa = nextQaName(names);
   const nextAgent = nextAgentName(names);
   const telegram = pmActive && work?.telegram?.status ? await work.telegram.status().catch(() => null) : null;
+  const plane = await work?.planeDogwatch?.status().catch(() => null);
+  const assignments = plane?.projects.find((r) => r.project === p.path)?.assignments ?? [];
 
   pop.innerHTML = `
     <header class="tp-head">
@@ -560,6 +573,7 @@ async function renderPopContent(probeMcp = true) {
                 ${statusBadge(prompts, devName)}
               </div>
               <div class="tp-desc">Developer · Click to view</div>
+              ${ticketLine(assignments, devName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(devName)}" title="Terminate window ${esc(devName)}">✕</button>
@@ -586,6 +600,7 @@ async function renderPopContent(probeMcp = true) {
                 ${statusBadge(prompts, qaName)}
               </div>
               <div class="tp-desc">QA Engineer · Click to view</div>
+              ${ticketLine(assignments, qaName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(qaName)}" title="Terminate window ${esc(qaName)}">✕</button>
@@ -612,6 +627,7 @@ async function renderPopContent(probeMcp = true) {
                 ${statusBadge(prompts, agentName)}
               </div>
               <div class="tp-desc">Generic agent · Click to view</div>
+              ${ticketLine(assignments, agentName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(agentName)}" title="Terminate window ${esc(agentName)}">✕</button>

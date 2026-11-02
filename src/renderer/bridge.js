@@ -175,6 +175,11 @@
       answer: call('dogwatch_answer', 'session', 'window', 'answer'),
       onUpdate: listen('dogwatch:update'),
     },
+    planeDogwatch: {
+      status: call('plane_dogwatch_status'),
+      syncNow: call('plane_dogwatch_sync_now'),
+      onUpdate: listen('plane_dogwatch:update'),
+    },
     telegram: {
       status: call('telegram_status'),
       connect: call('telegram_connect', 'token', 'chatId', 'project', 'session'),

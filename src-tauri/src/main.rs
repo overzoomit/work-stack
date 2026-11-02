@@ -9,6 +9,7 @@ mod git;
 mod github;
 mod gitwatch;
 mod mcp;
+mod plane_dogwatch;
 mod plugins;
 mod pty;
 mod runconfigs;
@@ -120,6 +121,7 @@ fn main() {
             app.manage(pty::PtyState::new());
             let telegram = Arc::new(telegram::TelegramState::new());
             app.manage(Arc::clone(&telegram));
+            let notifier = Arc::clone(&telegram);
             // Restore the connection saved before the restart, off the UI
             // thread so a slow network does not hold up the window.
             let handle = app.handle().clone();
@@ -157,6 +159,18 @@ fn main() {
                     let _ = events.emit("dogwatch:update", (project, session, pending, live));
                 },
             );
+            let handle = app.handle().clone();
+            let events = app.handle().clone();
+            app.manage(plane_dogwatch::spawn(
+                move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
+                move |text| match telegram::notify(&notifier, text) {
+                    Ok(()) => "sent".into(),
+                    Err(e) => format!("not sent: {e}"),
+                },
+                move |report| {
+                    let _ = events.emit("plane_dogwatch:update", report);
+                },
+            ));
             app::create_window(app.handle())?;
             Ok(())
         })
@@ -228,6 +242,8 @@ fn main() {
             agents::agents_available,
             dogwatch::dogwatch_inspect,
             dogwatch::dogwatch_answer,
+            plane_dogwatch::plane_dogwatch_status,
+            plane_dogwatch::plane_dogwatch_sync_now,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
             plugins::plugins_list,
