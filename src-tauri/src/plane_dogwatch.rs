@@ -85,11 +85,24 @@ pub fn py_string(source: &str, name: &str) -> Option<String> {
     value.filter(|v| !v.is_empty()).map(|v| v.to_string())
 }
 
-// The key goes in a header: only over TLS, or to this machine.
+// The key goes in a header: only over TLS, or to this machine. The host is
+// compared exactly: "localhost.evil.test" and "localhost@evil.test" are not
+// this machine (the second one's real host is after the "@").
 fn trusted_url(url: &str) -> bool {
-    url.starts_with("https://")
-        || url.starts_with("http://127.0.0.1")
-        || url.starts_with("http://localhost")
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+    match parsed.scheme() {
+        "https" => true,
+        "http" => matches!(
+            parsed.host_str(),
+            Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+        ),
+        _ => false,
+    }
 }
 
 pub fn load_config(
@@ -131,7 +144,9 @@ pub fn load_config(
         ));
     }
     if !trusted_url(&base_url) {
-        return Err(format!("Plane URL {base_url} is not https"));
+        return Err(format!(
+            "Plane URL {base_url} is not https or a local address"
+        ));
     }
     Ok(Config {
         project_id,
@@ -264,42 +279,10 @@ fn escape_html(s: &str) -> String {
         .replace('\'', "&#x27;")
 }
 
-// shortcut: the entities Plane's editor writes; others stay as they are.
+// The same decoder as the script's html.unescape: Plane writes named entities
+// (&egrave;, &mdash;, …) that must reach the agent as text, not as markup.
 fn unescape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(i) = rest.find('&') {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + 1..];
-        let entity = after.find(';').filter(|&e| e <= 10).map(|e| &after[..e]);
-        let decoded = entity.and_then(|e| match e {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            "nbsp" => Some('\u{a0}'),
-            _ => e
-                .strip_prefix('#')
-                .and_then(|n| match n.strip_prefix(['x', 'X']) {
-                    Some(hex) => u32::from_str_radix(hex, 16).ok(),
-                    None => n.parse().ok(),
-                })
-                .and_then(char::from_u32),
-        });
-        match (entity, decoded) {
-            (Some(e), Some(c)) => {
-                out.push(c);
-                rest = &after[e.len() + 1..];
-            }
-            _ => {
-                out.push('&');
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
+    html_escape::decode_html_entities(s).into_owned()
 }
 
 // Plane's HTML as one line of text: a prompt is typed as a single line.
@@ -1335,7 +1318,7 @@ mod tests {
         assert!(
             sent[0]
                 .1
-                .contains("Motivo del QA: Il bottone &egrave; rotto & lento"),
+                .contains("Motivo del QA: Il bottone è rotto & lento"),
             "{}",
             sent[0].1
         );
@@ -1503,6 +1486,14 @@ mod tests {
             plain(Some("<link href=x>a&#233;&#x41;&nbsp;b"), 100),
             "aéA b"
         );
+        assert_eq!(
+            plain(
+                Some("<p>Il bottone &egrave; rotto &mdash; davvero &amp; lento</p>"),
+                100
+            ),
+            "Il bottone è rotto — davvero & lento",
+            "named entities as html.unescape, not just the five XML ones"
+        );
         assert_eq!(plain(Some("a < b & c"), 100), "a < b & c");
         assert_eq!(plain(None, 10), "");
         assert_eq!(plain(Some("abcdefghij"), 5), "abcd…");
@@ -1527,6 +1518,29 @@ mod tests {
         );
         assert!(!is_idle("compiling\nbuilding 12/40"), "no input line");
         assert!(!is_idle(""));
+    }
+
+    #[test]
+    fn only_https_or_the_local_machine_is_trusted() {
+        for good in [
+            "https://plane.example.it",
+            "http://127.0.0.1:8080",
+            "http://localhost:8080",
+            "http://[::1]:8080",
+        ] {
+            assert!(trusted_url(good), "{good}");
+        }
+        for bad in [
+            "http://plane.example.it",
+            "http://localhost.evil.test",
+            "http://localhost@evil.test",
+            "http://127.0.0.1.evil.test",
+            "http://localhost:8080@evil.test",
+            "ftp://localhost",
+            "https://user@evil.test",
+        ] {
+            assert!(!trusted_url(bad), "{bad}");
+        }
     }
 
     #[test]
@@ -1587,6 +1601,23 @@ mod tests {
                 .contains("not https"),
             "the key never travels in clear"
         );
+        for base_url in [
+            "http://localhost.evil.test",
+            "http://localhost@evil.test",
+            "http://127.0.0.1.evil.test",
+        ] {
+            std::fs::write(
+                dir.path().join(".plane.json"),
+                format!(r#"{{"project_id": "p", "base_url": "{base_url}"}}"#),
+            )
+            .unwrap();
+            assert!(
+                load_config(dir.path(), &none, "API_KEY = \"k\"")
+                    .unwrap_err()
+                    .contains("not https"),
+                "{base_url}"
+            );
+        }
         std::fs::write(dir.path().join(".plane.json"), r#"{"workspace_slug": "w"}"#).unwrap();
         assert!(load_config(dir.path(), &none, cli)
             .unwrap_err()
