@@ -66,6 +66,8 @@ python3 scripts/tmux-dogwatch.py answer dev1 "sì, procedi"
 
 Un agente riceve un prompt solo se la sua finestra è inattiva e non ha già un ticket delegato in lavorazione. `.claude/plane_dogwatch_state.json` conserva stato, hash e timestamp di ogni ticket: un ticket invariato non viene mai delegato due volte.
 
+Dentro Work la stessa funzione è nativa: `src-tauri/src/plane_dogwatch.rs` esegue un ciclo ogni 5 s per ogni progetto aperto con `.plane.json` e sessione tmux (QA: finestra `qa`, altrimenti `dev2`), emette l'evento `plane_dogwatch:update` ed espone `plane_dogwatch_status` / `plane_dogwatch_sync_now` (`window.work.planeDogwatch`). La Squadra Agenti mostra sotto ogni agente il ticket assegnato. Script e modulo nativo condividono il file di stato e tengono `.claude/plane_dogwatch.lock` per tutto il ciclo: possono girare insieme senza deleghe doppie.
+
 ```bash
 python3 scripts/plane-dogwatch.py --once --session <sessione>    # un ciclo, JSON su stdout (--check è un alias)
 python3 scripts/plane-dogwatch.py --daemon --interval 5          # polling continuo, termina pulito con SIGINT/SIGTERM
