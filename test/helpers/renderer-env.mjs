@@ -203,7 +203,9 @@ globalThis.window = {
         return id;
       },
       killWindow: async () => {},
-      sendKeys: async () => {},
+      sendKeys: async (session, target, keys, remote) => {
+        env.tmuxCalls.push(['sendKeys', session, target, keys, remote]);
+      },
     },
   },
 };

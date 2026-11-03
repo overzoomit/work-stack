@@ -591,3 +591,151 @@ test('an agent row shows the Plane ticket the plane dogwatch gave it', () => {
   assert.equal(Team.ticketLine(assignments, 'dev2'), '', 'no ticket, no line');
   assert.equal(Team.ticketLine([], 'dev1'), '');
 });
+
+// ── Role skills: editable init prompts ──────────────────────
+
+test('role skill defaults exist for every family and interpolate the project name', () => {
+  assert.deepEqual(Team.ROLE_SKILL_ORDER, ['pm', 'dev', 'qa', 'doc', 'generic']);
+
+  for (const family of Team.ROLE_SKILL_ORDER) {
+    const text = Team.defaultSkill(family);
+    assert.equal(typeof text, 'string', `${family} has a default profile`);
+    assert.match(text, /\{project_name\}/, `${family} keeps the project placeholder`);
+  }
+
+  assert.match(Team.defaultSkill('pm'), /Project Manager/);
+  assert.match(Team.defaultSkill('dev'), /sviluppatore software senior/);
+  assert.match(Team.defaultSkill('qa'), /QA Engineer/);
+  assert.match(Team.defaultSkill('doc'), /Documentation Specialist/);
+  assert.match(Team.defaultSkill('generic'), /task ad-hoc/);
+  assert.equal(Team.defaultSkill('nope'), null);
+
+  const project = { path: '/home/u/demo', name: 'Work Stack' };
+  const prompt = Team.initPromptFor(project, 'dev2');
+  assert.match(prompt, /progetto Work Stack/);
+  assert.ok(!prompt.includes('{project_name}'), 'the placeholder is resolved before sending');
+  assert.equal(Team.formatSkill('A {project_name} B {project_name}', 'X'), 'A X B X');
+  assert.equal(Team.formatSkill('{project_name}'), 'this project', 'a missing name still reads naturally');
+});
+
+test('skillFamily maps numbered windows to their role family', () => {
+  assert.equal(Team.skillFamily('pm'), 'pm');
+  assert.equal(Team.skillFamily('PM'), 'pm');
+  assert.equal(Team.skillFamily('dev1'), 'dev');
+  assert.equal(Team.skillFamily('dev12'), 'dev');
+  assert.equal(Team.skillFamily('qa1'), 'qa');
+  assert.equal(Team.skillFamily('qa'), 'qa');
+  assert.equal(Team.skillFamily('doc1'), 'doc');
+  assert.equal(Team.skillFamily('doc7'), 'doc');
+  assert.equal(Team.skillFamily('agent1'), 'generic');
+  assert.equal(Team.skillFamily('generico'), 'generic');
+  assert.equal(Team.skillFamily('shell'), null);
+  assert.equal(Team.roleSkill({ path: '/p' }, 'shell'), null);
+});
+
+test('a custom skill overrides the default, persists once and can be reset', () => {
+  const project = { path: '/home/u/skill-proj' };
+  let saves = 0;
+  Team.initTeam({ activeProject: () => project, saveProjects: () => saves++ });
+
+  assert.equal(Team.skillIsCustom(project, 'pm'), false);
+  assert.match(Team.initPromptFor(project, 'pm'), /Project Manager/);
+
+  assert.equal(Team.setRoleSkill(project, 'pm', 'Custom PM for {project_name}', { persist: false }), true);
+  assert.equal(project.agentSkills.pm, 'Custom PM for {project_name}');
+  assert.equal(Team.skillIsCustom(project, 'pm'), true);
+  assert.equal(Team.initPromptFor(project, 'pm'), 'Custom PM for skill-proj', 'the stored template is resolved at send time');
+  assert.equal(saves, 0, 'persist:false skips the project save');
+
+  assert.equal(Team.setRoleSkill(project, 'pm', 'Second profile'), true);
+  assert.equal(saves, 1, 'a saved profile persists the project');
+
+  assert.equal(Team.resetRoleSkill(project, 'pm'), true);
+  assert.equal(saves, 2);
+  assert.equal(project.agentSkills.pm, undefined);
+  assert.equal(Team.skillIsCustom(project, 'pm'), false);
+  assert.match(Team.initPromptFor(project, 'pm'), /Project Manager/, 'reset falls back to the shipped default');
+  assert.equal(Team.resetRoleSkill(project, 'pm'), false, 'nothing to reset the second time');
+  assert.equal(Team.setRoleSkill(project, 'pm', '   '), false, 'empty text is refused');
+});
+
+test('the skill editor saves, previews and resets from the modal', () => {
+  const project = { path: '/home/u/modal-proj', name: 'Modal' };
+  let saves = 0;
+  Team.initTeam({ activeProject: () => project, saveProjects: () => saves++ });
+
+  const editor = Team.openSkillEditor(project, 'qa');
+  assert.ok(editor, 'the editor opens');
+  assert.ok(editor.el.className.includes('modal'));
+  assert.match(editor.el.innerHTML, /QA Engineer/);
+  assert.match(editor.el.innerHTML, /Modal/, 'the project name is shown in the hint');
+  assert.match(editor.el.innerHTML, /Default/);
+
+  editor.textarea.value = 'QA custom for {project_name}';
+  editor.updatePreview();
+  assert.equal(editor.preview.textContent, 'QA custom for Modal', 'the preview interpolates live');
+  assert.equal(editor.save(), true);
+  assert.equal(project.agentSkills.qa, 'QA custom for {project_name}');
+  assert.equal(saves, 1);
+  assert.equal(editor.el.isConnected, false, 'saving closes the modal');
+
+  const reopened = Team.openSkillEditor(project, 'qa');
+  assert.match(reopened.el.innerHTML, /Custom/, 'the modal starts from the custom profile');
+  assert.equal(reopened.textarea.value, 'QA custom for {project_name}');
+  assert.equal(reopened.reset(), true);
+  assert.equal(project.agentSkills.qa, undefined);
+  assert.equal(saves, 2);
+  assert.equal(reopened.el.isConnected, false);
+});
+
+test('every role family header exposes the info button and opens its editor', async () => {
+  const project = { path: '/home/u/info-proj', name: 'Info' };
+  Team.initTeam({ activeProject: () => project });
+
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  assert.ok(pop);
+
+  const families = [...pop.innerHTML.matchAll(/data-act="edit-skill" data-family="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(families, ['pm', 'dev', 'qa', 'doc', 'generic'], 'one info button per role family');
+
+  await pop.listeners.click[0]({
+    target: {
+      closest: (sel) => {
+        if (sel === '[data-act]') return { dataset: { act: 'edit-skill' } };
+        if (sel === '[data-family]') return { dataset: { family: 'doc' } };
+        return null;
+      },
+    },
+  });
+  const modal = document.body.children.filter((c) => c.className?.includes('skill-modal')).at(-1);
+  assert.ok(modal, 'clicking the info icon opens the skill editor');
+  assert.match(modal.innerHTML, /Documentation Specialist/);
+
+  Team.closeSkillEditor();
+  Team.closeTeamMenu();
+  await tick(50);
+});
+
+test('the init prompt is sent to a freshly created role window', async () => {
+  const project = {
+    path: '/home/u/inject-proj',
+    name: 'Inject',
+    agentSkills: { dev: 'Custom dev profile for {project_name}.' },
+  };
+  env.tmuxCalls = [];
+
+  assert.equal(await Team.injectInitPrompt(project, 'dev1', 'work_inject', { delay: 0 }), true);
+  assert.deepEqual(env.tmuxCalls.at(-1), [
+    'sendKeys',
+    'work_inject',
+    'dev1',
+    'Custom dev profile for Inject.',
+    null,
+  ]);
+
+  env.tmuxCalls = [];
+  assert.equal(await Team.injectInitPrompt(project, 'dev1', null, { delay: 0 }), false, 'no session, no send');
+  assert.equal(await Team.injectInitPrompt(project, 'shell', 'work_inject', { delay: 0 }), false, 'unknown role, no send');
+  assert.equal(env.tmuxCalls.length, 0);
+});

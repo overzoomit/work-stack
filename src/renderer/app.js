@@ -40,6 +40,9 @@ const serialize = () => projects.map((p) => ({
   ...(p.remote ? { remote: p.remote } : {}),
   run: p.run,
   terminals: terminalLayout(p),
+  // Per-role init prompts edited from the Agent Team panel. Kept in Work's
+  // project state instead of the repository so they follow the project.
+  ...(p.agentSkills && Object.keys(p.agentSkills).length ? { agentSkills: p.agentSkills } : {}),
 }));
 
 function save() {
@@ -60,9 +63,12 @@ function projectFor(cwd) {
   return projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0] || null;
 }
 
-async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null, remote = null } = {}) {
+async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null, remote = null, agentSkills = null } = {}) {
   const existing = projects.find((p) => p.path === path);
   if (existing) {
+    if (agentSkills && typeof agentSkills === 'object') {
+      existing.agentSkills = { ...existing.agentSkills, ...agentSkills };
+    }
     if (activate) await activateProject(existing);
     return existing;
   }
@@ -77,6 +83,7 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
     maximizedId: null,
     run: run || { selected: null, custom: [] },
     savedTerminals: Array.isArray(terminals) ? terminals : null,
+    agentSkills: agentSkills && typeof agentSkills === 'object' ? { ...agentSkills } : {},
   };
   // Remote projects have no local tree: files and Git run in their SSH terminal.
   if (!remote) p.tree = new ProjectTree(p, treeHooks(p));
@@ -798,7 +805,7 @@ more.onclick = (e) => {
     },
   });
   initLauncher({ activeProject: () => active });
-  initTeam({ activeProject: () => active });
+  initTeam({ activeProject: () => active, saveProjects: save });
   initGithub({
     activeProject: () => active,
     login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Sign in to GitHub' }),
@@ -840,8 +847,8 @@ more.onclick = (e) => {
       // folder removed since last session
     }
   }
-  for (const { path, run, terminals, remote } of valid) {
-    await addProject(path, { activate: false, withTerminal: false, run, terminals, remote });
+  for (const { path, run, terminals, remote, agentSkills } of valid) {
+    await addProject(path, { activate: false, withTerminal: false, run, terminals, remote, agentSkills });
   }
   // `work <folder>` from a terminal: that folder wins over the last active one.
   const opened = info.open && await addProject(info.open, { activate: false, withTerminal: false });

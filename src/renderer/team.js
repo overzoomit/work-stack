@@ -113,6 +113,225 @@ export function getAgentMembers(existingNames = []) {
 export const nextGenericName = nextAgentName;
 export const getGenericMembers = getAgentMembers;
 
+// ── Role skills: editable init prompts ───────────────────────
+// Every role family owns a default profile. A project may override it from the
+// Agent Team panel; templates keep {project_name} so the prompt follows a
+// renamed project instead of freezing the old name inside the text.
+export const ROLE_SKILLS = {
+  pm: {
+    name: 'Project Manager (PM)',
+    text: "Sei il Project Manager del progetto {project_name} con oltre 30 anni di esperienza con metodologie Scrum e Agile. Coordini le priorità verso i Dev, i QA e i Doc usando l'istanza Plane, approvi le milestone e gestisci l'escalation.",
+  },
+  dev: {
+    name: 'Developer (DEV)',
+    text: "Sei uno sviluppatore software senior del progetto {project_name}. Sviluppi codice pulito, test unitari/integrazione ed esegui la suite npm test prima di promuovere i ticket in Test.",
+  },
+  qa: {
+    name: 'QA Engineer (QA)',
+    text: "Sei il QA Engineer del progetto {project_name}. Convalidi end-to-end e a runtime i ticket in stato Test, verificando l'assenza di regressioni e muovendo a Done con report in italiano o Re-open in caso di difetti.",
+  },
+  doc: {
+    name: 'Documentation Specialist (DOC)',
+    text: 'Sei il Documentation Specialist del progetto {project_name}. Ti occupi esclusivamente di redigere e aggiornare README.md, documentazione architetturale, guide utente e materiali di presentazione.',
+  },
+  generic: {
+    name: 'Generic Agent',
+    text: 'Sei un assistente AI specializzato per task ad-hoc e supporto operativo al progetto {project_name}.',
+  },
+};
+
+export const ROLE_SKILL_ORDER = ['pm', 'dev', 'qa', 'doc', 'generic'];
+
+// Window name -> role family (dev3 -> dev, generico -> generic).
+export function skillFamily(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (n === 'pm') return 'pm';
+  if (/^dev\d*$/.test(n)) return 'dev';
+  if (/^qa\d*$/.test(n)) return 'qa';
+  if (/^doc\d*$/.test(n)) return 'doc';
+  if (/^(agent\d*|generico)$/.test(n)) return 'generic';
+  return null;
+}
+
+export function defaultSkill(family) {
+  return ROLE_SKILLS[family]?.text || null;
+}
+
+export function skillIsCustom(project, family) {
+  return typeof project?.agentSkills?.[family] === 'string' && !!project.agentSkills[family].trim();
+}
+
+// The template for a role: the project's override, else the shipped default.
+export function roleSkill(project, roleName) {
+  const family = skillFamily(roleName);
+  if (!family) return null;
+  return skillIsCustom(project, family) ? project.agentSkills[family] : defaultSkill(family);
+}
+
+export function formatSkill(template, projectName) {
+  if (!template) return '';
+  return String(template).replaceAll('{project_name}', projectName || 'this project');
+}
+
+export function projectLabel(project) {
+  if (!project) return 'this project';
+  if (project.name) return project.name;
+  const path = String(project.path || '').replace(/\/+$/, '');
+  return path.split('/').pop() || 'this project';
+}
+
+// The text actually sent to a freshly started teammate.
+export function initPromptFor(project, roleName) {
+  const template = roleSkill(project, roleName);
+  if (!template) return '';
+  return formatSkill(template, projectLabel(project));
+}
+
+// Persistence is wired by app.js through initTeam: skills live in Work's
+// project metadata, not in the repository, and follow local and SSH projects.
+let persistProjects = null;
+
+export function setRoleSkill(project, family, text, { persist = true } = {}) {
+  if (!project || !ROLE_SKILLS[family]) return false;
+  const value = String(text ?? '').trim();
+  if (!value) return false;
+  project.agentSkills = { ...(project.agentSkills || {}), [family]: value };
+  if (persist) persistProjects?.();
+  return true;
+}
+
+export function resetRoleSkill(project, family, { persist = true } = {}) {
+  if (!project || !ROLE_SKILLS[family]) return false;
+  const changed = !!project.agentSkills && Object.prototype.hasOwnProperty.call(project.agentSkills, family);
+  if (project.agentSkills) delete project.agentSkills[family];
+  if (changed && persist) persistProjects?.();
+  return changed;
+}
+
+// Sending the profile too early would type into a TUI that is still starting.
+export const INIT_PROMPT_DELAY = 1200;
+
+export async function injectInitPrompt(project, roleName, session, { delay = INIT_PROMPT_DELAY } = {}) {
+  const prompt = initPromptFor(project, roleName);
+  if (!project || !roleName || !session || !prompt || !work?.tmux?.sendKeys) return false;
+  if (delay > 0) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, delay);
+      timer?.unref?.();
+    });
+  }
+  try {
+    await work.tmux.sendKeys(session, roleName, prompt, project.remote || null);
+    return true;
+  } catch {
+    // The agent window may already be gone: never break the launch for this.
+    return false;
+  }
+}
+
+// Modal editor for a role family. Returns a small controller so tests and the
+// UI share the same save/reset path.
+let skillModal = null;
+
+export function closeSkillEditor() {
+  if (!skillModal) return;
+  skillModal.el.remove();
+  skillModal = null;
+}
+
+export function openSkillEditor(project, family) {
+  const def = ROLE_SKILLS[family];
+  if (!project || !def) return null;
+  closeSkillEditor();
+
+  const custom = skillIsCustom(project, family);
+  const template = custom ? project.agentSkills[family] : def.text;
+  const name = projectLabel(project);
+
+  const el = document.createElement('div');
+  el.className = 'modal skill-modal';
+  el.innerHTML = `
+    <form class="modal-card skill-card" id="skill-form">
+      <p class="skill-title">
+        <span>${esc(def.name)}</span>
+        <span class="skill-tag${custom ? ' custom' : ''}">${custom ? 'Custom' : 'Default'}</span>
+      </p>
+      <p class="skill-hint">Sent as the init prompt to every new <b>${esc(def.name)}</b> terminal. <code>{project_name}</code> becomes <b>${esc(name)}</b>.</p>
+      <textarea id="skill-text" rows="7" spellcheck="false">${esc(template)}</textarea>
+      <div class="skill-preview">
+        <span class="skill-preview-label">Preview</span>
+        <div id="skill-preview-text">${esc(formatSkill(template, name))}</div>
+      </div>
+      <div class="commit-row">
+        <button type="button" class="btn" id="skill-reset"${custom ? '' : ' disabled'}>Reset default</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn" id="skill-cancel">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="skill-save">Save</button>
+      </div>
+    </form>`;
+  document.body.appendChild(el);
+
+  const textarea = el.querySelector('textarea');
+  const preview = el.querySelector('#skill-preview-text');
+  textarea.value = template;
+
+  const updatePreview = () => {
+    preview.textContent = formatSkill(textarea.value, name);
+  };
+  textarea.addEventListener('input', updatePreview);
+
+  const close = () => {
+    if (skillModal?.el === el) skillModal = null;
+    el.remove();
+  };
+  const save = () => {
+    const value = String(textarea.value || '').trim();
+    if (!value) {
+      toast('The skill prompt cannot be empty. Use Reset default to restore it.', { error: true });
+      textarea.focus();
+      return false;
+    }
+    setRoleSkill(project, family, value);
+    close();
+    toast(`${def.name} skill profile saved.`);
+    return true;
+  };
+  const reset = () => {
+    resetRoleSkill(project, family);
+    close();
+    toast(`${def.name} skill profile restored to the default.`);
+    return true;
+  };
+
+  el.querySelector('#skill-save').onclick = (e) => {
+    e.preventDefault();
+    save();
+  };
+  el.querySelector('#skill-reset').onclick = (e) => {
+    e.preventDefault();
+    reset();
+  };
+  el.querySelector('#skill-cancel').onclick = close;
+  el.querySelector('form').onsubmit = (e) => {
+    e.preventDefault();
+    save();
+  };
+  el.onkeydown = (e) => {
+    if (e.key === 'Escape') {
+      close();
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  el.onclick = (e) => {
+    if (e.target === el) close();
+  };
+
+  skillModal = { el, family, textarea, preview, save, reset, close, updatePreview };
+  textarea.focus();
+  return skillModal;
+}
+
 // Dogwatch: the team button lights up while any agent waits for an answer.
 function showWaiting(project, count) {
   waitingByProject.set(project, count);
@@ -290,8 +509,9 @@ async function launchBrowser(id) {
   setTimeout(refreshMcp, 2500);
 }
 
-export function initTeam({ activeProject }) {
+export function initTeam({ activeProject, saveProjects = null }) {
   getProject = activeProject;
+  persistProjects = saveProjects;
   work?.dogwatch?.onUpdate((project, _session, pending, live) => {
     liveByProject.set(project, live === true);
     showWaiting(project, pending.length);
@@ -320,6 +540,7 @@ export function initTeam({ activeProject }) {
 }
 
 export function closeTeamMenu() {
+  closeSkillEditor();
   if (!pop) return;
   const el = pop;
   pop = null;
@@ -331,6 +552,8 @@ export function closeTeamMenu() {
 }
 
 function onOutside(e) {
+  // Clicks inside the skill editor belong to its modal, not to the popover.
+  if (e.target?.closest?.('.modal')) return;
   if (pop && !pop.contains(e.target) && !$('#agent-team')?.contains(e.target)) {
     closeTeamMenu();
   }
@@ -338,6 +561,8 @@ function onOutside(e) {
 
 function onKey(e) {
   if (!pop) return;
+  // The editor owns Escape while it is open.
+  if (skillModal) return;
   if (e.key === 'Escape') {
     if (viewState.mode === 'select-agent') {
       viewState.mode = 'main';
@@ -444,6 +669,9 @@ export async function createTeamMember(project, roleName, agent) {
         agentId: agent.id,
         command: cmd,
       });
+      // The profile is sent once the TUI is up: a new teammate starts with
+      // its role instructions already in the prompt.
+      injectInitPrompt(project, roleName, session).catch(() => {});
       toast(`Started [${roleName.toUpperCase()}] with ${agent.name} on tmux.`);
       return pane;
     }
@@ -575,7 +803,10 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>👑 Project Manager (PM - 1 only)</span>
-          <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assigned' : 'Not configured'}</span>
+          <span class="tp-head-right">
+            <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assigned' : 'Not configured'}</span>
+            <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="pm" title="View and edit the PM skill prompt">ℹ</button>
+          </span>
         </div>
         ${pmActive ? `
           <div class="tp-row" data-focus-role="pm" title="Click to open the PM terminal">
@@ -605,6 +836,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>💻 Developers (${devList.length} active)</span>
+          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="dev" title="View and edit the DEV skill prompt">ℹ</button>
         </div>
         ${devList.map((devName) => `
           <div class="tp-row" data-focus-role="${esc(devName)}" title="Click to open the ${esc(devName)} terminal">
@@ -632,6 +864,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>🛡️ Quality Assurance (${qaList.length} active)</span>
+          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="qa" title="View and edit the QA skill prompt">ℹ</button>
         </div>
         ${qaList.map((qaName) => `
           <div class="tp-row" data-focus-role="${esc(qaName)}" title="Click to open the ${esc(qaName)} terminal">
@@ -659,6 +892,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>📝 Documentation (${docList.length} active)</span>
+          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="doc" title="View and edit the DOC skill prompt">ℹ</button>
         </div>
         ${docList.map((docName) => `
           <div class="tp-row" data-focus-role="${esc(docName)}" title="Click to open the ${esc(docName)} terminal">
@@ -686,6 +920,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>🤖 Generic (${agentList.length} active)</span>
+          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="generic" title="View and edit the generic agent skill prompt">ℹ</button>
         </div>
         ${agentList.map((agentName) => `
           <div class="tp-row" data-focus-role="${esc(agentName)}" title="Click to open the ${esc(agentName)} terminal">
@@ -788,6 +1023,12 @@ export async function openTeamMenu() {
 
     if (act === 'mcp-check') {
       await refreshMcp();
+      return;
+    }
+
+    if (act === 'edit-skill') {
+      const family = e.target.closest('[data-family]')?.dataset.family;
+      if (family) openSkillEditor(p, family);
       return;
     }
 
@@ -951,7 +1192,7 @@ export async function launchTeamMember(project, role) {
         await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
         const updated = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
         const newWin = updated.find((w) => w.name === role.name);
-        return openTerminal(project, {
+        const pane = await openTerminal(project, {
           cwd: project.remote?.remotePath || project.path,
           title: role.name,
           tmuxSession: session,
@@ -959,6 +1200,8 @@ export async function launchTeamMember(project, role) {
           tmuxName: role.name,
           ...meta,
         });
+        injectInitPrompt(project, role.name, session).catch(() => {});
+        return pane;
       }
     }
   }
@@ -988,6 +1231,7 @@ export async function initializeTeam(project) {
         const exists = windows.some((w) => w.name === role.name);
         if (!exists) {
           await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
+          injectInitPrompt(project, role.name, session).catch(() => {});
         }
       }
       const reattached = await syncProjectTerminals(project);
