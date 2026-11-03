@@ -10,6 +10,11 @@ changed since the last cycle:
   Test     to the QA agent, asked to move it to "Done" or "Re-open";
   Done     recorded, and the PM is notified on Telegram when it is configured.
 
+OpenCode/Ollama agents start each delegated task from a fresh session
+(`/new`, OpenCode's documented reset) and are reset again when their ticket
+leaves the working state. Old OpenCode sessions are pruned with
+`opencode session delete` at most every six hours.
+
 A prompt is typed into an agent window only while that window is idle and not
 already holding a delegated ticket. .claude/plane_dogwatch_state.json keeps,
 for every issue, the last state seen and the fingerprint of the last version
@@ -34,10 +39,12 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -59,6 +66,14 @@ WORKING = {"dev": "in progress", "qa": "test"}
 # shows an input marker on one of its last lines.
 BUSY_MARKER = re.compile(r"esc to (?:interrupt|cancel)|\bctrl\+c to (?:interrupt|stop)\b", re.IGNORECASE)
 INPUT_LINE = re.compile(r"^\s*(?:[│|┃]\s*)?[>❯›]\s?.*$|[$#%❯>]\s*$|\bctrl\+p commands\b")
+
+# OpenCode's TUI resets to a fresh session with /new (alias /clear). The
+# settle pause lets the new session open before the task is typed.
+OPENCODE_RESET = "/new"
+OPENCODE_SETTLE = float(os.environ.get("WORK_OPENCODE_SETTLE", "0.4"))
+PRUNE_STATE = Path(".claude") / "opencode_cleanup.json"
+PRUNE_INTERVAL = 6 * 3600
+KEEP_SESSIONS = 5
 
 
 def load_module(name: str, path: Path):
@@ -229,16 +244,36 @@ class Session:
     def __init__(self, name: str, binary: str | None):
         self.name = name
         self.binary = binary
-        out = tmux.run_tmux(["list-windows", "-t", name, "-F", "#{window_id}\t#{window_name}"], binary)
+        out = tmux.run_tmux(
+            ["list-windows", "-t", name, "-F", "#{window_name}\t#{pane_start_command}\t#{pane_current_command}"],
+            binary,
+        )
         if out.returncode != 0:
             raise RuntimeError(out.stderr.strip() or f"cannot list windows of {name}")
-        self.windows = {str(w["name"]) for w in tmux.parse_windows(out.stdout)}
+        # name -> command line as tmux started it (plus the running command).
+        self.windows: dict[str, str] = {}
+        for line in out.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2 or not parts[0].strip():
+                continue
+            self.windows[parts[0].strip()] = " ".join(p for p in parts[1:] if p.strip())
 
     def idle(self, window: str) -> bool:
         return window in self.windows and is_idle(tmux.capture_pane(self.name, window, 40, self.binary))
 
+    def is_opencode(self, window: str) -> bool:
+        """The role name is not the CLI: qa1 may run OpenCode, dev1 may run Claude."""
+        return "opencode" in self.windows.get(window, "").lower()
+
     def send(self, window: str, text: str) -> None:
         tmux.send_answer(window, text, session=self.name, binary=self.binary)
+
+    def reset(self, window: str) -> None:
+        """Open a fresh session, so the next task cannot inherit old context."""
+        tmux.send_answer(window, OPENCODE_RESET, session=self.name, binary=self.binary)
+        if OPENCODE_SETTLE > 0:
+            time.sleep(OPENCODE_SETTLE)
+
 
 
 # ── State file ───────────────────────────────────────────────
@@ -266,6 +301,86 @@ def save_state(path: Path, state: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+# ── OpenCode session storage ─────────────────────────────────
+
+def stale_session_ids(sessions: object, keep: int = KEEP_SESSIONS) -> list[str]:
+    """IDs after the newest `keep`; `opencode session list` is newest first."""
+    if not isinstance(sessions, list):
+        return []
+    ids = [
+        s["id"]
+        for s in sessions
+        if isinstance(s, dict) and isinstance(s.get("id"), str) and s["id"]
+    ]
+    return ids[max(0, keep):]
+
+
+def _stamp_prune(path: Path, stamp: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"last_prune": stamp}) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def prune_opencode_sessions(root: Path, *, now: float | None = None) -> dict:
+    """Delete old sessions of this project with the official CLI, at most every 6 h.
+
+    Never touches ~/.local/share/opencode/opencode.db directly: `session list`
+    is scoped to the current project and `session delete` removes child
+    sessions too. Failures are reported, never fatal for the cycle.
+    """
+    if os.environ.get("WORK_OPENCODE_PRUNE", "1") == "0":
+        return {"skipped": "disabled"}
+    try:
+        interval = float(os.environ.get("WORK_OPENCODE_PRUNE_INTERVAL", PRUNE_INTERVAL))
+    except ValueError:
+        interval = PRUNE_INTERVAL
+    try:
+        keep = max(1, int(os.environ.get("WORK_OPENCODE_KEEP", KEEP_SESSIONS)))
+    except ValueError:
+        keep = KEEP_SESSIONS
+    stamp = time.time() if now is None else now
+    state_path = root / PRUNE_STATE
+    try:
+        last = float(json.loads(state_path.read_text(encoding="utf-8")).get("last_prune", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        last = 0.0
+    if interval > 0 and stamp - last < interval:
+        return {"skipped": "interval"}
+
+    binary = os.environ.get("WORK_OPENCODE_BIN") or "opencode"
+    if not shutil.which(binary):
+        return {"skipped": "opencode not found"}
+    args = [binary, "session", "list", "--format", "json", "--max-count", "100"]
+    try:
+        listed = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"error": str(exc)}
+    if listed.returncode != 0:
+        _stamp_prune(state_path, stamp)
+        reason = (listed.stderr or "opencode session list failed").strip().splitlines()
+        return {"error": reason[0] if reason else "opencode session list failed"}
+    try:
+        sessions = json.loads(listed.stdout or "[]")
+    except ValueError:
+        _stamp_prune(state_path, stamp)
+        return {"error": "opencode session list returned invalid JSON"}
+    stale = stale_session_ids(sessions, keep)
+    deleted: list[str] = []
+    for session_id in stale:
+        try:
+            removed = subprocess.run(
+                [binary, "session", "delete", session_id],
+                cwd=root, capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if removed.returncode == 0:
+            deleted.append(session_id)
+    _stamp_prune(state_path, stamp)
+    return {"kept": keep, "deleted": deleted}
 
 
 # ── Cycle ────────────────────────────────────────────────────
@@ -308,10 +423,13 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
     issues = plane.issues()
     state = load_state(state_path)
     records = state["issues"]
+    # Who held each ticket before this cycle's delegations overwrite "target".
+    before_cycle = {iid: (record.get("state"), record.get("target")) for iid, record in records.items()}
     current = {i["id"]: names.get(i.get("state"), "").lower() for i in issues}
     busy = busy_roles(records, current)
     actions: list[dict] = []
     waiting: list[dict] = []
+    cleanups: list[dict] = []
 
     def free(candidates: list[str]) -> str | None:
         return next((w for w in candidates if w not in busy and session.idle(w)), None)
@@ -319,6 +437,14 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
     # The prompt goes first and is recorded at once: a failure further on
     # (Plane down, tmux gone) must not type the same prompt again next cycle.
     def delegate(issue: dict, kind: str, role: str, target: str, prompt: str, move: str | None) -> None:
+        # A new task starts from a clean OpenCode session: one active session,
+        # no context left over from the ticket the agent just finished.
+        if session.is_opencode(target):
+            try:
+                session.reset(target)
+                cleanups.append({"target": target, "reason": "before delegation", "issue": issue.get("sequence_id")})
+            except RuntimeError as exc:
+                cleanups.append({"target": target, "reason": "before delegation", "issue": issue.get("sequence_id"), "error": str(exc)})
         session.send(target, prompt)
         busy.add(target)
         records[issue["id"]] = {
@@ -369,6 +495,17 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
         record = records.setdefault(issue["id"], {})
         seen = record.get("state")
         now = current[issue["id"]]
+        prev_state, prev_target = before_cycle.get(issue["id"], (None, None))
+        # The task is over: reset the window that held it, if it is idle and
+        # runs OpenCode, so the next ticket starts from a fresh session.
+        if prev_state != now and now in ("test", "done", "re-open"):
+            target = prev_target
+            if target and session.is_opencode(target) and session.idle(target):
+                try:
+                    session.reset(target)
+                    cleanups.append({"target": target, "reason": f"task reached {now}", "issue": issue.get("sequence_id")})
+                except RuntimeError as exc:
+                    cleanups.append({"target": target, "reason": f"task reached {now}", "issue": issue.get("sequence_id"), "error": str(exc)})
         # A ticket already Done at the first look is history, not news.
         if now == "done" and seen and seen != "done":
             sent = notify_telegram(telegram, f"✅ {ticket(issue)} completato: {plain(issue.get('name'), 200)}")
@@ -387,6 +524,7 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
             if current[i["id"]] not in ("done", "cancelled")
         ],
         "actions": actions,
+        "cleanups": cleanups,
         "waiting": waiting,
     }
 
@@ -431,7 +569,14 @@ def main(argv: list[str] | None = None) -> int:
     def cycle() -> dict:
         session = Session(tmux.resolve_session(args.session, args.tmux_bin), args.tmux_bin)
         with cycle_lock(root):
-            return run_cycle(plane, session, state_path, devs, qa, telegram)
+            report = run_cycle(plane, session, state_path, devs, qa, telegram)
+            # Housekeeping after the delegation decisions: failures are reported
+            # but never stop the watcher.
+            try:
+                report["opencode_cleanup"] = prune_opencode_sessions(root)
+            except Exception as exc:  # noqa: BLE001 - never break a cycle for cleanup
+                report["opencode_cleanup"] = {"error": str(exc)}
+            return report
 
     if not args.daemon:
         try:

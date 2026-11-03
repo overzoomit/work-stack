@@ -16,7 +16,7 @@ const skip = !hasPython;
 const FAKE_TMUX = `#!/bin/sh
 printf '%s\\n' "$*" >> "$TMUX_LOG"
 case "$1" in
-  list-windows) printf '@0\\tpm\\n@1\\tdev1\\n@2\\tdev2\\n@3\\tqa1\\n' ;;
+  list-windows) printf 'pm\\tagy\\tagy\\ndev1\\tollama launch opencode --model x\\tollama\\ndev2\\tollama launch opencode --model x\\tollama\\nqa1\\tcodex --full-auto\\tcodex\\n' ;;
   capture-pane)
     for w in $FAKE_BUSY; do
       case "$*" in *":$w "*) printf 'running\\n* Working (12s - esc to interrupt)\\n> \\n'; exit 0 ;; esac
@@ -101,9 +101,12 @@ function sandbox(api) {
       TMUX_DOGWATCH_TMUX: tmux,
       TMUX_LOG: join(dir, 'tmux.log'),
       FAKE_BUSY: '',
+      WORK_OPENCODE_PRUNE: '0',
+      WORK_OPENCODE_SETTLE: '0',
     },
     args: ['--root', dir, '--session', 'work_test', '--telegram', telegram],
-    sends: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.startsWith('send-keys') && l.includes(' -l ')),
+    sends: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.startsWith('send-keys') && l.includes(' -l ') && !l.includes(' -l -- /new')),
+    resets: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.includes(' -l -- /new')),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
@@ -264,3 +267,66 @@ test('--daemon polls until SIGTERM and exits cleanly', { skip }, () =>
     assert.deepEqual(await closed, { code: 0, signal: null });
     assert.equal(box.sends().length, 1, 'the ticket was delegated once');
   }));
+
+// ── OpenCode/Ollama session lifecycle ───────────────────────
+
+test('an OpenCode dev is reset with /new before a delegated task', { skip }, () =>
+  scenario([issue(1, 's-todo')], {}, async (api, box) => {
+    const out = await run(box, ['--once']);
+    assert.equal(out.status, 0, out.stderr);
+    const [reset] = box.resets();
+    assert.match(reset, /-t work_test:dev1 -l -- \/new/);
+    assert.equal(box.sends().length, 1, 'the task prompt follows the reset');
+    assert.match(box.sends()[0], /Ticket \[1\]/);
+    assert.deepEqual(out.json().cleanups.map((c) => [c.target, c.reason]), [['dev1', 'before delegation']]);
+  }));
+
+test('a ticket leaving the working state resets the idle OpenCode window', { skip }, () => {
+  const tickets = [issue(1, 's-todo')];
+  return scenario(tickets, {}, async (api, box) => {
+    assert.equal((await run(box, ['--once'])).status, 0);
+    assert.equal(box.resets().length, 1, 'reset before the Todo delegation');
+
+    tickets[0].state = 's-test';
+    tickets[0].updated_at = '2026-11-02T10:00:00Z';
+    const out = await run(box, ['--once']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(box.resets().length, 2, 'reset again when the dev reaches Test');
+    assert.match(box.resets()[1], /-t work_test:dev1 -l -- \/new/);
+    assert.deepEqual(out.json().cleanups.map((c) => [c.target, c.reason]), [['dev1', 'task reached test']]);
+  });
+});
+
+test('old OpenCode sessions are pruned through the CLI, keeping the newest ones', { skip }, () => {
+  const tickets = [issue(1, 's-todo')];
+  return scenario(tickets, {}, async (api, box) => {
+    const bin = join(box.dir, 'opencode');
+    const log = join(box.dir, 'opencode.log');
+    writeFileSync(bin, `#!/bin/sh
+printf '%s\\n' "$*" >> "$OPENCODE_LOG"
+case "$1 $2" in
+  "session list") printf '[{"id":"a"},{"id":"b"},{"id":"c"}]' ;;
+  "session delete") exit 0 ;;
+esac
+`);
+    chmodSync(bin, 0o755);
+    writeFileSync(log, '');
+
+    const out = await run(box, ['--once'], {
+      WORK_OPENCODE_PRUNE: '1',
+      WORK_OPENCODE_BIN: bin,
+      WORK_OPENCODE_KEEP: '1',
+      WORK_OPENCODE_PRUNE_INTERVAL: '0',
+      OPENCODE_LOG: log,
+    });
+    assert.equal(out.status, 0, out.stderr);
+    const calls = readFileSync(log, 'utf8').trim().split('\n');
+    assert.deepEqual(calls, [
+      'session list --format json --max-count 100',
+      'session delete b',
+      'session delete c',
+    ]);
+    assert.deepEqual(out.json().opencode_cleanup.deleted, ['b', 'c']);
+    assert.equal(existsSync(join(box.dir, '.claude', 'opencode_cleanup.json')), true, 'the next prune waits for the interval');
+  });
+});

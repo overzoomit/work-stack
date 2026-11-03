@@ -16,8 +16,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 const POLL: Duration = Duration::from_secs(5);
@@ -38,6 +39,13 @@ const BUSY: [&str; 4] = [
     "ctrl+c to interrupt",
     "ctrl+c to stop",
 ];
+// OpenCode's TUI starts a fresh session with /new (alias /clear). A short
+// pause lets the new session open before the task is typed.
+const OPENCODE_RESET: &str = "/new";
+const RESET_SETTLE: Duration = Duration::from_millis(400);
+const PRUNE_FILE: &str = ".claude/opencode_cleanup.json";
+const PRUNE_INTERVAL_SECS: u64 = 6 * 3600;
+const KEEP_SESSIONS: usize = 5;
 
 // ── Configuration ────────────────────────────────────────────
 
@@ -416,6 +424,13 @@ pub fn is_idle(capture: &str) -> bool {
 pub trait Agents {
     fn idle(&self, window: &str) -> bool;
     fn send(&self, window: &str, text: &str) -> Result<(), String>;
+    // Reset a fresh OpenCode session; unsupported agents keep their context.
+    fn is_opencode(&self, _window: &str) -> bool {
+        false
+    }
+    fn reset(&self, _window: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 struct Tmux {
@@ -455,6 +470,24 @@ impl Agents for Tmux {
     fn send(&self, window: &str, text: &str) -> Result<(), String> {
         dogwatch::answer(&self.session, window, text)
     }
+
+    fn is_opencode(&self, window: &str) -> bool {
+        let target = format!("{}:{window}", self.session);
+        tmux::run_tmux(&[
+            "display-message",
+            "-p",
+            "-t",
+            &target,
+            "#{pane_start_command}\t#{pane_current_command}",
+        ])
+        .is_ok_and(|command| command.to_lowercase().contains("opencode"))
+    }
+
+    fn reset(&self, window: &str) -> Result<(), String> {
+        dogwatch::answer(&self.session, window, OPENCODE_RESET)?;
+        std::thread::sleep(RESET_SETTLE);
+        Ok(())
+    }
 }
 
 // ── State file and lock ──────────────────────────────────────
@@ -485,6 +518,76 @@ fn holder<'a>(record: &'a Value, now: Option<&str>) -> Option<&'a str> {
     };
     let target = record["target"].as_str().filter(|t| !t.is_empty())?;
     (now == Some(working)).then_some(target)
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+// `opencode session list` is newest first: keep the N most recent sessions.
+fn stale_session_ids(sessions: &[Value], keep: usize) -> Vec<String> {
+    sessions
+        .iter()
+        .filter_map(|s| {
+            s["id"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .map(String::from)
+        })
+        .skip(keep)
+        .collect()
+}
+
+// Old OpenCode sessions are deleted through the official CLI, never by
+// touching the database: `session list` is scoped to this project and
+// `session delete` removes child sessions too. Best effort, at most every 6 h.
+fn prune_opencode_sessions(root: &Path, now: u64) {
+    if std::env::var("WORK_OPENCODE_PRUNE").is_ok_and(|v| v == "0") {
+        return;
+    }
+    let interval = std::env::var("WORK_OPENCODE_PRUNE_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(PRUNE_INTERVAL_SECS);
+    let keep = std::env::var("WORK_OPENCODE_KEEP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(KEEP_SESSIONS)
+        .max(1);
+    let path = root.join(PRUNE_FILE);
+    let last = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v["last_prune"].as_u64())
+        .unwrap_or(0);
+    if interval > 0 && now.saturating_sub(last) < interval {
+        return;
+    }
+    let bin = std::env::var("WORK_OPENCODE_BIN").unwrap_or_else(|_| "opencode".into());
+    let Ok(listed) = Command::new(&bin)
+        .args(["session", "list", "--format", "json", "--max-count", "100"])
+        .current_dir(root)
+        .output()
+    else {
+        return;
+    };
+    if !listed.status.success() {
+        return;
+    }
+    let sessions: Vec<Value> = serde_json::from_slice(&listed.stdout).unwrap_or_default();
+    for session_id in stale_session_ids(&sessions, keep) {
+        let _ = Command::new(&bin)
+            .args(["session", "delete", &session_id])
+            .current_dir(root)
+            .output();
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, json!({ "last_prune": now }).to_string());
 }
 
 // flock, released when the file closes; the script takes the same one.
@@ -609,6 +712,11 @@ impl Run<'_> {
         prompt: &str,
         move_to: Option<&str>,
     ) {
+        // A new task starts from a fresh OpenCode session: one active session,
+        // no context left over from the ticket the agent just finished.
+        if self.agents.is_opencode(&target) {
+            let _ = self.agents.reset(&target);
+        }
         if let Err(e) = self.agents.send(&target, prompt) {
             self.wait(issue, label, &format!("cannot type into {target}: {e}"));
             return;
@@ -663,6 +771,21 @@ pub fn run_cycle(
     let names = plane.state_names()?;
     let issues = plane.issues()?;
     let state = load_state(state_path);
+    // Who held each ticket before this cycle's delegations overwrite "target".
+    let before_cycle: HashMap<String, (String, String)> = state["issues"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(issue, r)| {
+            (
+                issue.clone(),
+                (
+                    r["state"].as_str().unwrap_or_default().to_string(),
+                    r["target"].as_str().unwrap_or_default().to_string(),
+                ),
+            )
+        })
+        .collect();
     let state_of = |i: &Value| -> String {
         i["state"]
             .as_str()
@@ -746,8 +869,25 @@ pub fn run_cycle(
 
     for issue in &issues {
         let now = run.current[id(issue)].clone();
-        let record = record_mut(&mut run.state, id(issue));
-        let seen = record["state"].as_str().unwrap_or_default().to_string();
+        let (seen, prev_state, prev_target) = {
+            let record = &run.state["issues"][id(issue)];
+            let before = before_cycle.get(id(issue));
+            (
+                record["state"].as_str().unwrap_or_default().to_string(),
+                before.map(|(s, _)| s.clone()).unwrap_or_default(),
+                before.map(|(_, t)| t.clone()).unwrap_or_default(),
+            )
+        };
+        // The task is over: reset the window that held it, if it is idle and
+        // runs OpenCode, so the next ticket starts from a fresh session.
+        if prev_state != now
+            && matches!(now.as_str(), "test" | "done" | "re-open")
+            && !prev_target.is_empty()
+            && run.agents.is_opencode(&prev_target)
+            && run.agents.idle(&prev_target)
+        {
+            let _ = run.agents.reset(&prev_target);
+        }
         // A ticket already Done at the first look is history, not news.
         if now == "done" && !seen.is_empty() && seen != "done" {
             let sent = notify(&format!(
@@ -766,6 +906,7 @@ pub fn run_cycle(
             });
         }
         if seen != now {
+            let record = record_mut(&mut run.state, id(issue));
             record["state"] = now.into();
             record["timestamp"] = dogwatch::now_iso().into();
         }
@@ -883,7 +1024,9 @@ fn try_cycle(
     let Some(_lock) = try_lock(root) else {
         return Ok(None);
     };
-    run_cycle(&planes[project].1, &agents, &root.join(STATE_FILE), notify).map(Some)
+    let report = run_cycle(&planes[project].1, &agents, &root.join(STATE_FILE), notify)?;
+    prune_opencode_sessions(root, now_secs());
+    Ok(Some(report))
 }
 
 // Every POLL (or at once after sync_now) each open project with a .plane.json
@@ -1143,6 +1286,9 @@ mod tests {
     struct Fake {
         idle: RefCell<HashSet<String>>,
         sent: RefCell<Vec<(String, String)>>,
+        opencode: RefCell<HashSet<String>>,
+        resets: RefCell<Vec<String>>,
+        events: RefCell<Vec<String>>,
     }
 
     fn agents(idle: &[&str]) -> Fake {
@@ -1159,6 +1305,15 @@ mod tests {
         }
         fn send(&self, window: &str, text: &str) -> Result<(), String> {
             self.sent.borrow_mut().push((window.into(), text.into()));
+            self.events.borrow_mut().push(format!("send:{window}"));
+            Ok(())
+        }
+        fn is_opencode(&self, window: &str) -> bool {
+            self.opencode.borrow().contains(window)
+        }
+        fn reset(&self, window: &str) -> Result<(), String> {
+            self.resets.borrow_mut().push(window.into());
+            self.events.borrow_mut().push(format!("reset:{window}"));
             Ok(())
         }
     }
@@ -1672,5 +1827,48 @@ mod tests {
         watch.sync_now();
         sleeper.join().unwrap();
         assert!(start.elapsed() < POLL);
+    }
+
+    #[test]
+    fn an_opencode_dev_is_reset_before_a_delegated_task() {
+        let b = scenario(vec![issue(1, "s-todo")]);
+        let a = agents(&["dev1", "dev2"]);
+        a.opencode.borrow_mut().insert("dev1".into());
+        b.cycle(&a);
+        assert_eq!(
+            a.events.borrow().as_slice(),
+            ["reset:dev1", "send:dev1"],
+            "the fresh session opens before the task is typed"
+        );
+        assert_eq!(a.resets.borrow().as_slice(), ["dev1"]);
+    }
+
+    #[test]
+    fn a_ticket_leaving_the_working_state_resets_its_idle_opencode_window() {
+        let b = scenario(vec![issue(1, "s-todo")]);
+        let a = agents(&["dev1", "dev2", "qa1", "qa"]);
+        a.opencode.borrow_mut().insert("dev1".into());
+        b.cycle(&a);
+        b.mock.set_state(1, "s-test");
+        let r = b.cycle(&a);
+        assert_eq!(
+            a.resets.borrow().as_slice(),
+            ["dev1", "dev1"],
+            "once before the task and once when the ticket reaches Test"
+        );
+        assert_eq!(
+            a.events.borrow().as_slice(),
+            ["reset:dev1", "send:dev1", "send:qa1", "reset:dev1"]
+        );
+        assert_eq!(moves(&r)[0].3.as_deref(), Some("qa1"));
+    }
+
+    #[test]
+    fn stale_sessions_keep_the_newest_ones() {
+        let sessions = vec![json!({"id":"a"}), json!({"id":"b"}), json!({"id":"c"})];
+        assert_eq!(stale_session_ids(&sessions, 1), ["b", "c"]);
+        assert!(stale_session_ids(&[], 3).is_empty());
+        let with_empty = vec![json!({"id":""}), json!({"id":"x"})];
+        assert_eq!(stale_session_ids(&with_empty, 0), ["x"]);
     }
 }

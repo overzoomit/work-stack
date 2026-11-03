@@ -16,7 +16,15 @@ const FAKE = `#!/bin/sh
 printf '%s\\n' "$*" >> "$TMUX_LOG"
 case "$1" in
   display-message)
-    if [ -n "$TMUX_CURRENT" ]; then printf '%s\\n' "$TMUX_CURRENT"; else printf 'work_test\\n'; fi
+    case "$*" in
+      *pane_start_command*)
+        case "$*" in
+          *:dev1*) printf 'ollama launch opencode --model x\\tollama\\n' ;;
+          *:qa1*) printf 'codex --full-auto\\tcodex\\n' ;;
+          *) printf 'agy\\tagy\\n' ;;
+        esac ;;
+      *) if [ -n "$TMUX_CURRENT" ]; then printf '%s\\n' "$TMUX_CURRENT"; else printf 'work_test\\n'; fi ;;
+    esac
     ;;
   list-sessions)
     if [ -n "$TMUX_SESSIONS" ]; then printf '%b' "$TMUX_SESSIONS"; else printf 'work_test\\n'; fi
@@ -255,6 +263,77 @@ test('gli errori di usage escono con 1, lasciando 2 ai timeout', { skip: !hasPyt
     assert.match(invalid.stderr, /invalid choice/);
     const empty = run(box, []);
     assert.equal(empty.status, 1, empty.stderr);
+  } finally {
+    box.cleanup();
+  }
+});
+
+// ── OpenCode/Ollama session reset ────────────────────────────
+
+const idleDev = () => [{ ...windows()[0], state: 'idle', rule: null }, windows()[1]];
+
+test('prompt resets an idle OpenCode session with /new before the new task', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, idleDev());
+    const out = run(box, ['prompt', 'dev1', 'new', 'task'], { WORK_AGENT_RESET_SETTLE: '0' });
+    assert.equal(out.status, 0, out.stderr);
+    const log = readFileSync(box.log, 'utf8');
+    assert.match(log, /send-keys -t work_test:dev1 -l -- \/new/);
+    assert.ok(log.indexOf('-l -- /new') < log.indexOf('-l -- new task'), 'the reset comes before the task');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('a follow-up to a working OpenCode agent keeps its context, and --no-clean never resets', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows()); // dev1 is working
+    assert.equal(run(box, ['prompt', 'dev1', 'follow', 'up'], { WORK_AGENT_RESET_SETTLE: '0' }).status, 0);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/new/, 'no reset while the task is still running');
+
+    writeState(box, idleDev());
+    assert.equal(run(box, ['prompt', 'dev1', 'another', 'task', '--no-clean'], { WORK_AGENT_RESET_SETTLE: '0' }).status, 0);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/new/, '--no-clean opts out of the automatic reset');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('--clean forces the reset even when the snapshot still looks busy', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows()); // dev1 is working
+    const out = run(box, ['prompt', 'dev1', 'task', '--clean'], { WORK_AGENT_RESET_SETTLE: '0' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(readFileSync(box.log, 'utf8'), /send-keys -t work_test:dev1 -l -- \/new/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('--clean on a non-OpenCode target warns and does not send /new', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows()); // qa1 runs Codex
+    const out = run(box, ['prompt', 'qa1', 'task', '--clean'], { WORK_AGENT_RESET_SETTLE: '0' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stderr, /not an OpenCode\/Ollama agent/);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/new/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('wait --clean resets the OpenCode session once the task is done', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows()); // dev1 capture is blocked, so wait --until blocked matches
+    const out = run(box, ['wait', 'dev1', '--until', 'blocked', '--timeout', '5', '--clean'], { WORK_AGENT_RESET_SETTLE: '0' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(out.stdout.trim(), 'dev1\tblocked');
+    assert.match(readFileSync(box.log, 'utf8'), /send-keys -t work_test:dev1 -l -- \/new/);
   } finally {
     box.cleanup();
   }

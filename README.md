@@ -167,6 +167,8 @@ $ python3 scripts/work-agent.py read dev1 --lines 40 --clean
 
 Tutti i comandi si intendono come `python3 scripts/work-agent.py <comando>` e funzionano da qualsiasi finestra del progetto; fuori da tmux la sessione viene rilevata dal nome della directory o da `WORK_TMUX_SESSION`.
 
+Per i target **OpenCode/Ollama** `prompt` apre una sessione pulita con `/new` prima di un nuovo task (solo se il target è idle); `--clean`/`--no-clean` forzano o disabilitano il reset, mentre `wait --clean` azzera la sessione al termine. Plane-Dogwatch fa lo stesso prima di ogni delega e quando il ticket lascia la lavorazione.
+
 Exit code: `0` successo · `1` errore · `2` timeout. Opzioni globali: `--session`, `--root`, `--state`, `--tmux-bin`.
 
 ---

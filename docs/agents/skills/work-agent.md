@@ -18,6 +18,9 @@ python3 scripts/work-agent.py prompt dev1 "Esegui i test del modulo git e riport
 # Attende che il collega raggiunga uno stato, senza sleep ciechi
 python3 scripts/work-agent.py wait dev1 --until idle --timeout 600
 
+# Come sopra, ma azzera la sessione OpenCode/Ollama appena il task è concluso
+python3 scripts/work-agent.py wait dev1 --until done --clean
+
 # Legge l'output recente, ripulito da ANSI e chrome del prompt
 python3 scripts/work-agent.py read dev1 --lines 200 --clean
 ```
@@ -47,6 +50,25 @@ idle precedente all'avvio: attende di aver osservato l'agente passare a
 lo stato subito dopo il prompt e, se serve, legge direttamente il pane per non
 perdere l'avvio tra due aggiornamenti di Dogwatch. Un prompt che non fa partire
 l'agente porta quindi a timeout (exit 2), non a un falso successo.
+
+## Sessioni OpenCode/Ollama
+
+OpenCode (anche avviato con `ollama launch opencode`) accumula sessioni e
+contesto tra un task e l'altro. `work-agent` riconosce il CLI dal comando della
+finestra e, prima di un nuovo task, invia `/new` (alias `/clear`: nuova
+sessione, contesto vuoto) e aspetta che la TUI sia pronta.
+
+- Il reset automatico avviene solo se il target è `idle`: un chiarimento a un
+  task ancora in corso non perde il contesto.
+- `--clean` forza il reset anche se lo snapshot sembra occupato;
+  `--no-clean` lo disabilita.
+- `wait --clean` azzera la sessione quando lo stato richiesto è raggiunto; senza
+  il flag l'output resta leggibile con `read`.
+- Per i target non OpenCode/Ollama il flag è un no-op con avviso su stderr.
+
+Plane-Dogwatch applica la stessa politica: azzera prima di ogni delega e quando
+il ticket lascia lo stato di lavorazione, e pota le sessioni vecchie con
+`opencode session delete` (max una volta ogni 6 ore, le 5 più recenti restano).
 
 ## Codici di uscita
 

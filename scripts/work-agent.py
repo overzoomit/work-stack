@@ -8,8 +8,8 @@ colleague does not add noise to the terminal.
 
 Commands:
     work-agent list
-    work-agent prompt <target_role> "<instruction>"
-    work-agent wait <target_role> [--until blocked|idle|done] [--timeout SEC]
+    work-agent prompt [--clean|--no-clean] <target_role> "<instruction>"
+    work-agent wait [--clean] <target_role> [--until blocked|idle|done] [--timeout SEC]
     work-agent read <target_role> [--lines N] [--clean]
 
 Exit codes: 0 success, 1 error, 2 timeout.
@@ -40,6 +40,12 @@ PROMPT_MARK_TTL = 3600.0
 PROMPT_BARRIER = 60.0
 PLAIN_SESSION = re.compile(r"^[A-Za-z0-9_-]+$")
 PTY_CLIENT = re.compile(r"_pty_\d+$")
+# OpenCode's TUI (also when started through `ollama launch opencode`) resets
+# with /new, whose documented alias is /clear. One active session per task.
+OPENCODE_AGENTS = {"opencode", "ollama"}
+OPENCODE_RESET = "/new"
+# Give the TUI a moment to open the fresh session before typing the task.
+RESET_SETTLE = float(os.environ.get("WORK_AGENT_RESET_SETTLE", "0.4"))
 
 # CSI / OSC / single-character escapes emitted by terminal UIs.
 ANSI_ESCAPE = re.compile(
@@ -246,6 +252,35 @@ def window_of(state: dict[str, object], target: str) -> dict[str, object] | None
     return None
 
 
+def send_literal(tmux, pane: str, text: str, binary: str | None) -> None:
+    sent = tmux.run_tmux(["send-keys", "-t", pane, "-l", "--", text], binary)
+    if sent.returncode != 0:
+        raise AgentError(sent.stderr.strip() or f"cannot send the prompt to {pane}")
+    enter = tmux.run_tmux(["send-keys", "-t", pane, "Enter"], binary)
+    if enter.returncode != 0:
+        raise AgentError(enter.stderr.strip() or f"cannot press Enter in {pane}")
+
+
+def reset_session(tmux, pane: str, binary: str | None) -> None:
+    """Open a fresh OpenCode session: /new is its documented reset command."""
+    send_literal(tmux, pane, OPENCODE_RESET, binary)
+    if RESET_SETTLE > 0:
+        time.sleep(RESET_SETTLE)
+
+
+def target_is_opencode(tmux, session: str, target: str, window: dict[str, object] | None, binary: str | None) -> bool:
+    """The snapshot can name the role (qa1) instead of the CLI actually running."""
+    out = tmux.run_tmux(
+        ["display-message", "-p", "-t", f"{session}:{target}", "#{pane_start_command}\t#{pane_current_command}"],
+        binary,
+    )
+    command = out.stdout.lower() if out.returncode == 0 else ""
+    if command.strip():
+        return "opencode" in command
+    agent = str((window or {}).get("agent") or "").lower()
+    return agent in OPENCODE_AGENTS
+
+
 def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text).replace("\r", "")
 
@@ -299,16 +334,24 @@ def cmd_prompt(args, tmux, root: Path, path: Path, session: str) -> int:
     state = current_state(tmux, path, session, args.tmux_bin, max_age=max_age)
     if window_of(state, target) is None:
         state = live_state(tmux, path, session, args.tmux_bin)
-    if window_of(state, target) is None:
+    window = window_of(state, target)
+    if window is None:
         raise AgentError(f"agent window {target!r} not found in {session}")
     text = " ".join(args.text)
     pane = f"{session}:{target}"
-    sent = tmux.run_tmux(["send-keys", "-t", pane, "-l", "--", text], args.tmux_bin)
-    if sent.returncode != 0:
-        raise AgentError(sent.stderr.strip() or f"cannot send the prompt to {pane}")
-    enter = tmux.run_tmux(["send-keys", "-t", pane, "Enter"], args.tmux_bin)
-    if enter.returncode != 0:
-        raise AgentError(enter.stderr.strip() or f"cannot press Enter in {pane}")
+    # A new task starts from a clean session: for OpenCode/Ollama only, and
+    # only when the target is idle (a follow-up to a running task keeps its
+    # context). --clean forces it, --no-clean disables the automatic reset.
+    opencode = target_is_opencode(tmux, session, target, window, args.tmux_bin)
+    if args.clean is None:
+        do_clean = opencode and str(window.get("state", "idle")) == "idle"
+    else:
+        do_clean = bool(args.clean) and opencode
+        if args.clean and not opencode:
+            print(f"work-agent: {target} is not an OpenCode/Ollama agent; no session reset", file=sys.stderr)
+    if do_clean:
+        reset_session(tmux, pane, args.tmux_bin)
+    send_literal(tmux, pane, text, args.tmux_bin)
     # The agent may still look idle for one Dogwatch poll: remember the prompt
     # so an immediate `wait --until done` cannot accept that pre-start snapshot.
     write_mark(path, session, target)
@@ -326,6 +369,19 @@ def state_mtime(path: Path) -> int | None:
         return path.stat().st_mtime_ns
     except OSError:
         return None
+
+
+def clean_after_wait(args, tmux, state: dict[str, object], session: str, target: str, binary: str | None) -> None:
+    if not getattr(args, "clean", False):
+        return
+    window = window_of(state, target)
+    if not target_is_opencode(tmux, session, target, window, binary):
+        return
+    try:
+        reset_session(tmux, f"{session}:{target}", binary)
+    except AgentError as exc:
+        # The task did complete: a failed reset must not turn it into a timeout.
+        print(f"work-agent: session reset for {target} failed: {exc}", file=sys.stderr)
 
 
 def cmd_wait(args, tmux, root: Path, path: Path, session: str) -> int:
@@ -390,6 +446,7 @@ def cmd_wait(args, tmux, root: Path, path: Path, session: str) -> int:
                 and (last_mtime is None or last_mtime <= active_mtime)
             )
             if not pre_start and not stale:
+                clean_after_wait(args, tmux, state, session, target, args.tmux_bin)
                 clear_mark(path, session, target)
                 print(f"{target}\t{'done' if until == 'done' else value}")
                 return 0
@@ -452,12 +509,22 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(prompt, suppress=True)
     prompt.add_argument("target", help="role/window name, e.g. dev1")
     prompt.add_argument("text", nargs="+", help="instruction text")
+    clean = prompt.add_mutually_exclusive_group()
+    clean.add_argument(
+        "--clean",
+        dest="clean",
+        action="store_true",
+        default=None,
+        help="reset an OpenCode/Ollama session with /new before the prompt (default: only when the target is idle)",
+    )
+    clean.add_argument("--no-clean", dest="clean", action="store_false", help="never reset the session before the prompt")
 
     wait = sub.add_parser("wait", help="wait until an agent reaches a state")
     add_common(wait, suppress=True)
     wait.add_argument("target", help="role/window name, e.g. dev1")
     wait.add_argument("--until", choices=("blocked", "idle", "done"), default="idle", help="state to wait for (default: idle; done is an alias for idle/finished)")
     wait.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help=f"seconds before exit 2 (default: {DEFAULT_TIMEOUT:g}; 0 waits forever)")
+    wait.add_argument("--clean", action="store_true", help="reset an OpenCode/Ollama session with /new once the target reaches the state")
 
     read = sub.add_parser("read", help="read an agent's recent output")
     add_common(read, suppress=True)
