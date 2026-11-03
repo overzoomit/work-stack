@@ -194,3 +194,97 @@ test('ensureInitialTerminal opens one plain shell when tmux has no windows or is
   }
   env.tmuxAvailable = false;
 });
+
+test('re-attaches a saved window whose tmux id changed, following its name', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_renumbered';
+  env.tmuxWindows = [{ id: '@0', name: 'pm', active: true, path: '/home/u/renumbered' }];
+  env.created = [];
+
+  const p = {
+    path: '/home/u/renumbered', focusedId: null, maximizedId: null,
+    savedTerminals: [{ title: 'pm', tmuxWindow: '@15', tmuxName: 'pm', cwd: null }],
+  };
+  T.showProject(p);
+
+  const reattached = await T.ensureInitialTerminal(p);
+  assert.equal(reattached.length, 1);
+  assert.equal(reattached[0].tmuxWindow, '@0', 'follows the window by name instead of the dead id');
+  assert.equal(env.created[0].tmux_window, '@0', 'attaches the current window id');
+  assert.deepEqual(p.savedTerminals, [], 'restored once');
+  assert.deepEqual(T.terminalLayout(p).map((s) => [s.title, s.tmuxWindow]), [['pm', '@0']]);
+
+  await closeAll(p);
+  env.tmuxAvailable = false;
+});
+
+test('syncProjectTerminals ensures the tmux session before listing its windows', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_init_order';
+  env.tmuxWindows = [];
+  env.tmuxCalls = [];
+
+  const p = { path: '/home/u/init-order', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  await T.syncProjectTerminals(p);
+
+  assert.deepEqual(env.tmuxCalls.slice(0, 2), [
+    ['ensureSession', 'work_init_order', '/home/u/init-order'],
+    ['listWindows', 'work_init_order'],
+  ], 'the session is created/checked before any window scan');
+
+  env.tmuxAvailable = false;
+});
+
+test('a transient tmux failure keeps savedTerminals instead of overwriting state.json', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_transient';
+  env.tmuxWindows = [{ id: '@0', name: 'pm', active: true, path: '/home/u/transient' }];
+  env.tmuxListError = new Error('error connecting to /tmp/tmux-1000/default');
+  env.created = [];
+
+  const saved = [{ title: 'pm', tmuxWindow: '@7', tmuxName: 'pm', cwd: null }];
+  const p = { path: '/home/u/transient', focusedId: null, maximizedId: null, savedTerminals: saved };
+  T.showProject(p);
+
+  assert.deepEqual(await T.ensureInitialTerminal(p), [], 'no fallback shell while tmux is unreachable');
+  assert.deepEqual(p.savedTerminals, saved, 'the saved windows survive the failure');
+  assert.deepEqual(T.terminalLayout(p), saved, 'state.json keeps the history');
+  assert.equal(env.created.length, 0, 'no pty is opened');
+
+  // The socket answers again: the next activation realigns the saved windows.
+  env.tmuxListError = null;
+  const reattached = await T.ensureInitialTerminal(p);
+  assert.equal(reattached.length, 1);
+  assert.equal(reattached[0].tmuxWindow, '@0');
+  assert.deepEqual(p.savedTerminals, [], 'restored once tmux confirms the windows');
+
+  await closeAll(p);
+  env.tmuxAvailable = false;
+});
+
+test('an ensureSession failure also preserves savedTerminals', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_no_session';
+  env.tmuxWindows = [{ id: '@0', name: 'qa1', active: true, path: '/home/u/no-session' }];
+  env.tmuxEnsureError = new Error("can't find session: work_no_session");
+  env.created = [];
+
+  const saved = [{ title: 'qa1', tmuxWindow: '@3', tmuxName: 'qa1', cwd: null }];
+  const p = { path: '/home/u/no-session', focusedId: null, maximizedId: null, savedTerminals: saved };
+  T.showProject(p);
+
+  assert.deepEqual(await T.ensureInitialTerminal(p), [], 'does not open the fallback shell');
+  assert.deepEqual(p.savedTerminals, saved);
+  assert.equal(T.terminalLayout(p), saved);
+  assert.equal(env.created.length, 0);
+
+  env.tmuxEnsureError = null;
+  env.created = [];
+  const reattached = await T.ensureInitialTerminal(p);
+  assert.equal(reattached.length, 1);
+  assert.equal(reattached[0].tmuxWindow, '@0');
+
+  await closeAll(p);
+  env.tmuxAvailable = false;
+});

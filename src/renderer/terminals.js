@@ -601,46 +601,86 @@ export function terminalLayout(project) {
 // without any, one plain shell. Windows closed with ✕ stay detached in tmux.
 export async function ensureInitialTerminal(project) {
   if (!project || terminalsOf(project).length > 0) return [];
-  const reattached = await syncProjectTerminals(project, project.savedTerminals);
-  // Restored once: closing every pane later must not bring the windows back.
+  const saved = Array.isArray(project.savedTerminals) ? project.savedTerminals : null;
+  const { reattached, ok } = await syncProjectTerminalsResult(project, saved);
+
+  if (reattached.length) {
+    // Restored once: closing every pane later must not bring the windows back.
+    project.savedTerminals = [];
+    return reattached;
+  }
+  // tmux did not answer (socket still coming up, server restarting, session
+  // gone). Keep the saved layout and skip the fallback shell: that shell would
+  // be written straight over state.json, losing the agent windows for good.
+  // The next activation retries the realignment.
+  if (!ok && saved?.length) return [];
+
   project.savedTerminals = [];
-  return reattached.length ? reattached : [await openTerminal(project)];
+  return [await openTerminal(project)];
 }
 
-// Reattaches the project's tmux windows that have no pane: all of them, or
-// only those in `saved` (by window id, in saved order) when given.
-export async function syncProjectTerminals(project, saved = null) {
-  if (!project || !work?.tmux) return [];
+// One re-attach pass. `ok` tells whether tmux actually answered: on a
+// transient failure an empty result means "unknown", not "nothing to restore".
+async function syncProjectTerminalsResult(project, saved = null) {
+  const failed = { reattached: [], ok: false };
+  if (!project || !work?.tmux) return failed;
+
   const available = await work.tmux.isAvailable().catch(() => false);
-  if (!available) return [];
+  if (!available) return failed;
 
   const session = await work.tmux.sessionForProject(project.path).catch(() => null);
-  if (!session) return [];
+  if (!session) return failed;
 
-  const windows = await work.tmux.listWindows(session).catch(() => []);
-  if (!windows || !windows.length) return [];
+  // Right after launch the tmux daemon or the project session may not exist
+  // yet: ensure it before listing, or list-windows races the socket.
+  if (work.tmux.ensureSession) {
+    const ensured = await work.tmux.ensureSession(session, project.path).then(() => true).catch(() => false);
+    if (!ensured) return failed;
+  }
+
+  const windows = await work.tmux.listWindows(session).catch(() => null);
+  if (!Array.isArray(windows)) return failed;
 
   const wanted = saved
     ? saved.flatMap((s) => {
-        const win = windows.find((w) => w.id === s.tmuxWindow);
-        return win ? [{ ...win, title: s.title || win.name }] : [];
+        // A tmux restart renumbers windows (@15 becomes @0): follow a saved
+        // window by its name too, not only by the id it had last time.
+        const win = windows.find((w) =>
+          w.id === s.tmuxWindow
+          || (s.tmuxName && w.name === s.tmuxName)
+          || (s.title && w.name === s.title));
+        return win ? [{ ...win, title: s.title || win.name, saved: s }] : [];
       })
-    : windows.map((w) => ({ ...w, title: w.name }));
+    : windows.map((w) => ({ ...w, title: w.name, saved: null }));
   const existingPanes = terminalsOf(project);
   const reattached = [];
 
   for (const win of wanted) {
-    const alreadyOpen = existingPanes.some((p) => p.tmuxWindow === win.id || p.title === win.name);
-    if (!alreadyOpen) {
-      const pane = await openTerminal(project, {
-        cwd: win.path || project.path,
-        title: win.title,
-        tmuxSession: session,
-        tmuxWindow: win.id,
-        tmuxName: win.name,
-      });
-      reattached.push(pane);
+    // Remember the id the window has now, so the saved layout stops pointing
+    // at the dead one even before the next state.json write.
+    if (win.saved) win.saved.tmuxWindow = win.id;
+    const alreadyOpen = existingPanes.find((p) =>
+      p.tmuxWindow === win.id
+      || (p.tmuxName && p.tmuxName === win.name)
+      || p.title === win.name);
+    if (alreadyOpen) {
+      alreadyOpen.tmuxWindow = win.id;
+      continue;
     }
+    const pane = await openTerminal(project, {
+      cwd: win.path || project.path,
+      title: win.title,
+      tmuxSession: session,
+      tmuxWindow: win.id,
+      tmuxName: win.name,
+    });
+    reattached.push(pane);
   }
-  return reattached;
+  return { reattached, ok: true };
+}
+
+// Reattaches the project's tmux windows that have no pane: all of them, or
+// only those in `saved` (by id or name, in saved order) when given.
+export async function syncProjectTerminals(project, saved = null) {
+  return (await syncProjectTerminalsResult(project, saved)).reattached;
 }

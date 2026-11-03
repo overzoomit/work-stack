@@ -141,6 +141,12 @@ export const env = {
   // ngrok: calls in order; `status` is what ngrok.status answers, `start` what
   // ngrok.start answers (an Error rejects), `gate` holds the next start.
   ngrok: { calls: [], status: { active: false }, start: null, gate: null, onUpdate: null },
+  // tmux calls in order, and injected transient failures (undefined: none).
+  tmuxCalls: [],
+  tmuxEnsureError: null,
+  tmuxListError: null,
+  tmuxWindowOf: null,
+  createdWindows: [],
 };
 let nextId = 1;
 globalThis.window = {
@@ -177,8 +183,15 @@ globalThis.window = {
     tmux: {
       isAvailable: async () => env.tmuxAvailable ?? false,
       sessionForProject: async (path) => env.tmuxSession ?? 'work_test',
-      listWindows: async (session) => env.tmuxWindows ?? [],
-      ensureSession: async () => {},
+      listWindows: async (session) => {
+        env.tmuxCalls.push(['listWindows', session]);
+        if (env.tmuxListError) throw env.tmuxListError;
+        return env.tmuxWindows ?? [];
+      },
+      ensureSession: async (session, cwd) => {
+        env.tmuxCalls.push(['ensureSession', session, cwd]);
+        if (env.tmuxEnsureError) throw env.tmuxEnsureError;
+      },
       // Same argument order as bridge.js: call('tmux_new_window', 'session', 'name', 'cwd', 'command').
       newWindow: async (session, name, cwd, command) => {
         const id = `@${(env.tmuxWindows?.length || 0)}`;
