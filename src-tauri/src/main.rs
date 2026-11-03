@@ -104,6 +104,7 @@ fn main() {
             };
             diag::init(&log.join("work.log"));
             settings::init(app.handle());
+            settings::apply_env();
             app::log_start(app.handle());
             let handle = app.handle().clone();
             std::thread::spawn(move || {

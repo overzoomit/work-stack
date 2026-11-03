@@ -127,6 +127,42 @@ pub fn plane_settings() -> AppSettings {
     load(&file())
 }
 
+/// Key-value environment pairs that are exported globally to tmux and the runtime
+/// so that every agent window, terminal and child process can access them.
+pub fn agent_env_vars() -> Vec<(String, String)> {
+    let s = load(&file());
+    let mut vars = Vec::new();
+    if !s.plane_api_key.is_empty() {
+        vars.push(("PLANE_API_KEY".into(), s.plane_api_key));
+    }
+    if !s.plane_base_url.is_empty() {
+        vars.push(("PLANE_BASE_URL".into(), s.plane_base_url));
+    }
+    if !s.plane_workspace.is_empty() {
+        vars.push(("PLANE_WORKSPACE".into(), s.plane_workspace.clone()));
+        vars.push(("PLANE_WORKSPACE_SLUG".into(), s.plane_workspace));
+    }
+    if !s.jev_api_key.is_empty() {
+        vars.push(("JEV_API_KEY".into(), s.jev_api_key));
+    }
+    if !s.jev_endpoint.is_empty() {
+        vars.push(("JEV_ENDPOINT".into(), s.jev_endpoint));
+    }
+    for (k, v) in s.custom_env {
+        vars.push((k, v));
+    }
+    vars
+}
+
+/// Applies global settings to the current process environment and propagates them
+/// to the global tmux environment so agents receive them immediately.
+pub fn apply_env() {
+    for (k, v) in agent_env_vars() {
+        std::env::set_var(&k, &v);
+    }
+    crate::tmux::sync_agent_env(None);
+}
+
 #[tauri::command]
 pub fn settings_get() -> AppSettings {
     plane_settings()
@@ -136,6 +172,7 @@ pub fn settings_get() -> AppSettings {
 pub fn settings_save(settings: AppSettings) -> Result<AppSettings, String> {
     let settings = normalize(settings);
     save(&file(), &settings).map_err(|e| format!("cannot save settings: {e}"))?;
+    apply_env();
     Ok(settings)
 }
 
@@ -295,6 +332,24 @@ mod tests {
         assert_eq!(s.jev_endpoint, "");
         assert_eq!(s.custom_env.len(), 1);
         assert_eq!(s.custom_env["GOOD_KEY"], "1");
+    }
+
+    #[test]
+    fn agent_env_vars_extracts_plane_jev_and_custom_env() {
+        let d = dir();
+        let f = d.path().join("settings.json");
+        let s = normalize(AppSettings {
+            plane_api_key: "plane-secret".into(),
+            plane_base_url: "https://plane.oz.it".into(),
+            plane_workspace: "oz".into(),
+            jev_api_key: "jev-secret".into(),
+            jev_endpoint: "https://jev.oz.it/api".into(),
+            custom_env: BTreeMap::from([("MY_VAR".into(), "val".into())]),
+        });
+        save(&f, &s).unwrap();
+        let loaded = load(&f);
+        assert_eq!(loaded.plane_api_key, "plane-secret");
+        assert_eq!(loaded.jev_api_key, "jev-secret");
     }
 
     #[test]

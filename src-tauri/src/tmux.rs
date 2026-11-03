@@ -121,11 +121,18 @@ fn set_environment_args(vars: &[(&str, String)], scope: &[&str]) -> Vec<String> 
 // are set before any session or window is created (windows already running
 // keep theirs). The session scope matters too: it overrides the global one.
 // The shared plugins folder travels the same way.
-fn sync_agent_env(session: Option<&str>) {
+// The global settings credentials (Plane, Jev, custom environment) are also
+// propagated so that every agent has access across projects and sessions.
+pub fn sync_agent_env(session: Option<&str>) {
     let mut vars = crate::mcp::graphical_env_now();
     vars.push(crate::plugins::env());
+    let agent_vars = crate::settings::agent_env_vars();
+    let mut all_vars: Vec<(&str, String)> = vars;
+    for (k, v) in &agent_vars {
+        all_vars.push((k.as_str(), v.clone()));
+    }
     let run = |scope: &[&str]| {
-        let args = set_environment_args(&vars, scope);
+        let args = set_environment_args(&all_vars, scope);
         if !args.is_empty() {
             let _ = run_tmux(&args.iter().map(String::as_str).collect::<Vec<_>>());
         }
