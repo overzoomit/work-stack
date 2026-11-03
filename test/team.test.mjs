@@ -690,7 +690,7 @@ test('the skill editor saves, previews and resets from the modal', () => {
   assert.equal(reopened.el.isConnected, false);
 });
 
-test('every role family header exposes the info button and opens its editor', async () => {
+test('every role family header exposes the skill button and opens its editor', async () => {
   const project = { path: '/home/u/info-proj', name: 'Info' };
   Team.initTeam({ activeProject: () => project });
 
@@ -699,7 +699,8 @@ test('every role family header exposes the info button and opens its editor', as
   assert.ok(pop);
 
   const families = [...pop.innerHTML.matchAll(/data-act="edit-skill" data-family="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(families, ['pm', 'dev', 'qa', 'doc', 'generic'], 'one info button per role family');
+  assert.deepEqual(families, ['pm', 'dev', 'qa', 'doc', 'generic'], 'one skill button per role family');
+  assert.match(pop.innerHTML, /class="[^"]*tp-skill-btn[^"]*"[^>]*>Skill</);
 
   await pop.listeners.click[0]({
     target: {
@@ -711,7 +712,7 @@ test('every role family header exposes the info button and opens its editor', as
     },
   });
   const modal = document.body.children.filter((c) => c.className?.includes('skill-modal')).at(-1);
-  assert.ok(modal, 'clicking the info icon opens the skill editor');
+  assert.ok(modal, 'clicking the skill button opens the skill editor');
   assert.match(modal.innerHTML, /Documentation Specialist/);
 
   Team.closeSkillEditor();

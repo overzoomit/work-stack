@@ -805,7 +805,7 @@ async function renderPopContent(probeMcp = true) {
           <span>👑 Project Manager (PM - 1 only)</span>
           <span class="tp-head-right">
             <span style="font-size:10px;font-weight:normal;color:var(--text-2);">${pmActive ? 'Assigned' : 'Not configured'}</span>
-            <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="pm" title="View and edit the PM skill prompt">ℹ</button>
+            <button class="tp-skill-btn tp-info-btn" data-act="edit-skill" data-family="pm" title="View and edit the PM skill prompt">Skill</button>
           </span>
         </div>
         ${pmActive ? `
@@ -836,7 +836,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>💻 Developers (${devList.length} active)</span>
-          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="dev" title="View and edit the DEV skill prompt">ℹ</button>
+          <button class="tp-skill-btn tp-info-btn" data-act="edit-skill" data-family="dev" title="View and edit the DEV skill prompt">Skill</button>
         </div>
         ${devList.map((devName) => `
           <div class="tp-row" data-focus-role="${esc(devName)}" title="Click to open the ${esc(devName)} terminal">
@@ -864,7 +864,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>🛡️ Quality Assurance (${qaList.length} active)</span>
-          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="qa" title="View and edit the QA skill prompt">ℹ</button>
+          <button class="tp-skill-btn tp-info-btn" data-act="edit-skill" data-family="qa" title="View and edit the QA skill prompt">Skill</button>
         </div>
         ${qaList.map((qaName) => `
           <div class="tp-row" data-focus-role="${esc(qaName)}" title="Click to open the ${esc(qaName)} terminal">
@@ -892,7 +892,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>📝 Documentation (${docList.length} active)</span>
-          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="doc" title="View and edit the DOC skill prompt">ℹ</button>
+          <button class="tp-skill-btn tp-info-btn" data-act="edit-skill" data-family="doc" title="View and edit the DOC skill prompt">Skill</button>
         </div>
         ${docList.map((docName) => `
           <div class="tp-row" data-focus-role="${esc(docName)}" title="Click to open the ${esc(docName)} terminal">
@@ -920,7 +920,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-section">
         <div class="tp-section-head">
           <span>🤖 Generic (${agentList.length} active)</span>
-          <button class="icon-btn tp-info-btn" data-act="edit-skill" data-family="generic" title="View and edit the generic agent skill prompt">ℹ</button>
+          <button class="tp-skill-btn tp-info-btn" data-act="edit-skill" data-family="generic" title="View and edit the generic agent skill prompt">Skill</button>
         </div>
         ${agentList.map((agentName) => `
           <div class="tp-row" data-focus-role="${esc(agentName)}" title="Click to open the ${esc(agentName)} terminal">
