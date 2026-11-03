@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-label="Work orchestration: persistent tmux session, PTY panes, work-agent CLI, SSH, ngrok and Telegram">
+  <defs>
+    <linearGradient id="obg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080a10"/>
+      <stop offset="0.6" stop-color="#0c0f18"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <radialGradient id="oglowA" cx="12%" cy="10%" r="55%">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="oglowB" cx="92%" cy="86%" r="55%">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="opm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c084fc"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="odev" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0e7490"/>
+    </linearGradient>
+    <linearGradient id="oqa" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="ogen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <pattern id="ogrid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity="0.03"/>
+    </pattern>
+    <marker id="oarrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#64748b"/>
+    </marker>
+    <marker id="ocyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#22d3ee"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="520" fill="url(#obg)"/>
+  <rect width="1200" height="520" fill="url(#ogrid)"/>
+  <rect width="1200" height="520" fill="url(#oglowA)"/>
+  <rect width="1200" height="520" fill="url(#oglowB)"/>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+    <text x="56" y="50" fill="#f4f6fb" font-size="24" font-weight="700">Persistent tmux orchestration</text>
+    <text x="56" y="76" fill="#8b95a7" font-size="13">one session per project &#183; real PTY panes &#183; detach and re-attach &#183; remote surfaces</text>
+
+    <!-- Work app -->
+    <g transform="translate(56 110)">
+      <rect width="272" height="306" rx="18" fill="#0b0e15" stroke="#ffffff" stroke-opacity="0.12"/>
+      <rect width="272" height="36" rx="18" fill="#ffffff" fill-opacity="0.045"/>
+      <circle cx="20" cy="18" r="4" fill="#ff5f57"/>
+      <circle cx="36" cy="18" r="4" fill="#febc2e"/>
+      <circle cx="52" cy="18" r="4" fill="#28c840"/>
+      <text x="70" y="23" fill="#8b95a7" font-size="11">work &#183; Tauri 2</text>
+
+      <!-- mini terminal grid -->
+      <rect x="18" y="54" width="112" height="62" rx="8" fill="#0f1420" stroke="#22d3ee" stroke-opacity="0.35"/>
+      <text x="28" y="72" fill="#38bdf8" font-size="10" font-weight="700">DEV1</text>
+      <text x="28" y="90" fill="#6b7280" font-size="9">$ npm test</text>
+      <text x="28" y="104" fill="#4b5563" font-size="9">running&#8230;</text>
+      <rect x="142" y="54" width="112" height="62" rx="8" fill="#0f1420" stroke="#a855f7" stroke-opacity="0.3"/>
+      <text x="152" y="72" fill="#c084fc" font-size="10" font-weight="700">PM</text>
+      <text x="152" y="90" fill="#6b7280" font-size="9">delegating&#8230;</text>
+      <rect x="18" y="124" width="112" height="62" rx="8" fill="#0f1420" stroke="#10b981" stroke-opacity="0.3"/>
+      <text x="28" y="142" fill="#6ee7b7" font-size="10" font-weight="700">QA1</text>
+      <text x="28" y="160" fill="#6b7280" font-size="9">e2e checks</text>
+      <rect x="142" y="124" width="112" height="62" rx="8" fill="#0f1420" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="152" y="142" fill="#cbd5e1" font-size="10" font-weight="700">AGENT1</text>
+      <text x="152" y="160" fill="#6b7280" font-size="9">generic task</text>
+
+      <path d="M18 204H254" stroke="#ffffff" stroke-opacity="0.08"/>
+      <text x="18" y="226" fill="#8b95a7" font-size="10">PTY attach &#183; portable-pty</text>
+      <text x="18" y="244" fill="#8b95a7" font-size="10">flow control &#183; resize &#183; ack</text>
+      <text x="18" y="262" fill="#8b95a7" font-size="10">tmux status bar off in panes</text>
+      <text x="18" y="280" fill="#8b95a7" font-size="10">clean detach on quit</text>
+    </g>
+
+    <path d="M332 253H384" stroke="#22d3ee" stroke-width="1.6" stroke-opacity="0.65" marker-end="url(#ocyan)"/>
+    <text x="332" y="242" fill="#5eead4" font-size="10">PTY</text>
+
+    <!-- tmux session -->
+    <g transform="translate(392 110)">
+      <rect width="456" height="306" rx="18" fill="#0b0e15" stroke="#22d3ee" stroke-opacity="0.28"/>
+      <rect width="456" height="36" rx="18" fill="#22d3ee" fill-opacity="0.07"/>
+      <text x="18" y="23" fill="#67e8f9" font-size="11">tmux &#183; work_&lt;name&gt;_&lt;hash&gt;</text>
+      <circle cx="430" cy="18" r="4" fill="#30d158"/>
+      <text x="420" y="22" text-anchor="end" fill="#6ee7b7" font-size="9">ATTACHED</text>
+
+      <!-- window chips -->
+      <g font-size="10" font-weight="700">
+        <rect x="18" y="52" width="78" height="26" rx="7" fill="url(#opm)" fill-opacity="0.2" stroke="#8b5cf6" stroke-opacity="0.55"/>
+        <text x="57" y="69" text-anchor="middle" fill="#c4b5fd">0:pm</text>
+        <rect x="106" y="52" width="78" height="26" rx="7" fill="url(#odev)" fill-opacity="0.2" stroke="#22d3ee" stroke-opacity="0.5"/>
+        <text x="145" y="69" text-anchor="middle" fill="#7dd3fc">1:dev1</text>
+        <rect x="194" y="52" width="78" height="26" rx="7" fill="url(#odev)" fill-opacity="0.2" stroke="#22d3ee" stroke-opacity="0.5"/>
+        <text x="233" y="69" text-anchor="middle" fill="#7dd3fc">2:dev2</text>
+        <rect x="282" y="52" width="78" height="26" rx="7" fill="url(#oqa)" fill-opacity="0.2" stroke="#34d399" stroke-opacity="0.5"/>
+        <text x="321" y="69" text-anchor="middle" fill="#6ee7b7">3:qa1</text>
+        <rect x="370" y="52" width="68" height="26" rx="7" fill="url(#ogen)" fill-opacity="0.2" stroke="#fbbf24" stroke-opacity="0.5"/>
+        <text x="404" y="69" text-anchor="middle" fill="#fcd34d">4:agent1</text>
+      </g>
+
+      <!-- mock pane -->
+      <rect x="18" y="94" width="420" height="128" rx="10" fill="#080b12" stroke="#ffffff" stroke-opacity="0.08"/>
+      <text x="32" y="116" fill="#4b5563" font-size="10">&#10095; work-agent prompt dev1 "run the regression suite"</text>
+      <text x="32" y="136" fill="#22d3ee" font-size="10">sent &#8594; dev1</text>
+      <text x="32" y="156" fill="#4b5563" font-size="10">&#10095; work-agent wait dev1 --until idle</text>
+      <text x="32" y="176" fill="#30d158" font-size="10">dev1 &#183; idle &#183; opencode &#183; 0 sleeps</text>
+      <text x="32" y="196" fill="#4b5563" font-size="10">&#10095; work-agent read dev1 --clean --lines 40</text>
+      <text x="32" y="214" fill="#8b95a7" font-size="10">&#8230; 412 passed, 0 failed</text>
+
+      <text x="18" y="248" fill="#8b95a7" font-size="10">survives app quit, update and reboot</text>
+      <text x="18" y="266" fill="#8b95a7" font-size="10">re-attached automatically on launch</text>
+      <text x="18" y="284" fill="#6b7280" font-size="10">session adopted by folder name, else deterministic hash</text>
+    </g>
+
+    <path d="M854 253H894" stroke="#64748b" stroke-width="1.6" stroke-opacity="0.6" marker-end="url(#oarrow)"/>
+    <text x="852" y="242" fill="#8b95a7" font-size="10">bridges</text>
+
+    <!-- remote surfaces -->
+    <g transform="translate(900 110)">
+      <rect width="244" height="306" rx="18" fill="#0b0e15" stroke="#ffffff" stroke-opacity="0.12"/>
+      <text x="18" y="27" fill="#8b95a7" font-size="10" letter-spacing="2">REMOTE SURFACES</text>
+
+      <rect x="16" y="42" width="212" height="54" rx="10" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="30" y="63" fill="#cbd5e1" font-size="11" font-weight="700">SSH project</text>
+      <text x="30" y="82" fill="#6b7280" font-size="9">ssh -t &#183; remote tmux windows</text>
+
+      <rect x="16" y="104" width="212" height="54" rx="10" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="30" y="125" fill="#cbd5e1" font-size="11" font-weight="700">ngrok tunnel</text>
+      <text x="30" y="144" fill="#6b7280" font-size="9">http &#183; tcp &#183; tls &#183; one per project</text>
+
+      <rect x="16" y="166" width="212" height="54" rx="10" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="30" y="187" fill="#cbd5e1" font-size="11" font-weight="700">Telegram bridge</text>
+      <text x="30" y="206" fill="#6b7280" font-size="9">PM only &#183; replies flow back</text>
+
+      <rect x="16" y="226" width="212" height="48" rx="10" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="30" y="247" fill="#cbd5e1" font-size="11" font-weight="700">Plane board</text>
+      <text x="30" y="266" fill="#6b7280" font-size="9">tickets delegated automatically</text>
+    </g>
+
+    <!-- work-agent strip -->
+    <g transform="translate(56 432)">
+      <rect width="1088" height="64" rx="16" fill="#22d3ee" fill-opacity="0.05" stroke="#22d3ee" stroke-opacity="0.22"/>
+      <text x="24" y="24" fill="#8b95a7" font-size="10" letter-spacing="2">INTER-AGENT CLI</text>
+      <text x="24" y="48" fill="#67e8f9" font-size="12">work-agent list</text>
+      <text x="168" y="48" fill="#6b7280" font-size="10">&#183;</text>
+      <text x="184" y="48" fill="#67e8f9" font-size="12">prompt &lt;role&gt; "&#8230;"</text>
+      <text x="356" y="48" fill="#6b7280" font-size="10">&#183;</text>
+      <text x="372" y="48" fill="#67e8f9" font-size="12">wait &lt;role&gt; --until idle|blocked</text>
+      <text x="620" y="48" fill="#6b7280" font-size="10">&#183;</text>
+      <text x="636" y="48" fill="#67e8f9" font-size="12">read &lt;role&gt; --clean</text>
+      <text x="824" y="48" fill="#8b95a7" font-size="10">exit 0 ok &#183; 1 error &#183; 2 timeout</text>
+    </g>
+  </g>
+</svg>

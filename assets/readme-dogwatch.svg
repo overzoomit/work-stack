@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-label="Dogwatch state machine: manifests, shared snapshot, reactive wait and live LED">
+  <defs>
+    <linearGradient id="dbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0c12"/>
+      <stop offset="1" stop-color="#0d1018"/>
+    </linearGradient>
+    <radialGradient id="dglow" cx="8%" cy="92%" r="62%">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="dglow2" cx="94%" cy="8%" r="52%">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="darrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#64748b"/>
+    </marker>
+    <marker id="dgreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#30d158"/>
+    </marker>
+    <marker id="dorange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="470" fill="url(#dbg)"/>
+  <rect width="1200" height="470" fill="url(#dglow)"/>
+  <rect width="1200" height="470" fill="url(#dglow2)"/>
+
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+    <text x="56" y="50" fill="#f4f6fb" font-size="24" font-weight="700">Dogwatch state machine</text>
+    <text x="56" y="76" fill="#8b95a7" font-size="13">TOML manifests &#183; shared snapshot &#183; reactive wait &#183; project live LED</text>
+
+    <!-- lifecycle -->
+    <g transform="translate(56 112)">
+      <!-- idle -->
+      <rect width="212" height="104" rx="16" fill="#94a3b8" fill-opacity="0.06" stroke="#94a3b8" stroke-opacity="0.32"/>
+      <circle cx="26" cy="30" r="5" fill="#94a3b8"/>
+      <text x="42" y="35" fill="#cbd5e1" font-size="13" font-weight="700">IDLE</text>
+      <text x="22" y="64" fill="#9aa4b6" font-size="11">waiting for the next task</text>
+      <text x="22" y="84" fill="#6b7280" font-size="10">state = idle</text>
+
+      <!-- working -->
+      <rect x="272" width="212" height="104" rx="16" fill="#30d158" fill-opacity="0.08" stroke="#30d158" stroke-opacity="0.42"/>
+      <circle cx="298" cy="30" r="5" fill="#30d158"/>
+      <text x="314" y="35" fill="#6ee7b7" font-size="13" font-weight="700">WORKING</text>
+      <text x="294" y="64" fill="#9aa4b6" font-size="11">spinner &#183; output moving</text>
+      <text x="294" y="84" fill="#6b7280" font-size="10">state = working</text>
+
+      <!-- blocked -->
+      <rect x="544" width="212" height="104" rx="16" fill="#f59e0b" fill-opacity="0.08" stroke="#f59e0b" stroke-opacity="0.42"/>
+      <circle cx="570" cy="30" r="5" fill="#f59e0b"/>
+      <text x="586" y="35" fill="#fcd34d" font-size="13" font-weight="700">BLOCKED</text>
+      <text x="566" y="64" fill="#9aa4b6" font-size="11">permission &#183; question</text>
+      <text x="566" y="84" fill="#6b7280" font-size="10">state = blocked</text>
+
+      <!-- forward arrows -->
+      <path d="M214 52H262" stroke="#64748b" stroke-width="1.5" stroke-opacity="0.65" marker-end="url(#darrow)"/>
+      <text x="214" y="42" fill="#8b95a7" font-size="10">prompt</text>
+      <path d="M486 52H534" stroke="#f59e0b" stroke-width="1.5" stroke-opacity="0.7" marker-end="url(#dorange)"/>
+      <text x="466" y="40" fill="#8b95a7" font-size="10">needs input</text>
+
+      <!-- return arrows -->
+      <path d="M650 112C650 148 486 148 486 118" fill="none" stroke="#30d158" stroke-width="1.5" stroke-opacity="0.65" marker-end="url(#dgreen)"/>
+      <text x="520" y="156" fill="#8b95a7" font-size="10">PM answer</text>
+      <path d="M378 112C378 182 140 182 140 124" fill="none" stroke="#64748b" stroke-width="1.5" stroke-opacity="0.6" marker-end="url(#darrow)"/>
+      <text x="196" y="190" fill="#8b95a7" font-size="10">settles &#183; done</text>
+    </g>
+
+    <!-- LED column -->
+    <g transform="translate(820 112)">
+      <rect width="324" height="104" rx="16" fill="#ffffff" fill-opacity="0.035" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="20" y="26" fill="#8b95a7" font-size="10" letter-spacing="2">TOP-BAR LED</text>
+
+      <circle cx="34" cy="48" r="9" fill="#30d158" fill-opacity="0.16" stroke="#30d158" stroke-opacity="0.45"/>
+      <circle cx="34" cy="48" r="4" fill="#30d158"/>
+      <text x="54" y="45" fill="#6ee7b7" font-size="11" font-weight="700">Live</text>
+      <text x="54" y="60" fill="#6b7280" font-size="10">Dogwatch listening</text>
+
+      <circle cx="34" cy="80" r="9" fill="#f59e0b" fill-opacity="0.16" stroke="#f59e0b" stroke-opacity="0.45"/>
+      <circle cx="34" cy="80" r="4" fill="#f59e0b"/>
+      <text x="54" y="77" fill="#fcd34d" font-size="11" font-weight="700">Blocked</text>
+      <text x="54" y="92" fill="#6b7280" font-size="10">an agent waits for an answer</text>
+
+      <circle cx="214" cy="48" r="9" fill="#64748b" fill-opacity="0.16" stroke="#94a3b8" stroke-opacity="0.35"/>
+      <circle cx="214" cy="48" r="4" fill="#64748b"/>
+      <text x="234" y="45" fill="#cbd5e1" font-size="11" font-weight="700">Off</text>
+      <text x="234" y="60" fill="#6b7280" font-size="10">no tmux session</text>
+    </g>
+
+    <!-- detection pipeline -->
+    <g transform="translate(56 282)">
+      <rect width="360" height="150" rx="16" fill="#ffffff" fill-opacity="0.035" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="22" y="30" fill="#8b95a7" font-size="10" letter-spacing="2">1 &#183; DETECT</text>
+      <text x="22" y="58" fill="#a78bfa" font-size="12">src-tauri/detect/manifests/*.toml</text>
+      <text x="22" y="80" fill="#6b7280" font-size="10">priority rules &#183; regex &#183; prompt_type</text>
+      <text x="22" y="102" fill="#6b7280" font-size="10">antigravity &#183; claude &#183; opencode</text>
+      <text x="22" y="120" fill="#6b7280" font-size="10">codex &#183; gemini &#183; generic</text>
+      <text x="22" y="140" fill="#8b95a7" font-size="10">data, not code: add a file, add an agent</text>
+    </g>
+
+    <path d="M420 357H450" stroke="#64748b" stroke-width="1.5" stroke-opacity="0.55" marker-end="url(#darrow)"/>
+
+    <g transform="translate(462 282)">
+      <rect width="360" height="150" rx="16" fill="#ffffff" fill-opacity="0.035" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="22" y="30" fill="#8b95a7" font-size="10" letter-spacing="2">2 &#183; SNAPSHOT</text>
+      <text x="22" y="58" fill="#22d3ee" font-size="12">.claude/dogwatch_state.json</text>
+      <text x="22" y="80" fill="#6b7280" font-size="10">{ updated_at, session, live,</text>
+      <text x="22" y="98" fill="#6b7280" font-size="10">  windows[{ name, agent,</text>
+      <text x="22" y="116" fill="#6b7280" font-size="10">    state, rule, prompt }] }</text>
+      <text x="22" y="140" fill="#8b95a7" font-size="10">one file shared by app, script and CLI</text>
+    </g>
+
+    <path d="M826 357H856" stroke="#64748b" stroke-width="1.5" stroke-opacity="0.55" marker-end="url(#darrow)"/>
+
+    <g transform="translate(868 282)">
+      <rect width="276" height="150" rx="16" fill="#ffffff" fill-opacity="0.035" stroke="#ffffff" stroke-opacity="0.1"/>
+      <text x="22" y="30" fill="#8b95a7" font-size="10" letter-spacing="2">3 &#183; ACT</text>
+      <text x="22" y="58" fill="#fbbf24" font-size="12">escalation &#8594; PM</text>
+      <text x="22" y="80" fill="#6b7280" font-size="10">answer &#183; tmux send-keys</text>
+      <text x="22" y="98" fill="#6b7280" font-size="10">Telegram bridge (PM-only)</text>
+      <text x="22" y="120" fill="#6b7280" font-size="10">Plane ticket delegation</text>
+      <text x="22" y="140" fill="#8b95a7" font-size="10">nobody waits on the human</text>
+    </g>
+  </g>
+</svg>
