@@ -54,11 +54,11 @@ pub struct Config {
     pub project_id: String,
     pub workspace: String,
     pub base_url: String,
-    api_key: String,
+    pub(crate) api_key: String,
 }
 
 // A path segment of the Plane API: never a separator or a query.
-fn safe_segment(s: &str) -> bool {
+pub(crate) fn safe_segment(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -96,7 +96,7 @@ pub fn py_string(source: &str, name: &str) -> Option<String> {
 // The key goes in a header: only over TLS, or to this machine. The host is
 // compared exactly: "localhost.evil.test" and "localhost@evil.test" are not
 // this machine (the second one's real host is after the "@").
-fn trusted_url(url: &str) -> bool {
+pub(crate) fn trusted_url(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };
@@ -113,10 +113,24 @@ fn trusted_url(url: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 pub fn load_config(
     root: &Path,
     var: &dyn Fn(&str) -> Option<String>,
     cli: &str,
+) -> Result<Config, String> {
+    load_config_with(root, var, cli, None)
+}
+
+// The global Settings… file fills in what the project and the environment do
+// not set. Its API key wins over the environment, as configured in the UI;
+// its URL and workspace only apply when they differ from the built-in defaults,
+// so a project's own .plane.json keeps working.
+pub fn load_config_with(
+    root: &Path,
+    var: &dyn Fn(&str) -> Option<String>,
+    cli: &str,
+    saved: Option<&crate::settings::AppSettings>,
 ) -> Result<Config, String> {
     let path = root.join(".plane.json");
     let text =
@@ -132,15 +146,30 @@ pub fn load_config(
     let var = |k: &str| var(k).filter(|s| !s.is_empty());
     let project_id =
         local("project_id").ok_or_else(|| format!("{} has no project_id", path.display()))?;
-    let api_key = var("PLANE_API_KEY")
+    let saved_key = saved
+        .map(|s| s.plane_api_key.trim())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let saved_workspace = saved
+        .map(|s| s.plane_workspace.trim())
+        .filter(|s| !s.is_empty() && *s != DEFAULT_WORKSPACE)
+        .map(String::from);
+    let saved_url = saved
+        .map(|s| s.plane_base_url.trim_end_matches('/'))
+        .filter(|s| !s.is_empty() && *s != DEFAULT_BASE_URL)
+        .map(String::from);
+    let api_key = saved_key
+        .or_else(|| var("PLANE_API_KEY"))
         .or_else(|| py_string(cli, "API_KEY"))
         .ok_or("no Plane API key: set PLANE_API_KEY")?;
     let workspace = local("workspace_slug")
         .or_else(|| var("PLANE_WORKSPACE_SLUG"))
+        .or(saved_workspace)
         .or_else(|| py_string(cli, "WORKSPACE_SLUG"))
         .unwrap_or_else(|| DEFAULT_WORKSPACE.into());
     let base_url = var("PLANE_BASE_URL")
         .or_else(|| local("base_url"))
+        .or(saved_url)
         .or_else(|| py_string(cli, "PLANE_BASE_URL"))
         .unwrap_or_else(|| DEFAULT_BASE_URL.into())
         .trim_end_matches('/')
@@ -169,7 +198,8 @@ fn real_config(root: &Path) -> Result<Config, String> {
         .map(PathBuf::from)
         .unwrap_or_else(|| crate::mcp::home().join(".claude/scripts/plane_cli.py"));
     let source = std::fs::read_to_string(cli).unwrap_or_default();
-    load_config(root, &|k| std::env::var(k).ok(), &source)
+    let saved = crate::settings::plane_settings();
+    load_config_with(root, &|k| std::env::var(k).ok(), &source, Some(&saved))
 }
 
 // ── Plane REST API ───────────────────────────────────────────

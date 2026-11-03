@@ -15,6 +15,7 @@ mod plugins;
 mod pty;
 mod remote;
 mod runconfigs;
+mod settings;
 mod store;
 mod sysstats;
 mod telegram;
@@ -102,6 +103,7 @@ fn main() {
                 app.path().app_log_dir()?
             };
             diag::init(&log.join("work.log"));
+            settings::init(app.handle());
             app::log_start(app.handle());
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -275,6 +277,9 @@ fn main() {
             plugins::plugins_install,
             plugins::plugins_update,
             plugins::plugins_remove,
+            settings::settings_get,
+            settings::settings_save,
+            settings::settings_test_plane,
             telegram::telegram_status,
             telegram::telegram_connect,
             telegram::telegram_disconnect,
