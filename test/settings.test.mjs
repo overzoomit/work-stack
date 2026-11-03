@@ -2,6 +2,8 @@
 // IPC calls behind Save and Test connection, and the secret fields.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { $, El, env, tick } from './helpers/renderer-env.mjs';
 
 const calls = [];
@@ -200,6 +202,33 @@ test('Cancel and Esc close the dialog without saving', async () => {
   env.key('Escape');
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(sheets().length, 0);
+});
+
+test('the dialog card carries the modal-card and settings-card classes', async () => {
+  await reset();
+  await openSettingsDialog();
+  await tick();
+  assert.match(sheet().innerHTML, /class="modal-card settings-card" role="dialog" aria-modal="true"/,
+    'the card follows the modal-card architecture');
+  assert.match(sheet().innerHTML, /aria-labelledby="settings-title"/);
+});
+
+test('style.css keeps the Settings card opaque over terminals', () => {
+  const css = readFileSync(resolve('src/renderer/style.css'), 'utf-8');
+  const rule = (selector) => {
+    const m = css.match(new RegExp(`(^|\\n)${selector}\\s*\\{([^}]*)\\}`));
+    return m ? m[2] : '';
+  };
+  const modalGroup = css.match(/([^{}]+)\{[^}]*background:\s*rgba\(24,\s*26,\s*33,\s*\.9\)[^}]*backdrop-filter[^}]*\}/);
+  assert.ok(modalGroup, 'the modal surface group exists');
+  for (const cls of ['.review-card', '.viewer-card', '.modal-card', '.plugins-card', '.ngrok-card', '.settings-card']) {
+    assert.ok(modalGroup[1].includes(cls), `${cls} shares the opaque modal surface`);
+  }
+  const card = rule('\\.settings-card');
+  assert.match(card, /padding:\s*0/, 'the card owns its inner spacing');
+  assert.match(card, /background:\s*var\(--bg-solid-2\)/, 'the card has a solid opaque fallback');
+  assert.match(css, /@media \(prefers-reduced-transparency: reduce\)[\s\S]*?\.settings-card[^{]*\{[^}]*background:\s*var\(--bg-solid-2\)/,
+    'reduced transparency also forces the solid surface');
 });
 
 test('environment parsing keeps valid KEY=value lines and quotes out of the value', () => {

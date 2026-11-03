@@ -168,7 +168,7 @@ export async function openSettingsDialog() {
   sheet = document.createElement('div');
   sheet.className = 'sheet settings-sheet';
   sheet.innerHTML = `
-    <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="st-head">
         <div>
           <h3 id="settings-title">Settings</h3>
