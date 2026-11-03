@@ -9,4 +9,6 @@ src-tauri/gen/
 .claude/dogwatch_state.json
 .claude/plane_dogwatch_state.json
 .claude/plane_dogwatch.lock
+.claude/opencode_cleanup.json
+.claude/work-agent_prompts.json
 log/
