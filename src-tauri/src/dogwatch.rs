@@ -13,6 +13,7 @@ const POLL: Duration = Duration::from_secs(3);
 const SCAN_LINES: &str = "-30";
 const TAIL_LINES: usize = 12;
 const ESCALATION_FILE: &str = ".claude/escalation_to_pm.json";
+const STATE_FILE: &str = ".claude/dogwatch_state.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -197,8 +198,7 @@ fn compile_regex(pattern: &str) -> Result<Regex, String> {
 
 impl AgentManifest {
     fn parse(source: &str) -> Result<Self, String> {
-        let manifest: ManifestSource =
-            toml::from_str(source).map_err(|e| format!("TOML: {e}"))?;
+        let manifest: ManifestSource = toml::from_str(source).map_err(|e| format!("TOML: {e}"))?;
         if manifest.id.trim().is_empty() {
             return Err("manifest id is empty".into());
         }
@@ -211,7 +211,10 @@ impl AgentManifest {
                 && rule.predicates.regex.is_empty()
                 && rule.predicates.line_regex.is_empty()
             {
-                return Err(format!("{}: rule {} has no predicates", manifest.id, rule.id));
+                return Err(format!(
+                    "{}: rule {} has no predicates",
+                    manifest.id, rule.id
+                ));
             }
             let regexes = rule
                 .predicates
@@ -320,7 +323,9 @@ impl ManifestEngine {
     }
 
     fn manifest_for_hint(&self, hint: Option<&str>) -> &AgentManifest {
-        let Some(hint) = hint else { return self.generic() };
+        let Some(hint) = hint else {
+            return self.generic();
+        };
         let hint = hint.to_lowercase();
         self.manifests
             .iter()
@@ -383,7 +388,11 @@ impl Rule {
         }
         for regex in &self.regexes {
             if let Some(m) = regex.find(&text) {
-                return Some(format!("regex {:?} matched {:?}", regex.as_str(), m.as_str()));
+                return Some(format!(
+                    "regex {:?} matched {:?}",
+                    regex.as_str(),
+                    m.as_str()
+                ));
             }
         }
         for regex in &self.line_regexes {
@@ -430,7 +439,9 @@ fn prompt_block(capture: &str) -> String {
         .map(trim_box)
         .filter(|line| !line.is_empty())
         .collect();
-    let Some(_) = lines.last() else { return String::new() };
+    let Some(_) = lines.last() else {
+        return String::new();
+    };
     let tail = &lines[lines.len().saturating_sub(TAIL_LINES)..];
     let from = tail.iter().rposition(|line| !is_chrome(line)).unwrap_or(0);
     tail[from..].join("\n")
@@ -666,6 +677,25 @@ fn write_escalation(root: &Path, pending: &[Pending]) -> std::io::Result<()> {
     )
 }
 
+// Shared status snapshot read by scripts/work-agent.py: one entry per agent
+// window with the manifest-decided state. Kept next to the escalation file.
+fn write_window_state(
+    root: &Path,
+    session: &str,
+    live: bool,
+    windows: &[WindowState],
+) -> std::io::Result<()> {
+    store::save(
+        &root.join(STATE_FILE),
+        &serde_json::json!({
+            "updated_at": now_iso(),
+            "session": session,
+            "live": live,
+            "windows": windows,
+        }),
+    )
+}
+
 // ── Watcher ──────────────────────────────────────────────────
 
 type Seen = HashMap<String, (bool, Vec<Pending>, String)>;
@@ -732,13 +762,19 @@ pub fn spawn(
                 let session = tmux::session_for_project(root);
                 let inspection = inspect(&session).ok();
                 let live = inspection.is_some();
-                let (now, states) = inspection
-                    .map(|i| (i.pending(), state_signature(&i.windows)))
-                    .unwrap_or_default();
+                let (now, states, windows) = match inspection {
+                    Some(inspection) => {
+                        let now = inspection.pending();
+                        let states = state_signature(&inspection.windows);
+                        (now, states, inspection.windows)
+                    }
+                    None => (Vec::new(), String::new(), Vec::new()),
+                };
                 if !changed_full(&mut seen, &project, live, now.clone(), states) {
                     continue;
                 }
                 refresh_escalation(root, &now);
+                let _ = write_window_state(root, &session, live, &windows);
                 on_change(&project, &session, &now, live);
             }
             std::thread::sleep(POLL);
@@ -804,7 +840,14 @@ mod tests {
     #[test]
     fn every_builtin_manifest_parses_and_is_versioned() {
         let engine = ManifestEngine::builtin();
-        for id in ["antigravity", "claude", "opencode", "codex", "gemini", "generic"] {
+        for id in [
+            "antigravity",
+            "claude",
+            "opencode",
+            "codex",
+            "gemini",
+            "generic",
+        ] {
             let manifest = engine.manifest(id).expect(id);
             assert_eq!(manifest.version, 1, "{id}");
         }
@@ -814,11 +857,15 @@ mod tests {
     fn windows_are_matched_to_agents_by_command_then_by_role() {
         let engine = ManifestEngine::builtin();
         assert_eq!(
-            engine.detect_agent("dev1", "ollama launch opencode --model deepseek").id,
+            engine
+                .detect_agent("dev1", "ollama launch opencode --model deepseek")
+                .id,
             "opencode"
         );
         assert_eq!(
-            engine.detect_agent("pm", "agy --dangerously-skip-permissions").id,
+            engine
+                .detect_agent("pm", "agy --dangerously-skip-permissions")
+                .id,
             "antigravity"
         );
         assert_eq!(engine.detect_agent("qa1", "codex --yolo").id, "codex");
@@ -852,10 +899,7 @@ mod tests {
             include_str!("../detect/fixtures/antigravity_working.txt"),
         );
         assert_eq!(antigravity.state, AgentState::Working);
-        assert_eq!(
-            antigravity.rule.as_deref(),
-            Some("antigravity-spinner")
-        );
+        assert_eq!(antigravity.rule.as_deref(), Some("antigravity-spinner"));
 
         let opencode = classified(
             "opencode",
@@ -864,7 +908,10 @@ mod tests {
         assert_eq!(opencode.state, AgentState::Blocked);
         assert_eq!(opencode.rule.as_deref(), Some("opencode-permission"));
 
-        let codex = classified("codex", include_str!("../detect/fixtures/codex_blocked.txt"));
+        let codex = classified(
+            "codex",
+            include_str!("../detect/fixtures/codex_blocked.txt"),
+        );
         assert_eq!(codex.state, AgentState::Blocked);
         assert_eq!(codex.rule.as_deref(), Some("codex-confirmation"));
 
@@ -892,8 +939,8 @@ mod tests {
         assert_eq!(p.prompt_type, PromptType::Permission);
         assert_eq!(p.options, ["Yes", "No"]);
 
-        let q = parse_prompt_for(Some("generic"), "Could you clarify which file?\n")
-            .expect("question");
+        let q =
+            parse_prompt_for(Some("generic"), "Could you clarify which file?\n").expect("question");
         assert_eq!(q.prompt_type, PromptType::Question);
     }
 
@@ -1033,6 +1080,40 @@ mod tests {
     }
 
     #[test]
+    fn the_shared_state_file_lists_every_agent_window_and_its_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let windows = vec![
+            WindowState {
+                id: "@0".into(),
+                name: "dev1".into(),
+                prompt: Some(prompt("Do you want to proceed? [y/N]\n")),
+                agent: Some("opencode".into()),
+                state: AgentState::Blocked,
+                rule: Some("opencode-permission".into()),
+            },
+            WindowState {
+                id: "@1".into(),
+                name: "qa1".into(),
+                prompt: None,
+                agent: Some("codex".into()),
+                state: AgentState::Working,
+                rule: Some("codex-spinner".into()),
+            },
+        ];
+        write_window_state(dir.path(), "work_state", true, &windows).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(json["session"], "work_state");
+        assert_eq!(json["live"], true);
+        assert!(json["updated_at"].is_string());
+        assert_eq!(json["windows"][0]["name"], "dev1");
+        assert_eq!(json["windows"][0]["state"], "blocked");
+        assert_eq!(json["windows"][0]["rule"], "opencode-permission");
+        assert_eq!(json["windows"][1]["state"], "working");
+    }
+
+    #[test]
     fn only_a_different_pending_list_counts_as_a_change() {
         let mut seen = Seen::new();
         let q = |text: &str| {
@@ -1141,7 +1222,11 @@ mod tests {
         let explanation = explain(&session, "dev1").unwrap();
         assert_eq!(explanation.state, AgentState::Blocked);
         assert_eq!(explanation.rule.as_deref(), Some("opencode-permission"));
-        assert!(explanation.reason.as_deref().unwrap_or("").contains("contains"));
+        assert!(explanation
+            .reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("contains"));
 
         answer(&session, "dev1", "n").unwrap();
         wait_for("the prompt to clear", || pending_names().is_empty());

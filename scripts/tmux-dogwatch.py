@@ -41,6 +41,7 @@ NUMBERED_OPTION = re.compile(r"^\s*(?:[❯>]\s*)?\d+[.)]\s+(.+?)\s*$")
 BARE_FLAG = re.compile(r"^\s*(?:\[[^\]]+\]|\([^)]*\))\s*$")
 
 DEFAULT_FILE = Path(".claude") / "escalation_to_pm.json"
+DEFAULT_STATE = Path(".claude") / "dogwatch_state.json"
 
 
 def now_iso() -> str:
@@ -295,6 +296,56 @@ def detect_prompt(text: str, window_name: str = "generic") -> dict[str, object] 
     return {"prompt_type": prompt_type, "question": extract_question(block), "options": extract_options(block)}
 
 
+def scan_windows(
+    session: str,
+    *,
+    lines: int = 30,
+    binary: str | None = None,
+) -> list[dict[str, object]]:
+    """Every agent window with its manifest-decided state and pending prompt."""
+    windows = []
+    for window in agent_windows(session, binary):
+        name = str(window["name"])
+        text = capture_pane(session, name, lines, binary)
+        state, rule, _prompt_type = classify(text, name)
+        prompt = detect_prompt(text, name)
+        if prompt is not None:
+            state = "blocked"
+        manifest = manifest_for_window(name)
+        windows.append({
+            "id": window["id"],
+            "name": name,
+            "agent": manifest["id"] if manifest else None,
+            "state": state,
+            "rule": rule,
+            "prompt": prompt,
+        })
+    return windows
+
+
+def pending_from_windows(windows: list[dict[str, object]], timestamp: str) -> list[dict[str, object]]:
+    pending = []
+    for window in windows:
+        name = str(window["name"])
+        prompt = window.get("prompt")
+        if name.lower() == "pm" or not prompt:
+            continue  # the PM answers, it is never an escalation target
+        pending.append({"target": name, "timestamp": timestamp, **prompt})
+    return pending
+
+
+def scan_session(
+    session: str,
+    *,
+    lines: int = 30,
+    binary: str | None = None,
+    timestamp: str | None = None,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    stamp = timestamp or now_iso()
+    windows = scan_windows(session, lines=lines, binary=binary)
+    return windows, pending_from_windows(windows, stamp)
+
+
 def scan_once(
     session: str,
     *,
@@ -303,13 +354,9 @@ def scan_once(
     timestamp: str | None = None,
 ) -> list[dict[str, object]]:
     """Scan every agent window and return the pending questions, if any."""
-    stamp = timestamp or now_iso()
-    pending = []
-    for window in agent_windows(session, binary):
-        name = str(window["name"])
-        found = detect_prompt(capture_pane(session, name, lines, binary), name)
-        if found:
-            pending.append({"target": name, "timestamp": stamp, **found})
+    _windows, pending = scan_session(
+        session, lines=lines, binary=binary, timestamp=timestamp
+    )
     return pending
 
 
@@ -317,12 +364,38 @@ def escalation_path(root: Path | None = None) -> Path:
     return (root or Path.cwd()) / DEFAULT_FILE
 
 
-def write_escalation(path: Path, pending: list[dict[str, object]], timestamp: str | None = None) -> dict[str, object]:
-    payload = {"updated_at": timestamp or now_iso(), "pending": pending}
+def state_path(root: Path | None = None) -> Path:
+    return (root or Path.cwd()) / DEFAULT_STATE
+
+
+def _atomic_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def write_escalation(path: Path, pending: list[dict[str, object]], timestamp: str | None = None) -> dict[str, object]:
+    payload = {"updated_at": timestamp or now_iso(), "pending": pending}
+    _atomic_json(path, payload)
+    return payload
+
+
+def write_state(
+    path: Path,
+    session: str,
+    windows: list[dict[str, object]],
+    timestamp: str | None = None,
+    *,
+    live: bool = True,
+) -> dict[str, object]:
+    payload = {
+        "updated_at": timestamp or now_iso(),
+        "session": session,
+        "live": live,
+        "windows": windows,
+    }
+    _atomic_json(path, payload)
     return payload
 
 
@@ -336,8 +409,11 @@ def check(
 ) -> dict[str, object]:
     resolved = resolve_session(session, binary)
     stamp = timestamp or now_iso()
-    pending = scan_once(resolved, lines=lines, binary=binary, timestamp=stamp)
+    windows, pending = scan_session(
+        resolved, lines=lines, binary=binary, timestamp=stamp
+    )
     payload = write_escalation(escalation_path(root), pending, stamp)
+    write_state(state_path(root), resolved, windows, stamp)
     return {"session": resolved, **payload}
 
 
@@ -419,7 +495,10 @@ def main(argv: list[str] | None = None) -> int:
             while True:
                 resolved = resolve_session(args.session, binary)
                 stamp = now_iso()
-                pending = scan_once(resolved, lines=args.lines, binary=binary, timestamp=stamp)
+                windows, pending = scan_session(
+                    resolved, lines=args.lines, binary=binary, timestamp=stamp
+                )
+                write_state(state_path(root), resolved, windows, stamp)
                 emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
                 sys.stdout.flush()
                 time.sleep(max(0.1, args.interval))
@@ -433,10 +512,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             resolved = resolve_session(args.session, binary)
             stamp = now_iso()
-            pending = scan_once(resolved, lines=args.lines, binary=binary, timestamp=stamp)
+            windows, pending = scan_session(
+                resolved, lines=args.lines, binary=binary, timestamp=stamp
+            )
         except RuntimeError as exc:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False))
             return 2
+        write_state(state_path(root), resolved, windows, stamp)
         emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
         return 0
 

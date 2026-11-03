@@ -6,5 +6,7 @@ src/renderer/vendor/
 src-tauri/target/
 src-tauri/gen/
 .claude/escalation_to_pm.json
+.claude/dogwatch_state.json
 .claude/plane_dogwatch_state.json
 .claude/plane_dogwatch.lock
+log/

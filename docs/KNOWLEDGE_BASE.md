@@ -93,6 +93,12 @@ Tutti i ticket sono stati gestiti sull'istanza Plane del progetto (`https://plan
     - **Escalation all'Utente:** Se la decisione riguarda aspetti di business o prodotto non determinabili a priori, il PM interpella l'utente. L'utente risponde **esclusivamente al PM**.
   - Il PM recapita notifiche e risposte dirette alla chat Telegram autorizzata con `scripts/telegram-pm.py send "<testo>"`, che usa il solo `chat_id` configurato.
 
+### 3.3 Politica di Versionamento Release
+Per ogni task completato e promosso allo stato **`Done`**:
+- **Nuove Funzionalità / Task Ordinari:** incrementare la versione di **minor** (es. `v2.1.0` → `v2.2.0`, `v2.3.0`, …).
+- **Bug Fix:** dal `Done` del task relativo alla risoluzione di un bug, incrementare la **patch** (es. `v2.1.0` → `v2.1.1`).
+- L'aggiornamento di versione include `package.json`, `src-tauri/Cargo.toml`, rigenerazione di `src-tauri/Cargo.lock`, commit di rilascio (`chore(release): bump version to vX.Y.Z`) e creazione del relativo tag Git.
+
 ---
 
 ## 4. Convenzioni di Codice e Sicurezza

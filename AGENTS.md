@@ -31,6 +31,12 @@ Posizione script: `/home/flavio/.claude/scripts/plane_cli.py`
    - Se i criteri sono superati: sposta in **`"Done"`** con report di QA in italiano.
    - In caso di anomalie/bug: sposta in **`"Re-open"`** con dettagliata descrizione del problema.
 
+### Politica di Versionamento Release
+Per ogni task che viene sviluppato e portato a **`Done`**:
+- **Nuove Funzionalità / Task Ordinari:** incrementare la versione di **minor** (es. `v2.1.0` → `v2.2.0`, `v2.3.0`, …).
+- **Bug Fix:** dal `Done` del task relativo alla risoluzione di un bug, incrementare la **patch** (es. `v2.1.0` → `v2.1.1`).
+- L'aggiornamento di versione include `package.json`, `src-tauri/Cargo.toml`, l'aggiornamento di `src-tauri/Cargo.lock`, commit convenzionale (`chore(release): bump version to vX.Y.Z`) e relativo tag Git.
+
 > **Regola Fondamentale:** Titoli, descrizioni, criteri di accettazione e tutti i commenti tecnici/QA su Plane devono essere scritti tassativamente in **lingua italiana**.
 > **Dettaglio Ticket per Agenti AI:** Poiché Plane è il portale operativo degli agenti AI, il **titolo** deve essere chiaro e comprensibile per gli umani (`Ambito: Descrizione sintetica`), mentre la **descrizione** deve essere **estremamente dettagliata per gli agenti AI**: percorsi esatti dei file coinvolti, contratti IPC completi (firme comandi, payload eventi, tipi Rust/TS), gestione esplicita delle race condition e dei casi limite, vincoli di sicurezza e test di regressione richiesti.
 

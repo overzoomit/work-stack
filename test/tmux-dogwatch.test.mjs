@@ -96,6 +96,14 @@ test('--once segnala solo le finestre agenti bloccate e scrive il file di escala
 
     assert.ok(existsSync(box.file), '.claude/escalation_to_pm.json created');
     assert.deepEqual(readPending(box), state.pending, 'the file mirrors the JSON output');
+
+    const shared = JSON.parse(readFileSync(join(box.dir, '.claude', 'dogwatch_state.json'), 'utf8'));
+    assert.equal(shared.session, 'work_test');
+    assert.deepEqual(
+      shared.windows.map((w) => [w.name, w.state]),
+      [['dev1', 'blocked'], ['dev2', 'idle'], ['qa', 'blocked'], ['agent1', 'blocked']],
+      'work-agent reads the same state snapshot',
+    );
   } finally {
     box.cleanup();
   }
