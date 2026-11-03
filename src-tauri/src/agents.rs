@@ -882,9 +882,15 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::thread::sleep;
 
     const UUID: &str = "12345678-1234-1234-1234-123456789abc";
+
+    // The real login shell is slow and its own update check takes a lock: two
+    // availability tests running together can exceed the 8 s timeout. The
+    // assertions are unchanged, they just no longer race each other.
+    static LOGIN_SHELL: Mutex<()> = Mutex::new(());
 
     fn line(o: Value) -> String {
         let mut v = json!({ "timestamp": "2026-09-29T12:00:00.000Z", "cwd": "/work/proj" });
@@ -1365,6 +1371,7 @@ mod tests {
 
     #[test]
     fn available_lists_only_installed_and_safe_commands() {
+        let _guard = LOGIN_SHELL.lock().unwrap_or_else(|e| e.into_inner());
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let got = rt.block_on(available(vec!["sh".into(), "no-such-cmd-xyz".into(), "sh;id".into(), "$(id)".into()]));
         assert_eq!(got, ["sh"]);
@@ -1372,6 +1379,7 @@ mod tests {
 
     #[test]
     fn available_logs_the_missing_clis() {
+        let _guard = LOGIN_SHELL.lock().unwrap_or_else(|e| e.into_inner());
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(available(vec!["sh".into(), "manca-davvero-qwz".into()]));
         let logged = crate::diag::CAPTURED.lock().unwrap().join("");
