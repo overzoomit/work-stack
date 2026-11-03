@@ -23,6 +23,27 @@ const FALLBACK_TINT = ['#94a3b8', '#64748b'];
 
 export const agentById = (id) => AGENTS.find((a) => a.id === id) || null;
 
+// The command a tmux window was started with (or what is running now) is the
+// strongest hint about the real agent: qa1 may run OpenCode, not Codex. Mirrors
+// the Rust manifest detection (command first, role only as a last resort).
+const COMMAND_ALIASES = {
+  agy: 'antigravity',
+  'claude-code': 'claude',
+};
+
+export function agentIdFromCommand(...parts) {
+  const text = parts.filter(Boolean).join(' ').toLowerCase().trim();
+  if (!text) return null;
+  const tokens = text.split(/[^a-z0-9._-]+/).filter(Boolean);
+  for (const token of tokens) {
+    if (COMMAND_ALIASES[token]) return COMMAND_ALIASES[token];
+  }
+  for (const agent of AGENTS) {
+    if (tokens.includes(agent.id) || (agent.bin && tokens.includes(agent.bin))) return agent.id;
+  }
+  return null;
+}
+
 // The pane badge for an agent id: uppercase short name plus the catalog tint.
 // Unknown ids (e.g. dogwatch's "generic") still get a readable neutral badge.
 export function agentBadgeFor(id) {

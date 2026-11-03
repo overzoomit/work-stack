@@ -1180,6 +1180,7 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-info { flex: 1; min-width: 0; }
 .tp-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
 .tp-desc { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-agent-name { color: var(--text); font-weight: 600; }
 .tp-ticket { margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tp-cmd { font: 10px var(--mono); color: var(--muted); margin-top: 1px; }
 .tp-badge-status { font-size: 11px; color: var(--text-2); font-weight: 500; }

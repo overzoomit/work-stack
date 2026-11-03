@@ -6,11 +6,18 @@ use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TmuxWindow {
     pub id: String,
     pub name: String,
     pub active: bool,
     pub path: String,
+    // The command the window was started with and the foreground process now:
+    // enough for the renderer to badge the real agent before dogwatch ticks.
+    #[serde(default)]
+    pub start_command: String,
+    #[serde(default)]
+    pub current_command: String,
 }
 
 // Generates a deterministic, valid tmux session name from a directory path.
@@ -164,7 +171,7 @@ pub fn ensure_session(session: &str, cwd: &Path) -> Result<(), String> {
     Ok(())
 }
 
-// Parses raw output of `tmux list-windows -F "#{window_id}\t#{window_name}\t#{window_active}\t#{pane_current_path}"`.
+// Parses raw output of `tmux list-windows`.
 pub fn parse_windows(raw: &str) -> Vec<TmuxWindow> {
     raw.lines()
         .filter_map(|line| {
@@ -172,16 +179,21 @@ pub fn parse_windows(raw: &str) -> Vec<TmuxWindow> {
             if line.is_empty() {
                 return None;
             }
-            let mut parts = line.split('\t');
+            let mut parts = line.splitn(6, '\t');
             let id = parts.next()?.trim().to_string();
             let name = parts.next().unwrap_or("").trim().to_string();
             let active = parts.next().map(|a| a.trim() == "1").unwrap_or(false);
             let path = parts.next().unwrap_or("").trim().to_string();
+            // Older four-field output and remote tmux leave the commands empty.
+            let start_command = parts.next().unwrap_or("").trim().to_string();
+            let current_command = parts.next().unwrap_or("").trim().to_string();
             Some(TmuxWindow {
                 id,
                 name,
                 active,
                 path,
+                start_command,
+                current_command,
             })
         })
         .collect()
@@ -194,7 +206,7 @@ pub fn list_windows(session: &str) -> Result<Vec<TmuxWindow>, String> {
         "-t",
         session,
         "-F",
-        "#{window_id}\t#{window_name}\t#{window_active}\t#{pane_current_path}",
+        "#{window_id}\t#{window_name}\t#{window_active}\t#{pane_current_path}\t#{pane_start_command}\t#{pane_current_command}",
     ])?;
     Ok(parse_windows(&out))
 }
@@ -426,9 +438,9 @@ mod tests {
     #[test]
     fn test_parse_windows_output() {
         let raw = "\
-@0\tpm\t1\t/home/flavio/workspace/work-stack\n\
-@1\tdev1\t0\t/home/flavio/workspace/work-stack\n\
-@2\tqa\t0\t/home/flavio/workspace/work-stack\n";
+@0\tpm\t1\t/home/flavio/workspace/work-stack\tagy --dangerously-skip-permissions\tagy\n\
+@1\tdev1\t0\t/home/flavio/workspace/work-stack\tollama launch opencode --model x\tollama\n\
+@2\tqa\t0\t/home/flavio/workspace/work-stack\tcodex --yolo\tcodex\n";
 
         let windows = parse_windows(raw);
         assert_eq!(windows.len(), 3);
@@ -436,14 +448,33 @@ mod tests {
         assert_eq!(windows[0].name, "pm");
         assert!(windows[0].active);
         assert_eq!(windows[0].path, "/home/flavio/workspace/work-stack");
+        assert_eq!(
+            windows[0].start_command,
+            "agy --dangerously-skip-permissions"
+        );
+        assert_eq!(windows[0].current_command, "agy");
 
         assert_eq!(windows[1].id, "@1");
         assert_eq!(windows[1].name, "dev1");
         assert!(!windows[1].active);
+        assert_eq!(windows[1].start_command, "ollama launch opencode --model x");
 
         assert_eq!(windows[2].id, "@2");
         assert_eq!(windows[2].name, "qa");
         assert!(!windows[2].active);
+        assert_eq!(windows[2].current_command, "codex");
+    }
+
+    #[test]
+    fn a_qa_window_running_opencode_carries_its_real_command_regression() {
+        // The badge must follow the command, not the role default (qa -> codex).
+        let raw = "@3\tqa1\t1\t/p\tollama launch opencode --model deepseek\tollama\n";
+        let windows = parse_windows(raw);
+        assert_eq!(
+            windows[0].start_command,
+            "ollama launch opencode --model deepseek"
+        );
+        assert_eq!(windows[0].current_command, "ollama");
     }
 
     #[test]

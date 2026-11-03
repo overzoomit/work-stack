@@ -706,10 +706,11 @@ fn state_signature(windows: &[WindowState]) -> String {
         .iter()
         .map(|w| {
             format!(
-                "{}:{}:{}",
+                "{}:{}:{}:{}",
                 w.name,
                 serde_json::to_string(&w.state).unwrap_or_default(),
-                w.rule.as_deref().unwrap_or("")
+                w.rule.as_deref().unwrap_or(""),
+                w.agent.as_deref().unwrap_or("")
             )
         })
         .collect::<Vec<_>>()
@@ -746,11 +747,12 @@ fn refresh_escalation(root: &Path, pending: &[Pending]) {
 
 // Polls the session of every open project. On a change it refreshes the
 // escalation file (only if there is something to say, or a stale file to
-// clear) and calls on_change(project, session, pending, live); live is false
-// when the project has no tmux session to watch.
+// clear) and calls on_change(project, session, pending, live, windows); live is
+// false when the project has no tmux session to watch. The windows carry the
+// real agent detected in each pane, so the renderer can update its badges.
 pub fn spawn(
     projects: impl Fn() -> Vec<String> + Send + 'static,
-    on_change: impl Fn(&str, &str, &[Pending], bool) + Send + 'static,
+    on_change: impl Fn(&str, &str, &[Pending], bool, &[WindowState]) + Send + 'static,
 ) {
     if !tmux::is_available() {
         return;
@@ -776,7 +778,7 @@ pub fn spawn(
                 }
                 refresh_escalation(root, &now);
                 let _ = write_window_state(root, &session, live, &windows);
-                on_change(&project, &session, &now, live);
+                on_change(&project, &session, &now, live, &windows);
             }
             std::thread::sleep(POLL);
         }
@@ -1111,7 +1113,28 @@ mod tests {
         assert_eq!(json["windows"][0]["name"], "dev1");
         assert_eq!(json["windows"][0]["state"], "blocked");
         assert_eq!(json["windows"][0]["rule"], "opencode-permission");
+        assert_eq!(json["windows"][0]["agent"], "opencode");
         assert_eq!(json["windows"][1]["state"], "working");
+        assert_eq!(json["windows"][1]["agent"], "codex");
+    }
+
+    #[test]
+    fn an_agent_change_alone_is_a_state_change_regression() {
+        let window = |agent: &str| {
+            vec![WindowState {
+                id: "@0".into(),
+                name: "qa1".into(),
+                prompt: None,
+                agent: Some(agent.into()),
+                state: AgentState::Working,
+                rule: Some("opencode-spinner".into()),
+            }]
+        };
+        assert_ne!(
+            state_signature(&window("codex")),
+            state_signature(&window("opencode")),
+            "the badge must be refreshed when the real agent changes"
+        );
     }
 
     #[test]

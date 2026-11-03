@@ -7,7 +7,7 @@ import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';
 import { roleFor } from './teamroles.js';
-import { agentBadgeFor } from './agentcatalog.js';
+import { agentBadgeFor, agentIdFromCommand } from './agentcatalog.js';
 
 const { work } = window;
 
@@ -198,9 +198,11 @@ export function roleBadgeFor(name) {
 export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null } = {}) {
   const remote = project?.remote || null;
   const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
-  // An explicit agent wins; otherwise a team role falls back to its default
-  // agent (PM -> Antigravity, DEV* -> OpenCode/Ollama, QA* -> Codex).
-  const effectiveAgent = agentBadgeFor(agentId || roleFor(role || tmuxName || title)?.agentId);
+  // The command actually running in the pane wins; an explicit agent id comes
+  // next; only then the role default (PM -> Antigravity, QA* -> Codex).
+  const detectedAgentId = agentIdFromCommand(command);
+  const effectiveAgent = agentBadgeFor(agentId || detectedAgentId || roleFor(role || tmuxName || title)?.agentId);
+  const agentBadgeHtml = effectiveAgent ? `<span class="pane-badge pane-agent-badge" data-agent="${esc(effectiveAgent.id)}" title="${esc(effectiveAgent.name)}" style="--agent-tint-1:${esc(effectiveAgent.tint[0])};--agent-tint-2:${esc(effectiveAgent.tint[1])}">${esc(effectiveAgent.text)}</span>` : '';
   const el = document.createElement('div');
   el.className = container ? 'pane console' : 'pane';
   el.innerHTML = `
@@ -208,7 +210,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
       <span class="dot"></span>
       <span class="pane-title"></span>
       ${effectiveBadge ? `<span class="pane-badge${effectiveBadge.role ? ' role-' + effectiveBadge.role : ''}" data-role="${effectiveBadge.role || ''}" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
-      ${effectiveAgent ? `<span class="pane-badge pane-agent-badge" data-agent="${esc(effectiveAgent.id)}" title="${esc(effectiveAgent.name)}" style="--agent-tint-1:${esc(effectiveAgent.tint[0])};--agent-tint-2:${esc(effectiveAgent.tint[1])}">${esc(effectiveAgent.text)}</span>` : ''}
+      ${agentBadgeHtml}
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
       <button class="icon-btn pane-aa" data-act="look" title="Terminal appearance">Aa</button>
@@ -218,6 +220,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     <div class="pane-body"></div>`;
   (container || $('#terminals')).appendChild(el);
   if (project !== active) el.classList.add('off');
+  const agentBadgeEl = effectiveAgent ? el.querySelector('.pane-agent-badge') : null;
 
   const term = new Terminal({
     fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--mono'),
@@ -240,10 +243,11 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || remote?.remotePath || project.path, exited: false, onOutput, onExit,
     tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
     role: role || roleFor(tmuxName || title)?.name || null,
-    agentId: agentId || null, agent: effectiveAgent, command: command || null, sessionRef: sessionRef || null,
+    agentId: agentId || detectedAgentId || null, agent: effectiveAgent, agentBadgeEl, command: command || null, sessionRef: sessionRef || null,
   };
   el._t = t;
   t.console = !!container;
+  if (effectiveAgent) paintAgentBadge(t, effectiveAgent);
   pending.add(t);
   styleFor(t);
   relayout();
@@ -337,6 +341,44 @@ function paintHead(t) {
   t.el.querySelector('.dot').className = `dot ${dotClass(t)}`;
   t.el.classList.toggle('exited', t.exited);
   onChange();
+}
+
+// Repaints the agent badge in place: dogwatch may discover a different CLI than
+// the role default (a qa1 window can run OpenCode instead of Codex).
+function paintAgentBadge(t, badge) {
+  t.agent = badge;
+  let el = t.agentBadgeEl;
+  if (!el) {
+    const head = t.el.querySelector('.pane-head');
+    el = document.createElement('span');
+    el.className = 'pane-badge pane-agent-badge';
+    const cwd = head.querySelector('.pane-cwd');
+    if (cwd) head.insertBefore(el, cwd);
+    else head.appendChild(el);
+    t.agentBadgeEl = el;
+  }
+  el.dataset.agent = badge.id;
+  el.textContent = badge.text;
+  el.title = badge.name;
+  el.setAttribute?.('title', badge.name);
+  el.style.setProperty('--agent-tint-1', badge.tint[0]);
+  el.style.setProperty('--agent-tint-2', badge.tint[1]);
+}
+
+// Updates the badge of the pane whose tmux window (name or id) or title matches.
+// `projectPath` scopes the search: every project has its own dev1/qa1 window.
+export function updateTerminalAgentBadge(tmuxNameOrId, agentId, projectPath = null) {
+  const key = String(tmuxNameOrId || '');
+  const badge = agentBadgeFor(agentId);
+  if (!key || !badge) return null;
+  const matches = [...all.values(), ...pending].filter((t) =>
+    t.tmuxName === key || t.tmuxWindow === key || t.title === key);
+  const panes = projectPath ? matches.filter((t) => t.project?.path === projectPath) : matches;
+  for (const pane of panes) {
+    pane.agentId = agentId;
+    paintAgentBadge(pane, badge);
+  }
+  return panes[0] || null;
 }
 
 const shellQuote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
@@ -749,6 +791,9 @@ async function syncProjectTerminalsResult(project, saved = null, { resume = fals
       continue;
     }
     const role = roleFor(win.saved?.role || win.saved?.tmuxName || win.name);
+    // The window command (start or foreground) is more reliable than the role
+    // default: a qa1 window may run OpenCode, not Codex.
+    const detectedAgentId = agentIdFromCommand(win.startCommand, win.currentCommand);
     const pane = await openTerminal(project, {
       cwd: win.path || win.saved?.cwd || project.path,
       title: win.title,
@@ -756,7 +801,7 @@ async function syncProjectTerminalsResult(project, saved = null, { resume = fals
       tmuxWindow: win.id,
       tmuxName: win.name,
       role: win.saved?.role || role?.name || null,
-      agentId: win.saved?.agentId || role?.agentId || null,
+      agentId: detectedAgentId || win.saved?.agentId || role?.agentId || null,
       command: win.saved?.command || role?.command || null,
       sessionRef: win.saved?.sessionRef || null,
     });
@@ -787,7 +832,7 @@ async function syncProjectTerminalsResult(project, saved = null, { resume = fals
       tmuxWindow: newId,
       tmuxName: entry.tmuxName || roleName,
       role: entry.role || roleName,
-      agentId: entry.agentId || role?.agentId || null,
+      agentId: agentIdFromCommand(command) || entry.agentId || role?.agentId || null,
       command,
       sessionRef: entry.sessionRef || null,
     }));

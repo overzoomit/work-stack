@@ -176,10 +176,13 @@ fn main() {
             let events = app.handle().clone();
             dogwatch::spawn(
                 move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
-                move |project, session, pending, live| {
+                move |project, session, pending, live, windows| {
                     // Dogwatch stays internal to the PM: nothing is forwarded
                     // to Telegram without an explicit PM decision.
-                    let _ = events.emit("dogwatch:update", (project, session, pending, live));
+                    let _ = events.emit(
+                        "dogwatch:update",
+                        (project, session, pending, live, windows),
+                    );
                 },
             );
             let handle = app.handle().clone();

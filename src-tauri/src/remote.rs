@@ -313,6 +313,10 @@ pub fn parse_remote_windows(raw: &str) -> Vec<crate::tmux::TmuxWindow> {
                 name,
                 active,
                 path,
+                // Remote sessions do not carry the commands yet: dogwatch and
+                // the local pane detection fill the agent badge instead.
+                start_command: String::new(),
+                current_command: String::new(),
             })
         })
         .collect()

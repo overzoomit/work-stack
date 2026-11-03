@@ -16,7 +16,7 @@ class ClassList {
 export class El {
   constructor() {
     this.children = []; this.parent = null; this.classList = new ClassList(); this.dataset = {};
-    this.style = { setProperty() {} }; this.listeners = {}; this.parts = new Map(); this.html = '';
+    this.style = { props: {}, setProperty(k, v) { this.props[k] = v; } }; this.listeners = {}; this.parts = new Map(); this.html = '';
     this.hidden = false; this.textContent = ''; this.disabled = false;
   }
   set innerHTML(v) { this.html = v; this.parts.clear(); this.first = null; for (const c of this.children) c.parent = null; this.children = []; }

@@ -1,7 +1,8 @@
 // Orchestrator for Multi-Agent Teams (PM, Dev1, Dev2..., QA1, QA2...) on tmux.
 import { $, esc, leave, toast, ask } from './ui.js';
-import { openTerminal, closeTerminal, focus, terminalsOf, syncProjectTerminals } from './terminals.js';
+import { openTerminal, closeTerminal, focus, terminalsOf, syncProjectTerminals, updateTerminalAgentBadge } from './terminals.js';
 import { AGENTS, commandFor } from './launcher.js';
+import { agentBadgeFor, agentIdFromCommand } from './agentcatalog.js';
 import { mcpSection } from './mcp.js';
 import { TEAM_ROLES, roleFor } from './teamroles.js';
 
@@ -361,6 +362,8 @@ async function probeLive(path) {
   const session = await work?.tmux?.sessionForProject(path).catch(() => null);
   const inspection = session ? await work?.dogwatch?.inspect(session).catch(() => null) : null;
   probing.delete(path);
+  // The startup probe also corrects the badges before the first update.
+  for (const win of inspection?.windows || []) updateTerminalAgentBadge(win.name, win.agent, path);
   if (liveByProject.has(path)) return;
   liveByProject.set(path, Boolean(inspection));
   showWaiting(path, inspection?.windows.filter((w) => w.prompt).length ?? 0);
@@ -411,6 +414,18 @@ const dotClass = (states, name) => {
   const state = stateEntry(states.get(name))?.state;
   return state === 'blocked' ? 'waiting' : state === 'working' ? 'working' : 'idle';
 };
+
+// The CLI really running in the window (OpenCode, Claude Code…) instead of the
+// default hardcoded in the role. `agents` maps window name -> agent id.
+export function agentLabel(agents, name) {
+  const badge = agentBadgeFor(agents?.get?.(name));
+  return badge?.name || null;
+}
+
+function roleDescription(agents, name, fallback) {
+  const agent = agentLabel(agents, name);
+  return `<div class="tp-desc">${agent ? `<span class="tp-agent-name">${esc(agent)}</span> · ` : ''}${fallback} · Click to view</div>`;
+}
 
 // The Plane ticket a window is working on, as the plane dogwatch delegated it.
 export function ticketLine(assignments, name) {
@@ -512,9 +527,11 @@ async function launchBrowser(id) {
 export function initTeam({ activeProject, saveProjects = null }) {
   getProject = activeProject;
   persistProjects = saveProjects;
-  work?.dogwatch?.onUpdate((project, _session, pending, live) => {
+  work?.dogwatch?.onUpdate((project, _session, pending, live, windows = []) => {
     liveByProject.set(project, live === true);
     showWaiting(project, pending.length);
+    // The real agent detected in each pane wins over the static role default.
+    for (const win of windows || []) updateTerminalAgentBadge(win.name, win.agent, project);
     showLiveLed();
     // Open popover: badges and count follow, without probing MCP again or
     // interrupting the agent picker or a half-typed field.
@@ -608,7 +625,7 @@ export async function openOrFocusRole(project, roleName) {
           tmuxWindow: win.id,
           tmuxName: win.name,
           role: roleName,
-          agentId: roleDef?.agentId || null,
+          agentId: agentIdFromCommand(win.startCommand, win.currentCommand) || roleDef?.agentId || null,
           command: roleDef?.command || null,
         });
       }
@@ -724,8 +741,11 @@ async function getExistingNames(project) {
   // prompt as an agent waiting for the PM.
   const prompts = new Map(windows.filter((w) => w.prompt && w.name !== 'pm').map((w) => [w.name, w.prompt]));
   const states = new Map(windows.map((w) => [w.name, w]));
+  // Dogwatch wins; an open pane covers remote projects and the first tick.
+  const agents = new Map(openPanes.filter((p) => p.tmuxName && p.agentId).map((p) => [p.tmuxName, p.agentId]));
+  for (const w of windows) if (w.agent) agents.set(w.name, w.agent);
 
-  return { isTmux, session, tmuxWindows, openPanes, prompts, states, names: [...names] };
+  return { isTmux, session, tmuxWindows, openPanes, prompts, states, agents, names: [...names] };
 }
 
 // Renders the popover content based on current viewState. `probeMcp: false`
@@ -771,7 +791,7 @@ async function renderPopContent(probeMcp = true) {
   }
 
   // Main squad view
-  const { isTmux, session, tmuxWindows, prompts, states, names } = await getExistingNames(p);
+  const { isTmux, session, tmuxWindows, prompts, states, agents, names } = await getExistingNames(p);
 
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
@@ -817,7 +837,7 @@ async function renderPopContent(probeMcp = true) {
                 <span>pm</span>
                 ${statusBadge(states, 'pm')}
               </div>
-              <div class="tp-desc">Senior PM &amp; Architect · Click to view</div>
+              ${roleDescription(agents, 'pm', 'Senior PM &amp; Architect')}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="reconfig-role" data-role="pm" title="Reconfigure or change agent for PM">⚙</button>
@@ -847,7 +867,7 @@ async function renderPopContent(probeMcp = true) {
                 <span>${esc(devName)}</span>
                 ${statusBadge(states, devName)}
               </div>
-              <div class="tp-desc">Developer · Click to view</div>
+              ${roleDescription(agents, devName, 'Developer')}
               ${ticketLine(assignments, devName)}
             </div>
             <div class="tp-row-actions">
@@ -875,7 +895,7 @@ async function renderPopContent(probeMcp = true) {
                 <span>${esc(qaName)}</span>
                 ${statusBadge(states, qaName)}
               </div>
-              <div class="tp-desc">QA Engineer · Click to view</div>
+              ${roleDescription(agents, qaName, 'QA Engineer')}
               ${ticketLine(assignments, qaName)}
             </div>
             <div class="tp-row-actions">
@@ -903,7 +923,7 @@ async function renderPopContent(probeMcp = true) {
                 <span>${esc(docName)}</span>
                 ${statusBadge(states, docName)}
               </div>
-              <div class="tp-desc">Documentation Specialist · Click to view</div>
+              ${roleDescription(agents, docName, 'Documentation Specialist')}
               ${ticketLine(assignments, docName)}
             </div>
             <div class="tp-row-actions">
@@ -931,7 +951,7 @@ async function renderPopContent(probeMcp = true) {
                 <span>${esc(agentName)}</span>
                 ${statusBadge(states, agentName)}
               </div>
-              <div class="tp-desc">Generic agent · Click to view</div>
+              ${roleDescription(agents, agentName, 'Generic agent')}
               ${ticketLine(assignments, agentName)}
             </div>
             <div class="tp-row-actions">
@@ -1174,9 +1194,10 @@ export async function launchTeamMember(project, role) {
       const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       const win = windows.find((w) => w.name === role.name);
       const roleDef = roleFor(role.name);
+      const detectedAgentId = agentIdFromCommand(win?.startCommand, win?.currentCommand);
       const meta = {
         role: role.name,
-        agentId: role.agentId || roleDef?.agentId || null,
+        agentId: detectedAgentId || role.agentId || roleDef?.agentId || null,
         command: role.command || roleDef?.command || null,
       };
       if (win) {

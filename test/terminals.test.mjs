@@ -377,3 +377,29 @@ test('il terminale DOC1 usa il badge agente Claude di default', async () => {
   assert.match(t.el.innerHTML, />CLAUDE</);
   T.closeTerminal(t.id);
 });
+
+test('updateTerminalAgentBadge corregge il badge di un pannello già montato: testo, attributi e tint', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p, { title: 'qa1', kind: 'agent' });
+  const badge = t.el.querySelector('.pane-agent-badge');
+  assert.equal(badge.textContent, 'CODEX', 'the role default starts the pane');
+  assert.equal(t.agentId, null);
+
+  const pane = T.updateTerminalAgentBadge('qa1', 'opencode');
+  assert.equal(pane, t);
+  assert.equal(t.agentId, 'opencode');
+  assert.equal(t.agent.text, 'OPENCODE');
+  assert.equal(badge.textContent, 'OPENCODE', 'the label follows the real process');
+  assert.equal(badge.dataset.agent, 'opencode');
+  assert.equal(badge.title, 'OpenCode');
+  assert.equal(badge.style.props['--agent-tint-1'], '#4fb3bf');
+  assert.equal(badge.style.props['--agent-tint-2'], '#2d6f86');
+
+  T.updateTerminalAgentBadge('missing', 'claude');
+  assert.equal(badge.textContent, 'OPENCODE', 'an unknown window changes nothing');
+  T.updateTerminalAgentBadge('qa1', null);
+  assert.equal(badge.textContent, 'OPENCODE', 'a missing agent id changes nothing');
+  T.closeTerminal(t.id);
+  await tick(700);
+});
