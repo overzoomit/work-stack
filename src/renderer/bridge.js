@@ -206,6 +206,11 @@
       update: call('plugins_update', 'id'),
       remove: call('plugins_remove', 'id'),
     },
+    settings: {
+      get: call('settings_get'),
+      save: call('settings_save', 'settings'),
+      testPlane: call('settings_test_plane', 'baseUrl', 'apiKey', 'workspace'),
+    },
     tmux: {
       isAvailable: call('tmux_is_available'),
       sessionForProject: (path, remote = null) => call('tmux_session_for_project', 'path', 'remote')(path, remote),
