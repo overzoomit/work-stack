@@ -294,7 +294,7 @@ pub fn tmux_session_for_project(path: String, remote: Option<RemoteProject>) -> 
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_ensure_session(
     session: String,
     cwd: String,
@@ -306,7 +306,7 @@ pub fn tmux_ensure_session(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_list_windows(
     session: String,
     remote: Option<RemoteProject>,
@@ -317,7 +317,7 @@ pub fn tmux_list_windows(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_new_window(
     session: String,
     name: Option<String>,
@@ -342,7 +342,7 @@ pub fn tmux_new_window(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_kill_window(
     session: String,
     window_id: String,
@@ -354,7 +354,7 @@ pub fn tmux_kill_window(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_kill_session(session: String, remote: Option<RemoteProject>) -> Result<(), String> {
     match remote {
         Some(remote) => crate::remote::kill_session(&remote, &session),
@@ -362,7 +362,7 @@ pub fn tmux_kill_session(session: String, remote: Option<RemoteProject>) -> Resu
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_send_keys(
     session: String,
     target: String,
@@ -375,7 +375,7 @@ pub fn tmux_send_keys(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tmux_capture_pane(
     session: String,
     target: String,

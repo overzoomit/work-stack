@@ -2,8 +2,6 @@
 // script a PTY runs over `ssh -t`. Everything that reaches the remote shell is
 // single-quoted: a host, path or session name can never inject commands.
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -130,6 +128,22 @@ fn check_target(target: &str) -> Result<(), String> {
 
 // Deterministic session name from the remote identity. The same project keeps
 // the same session across app restarts, including after a reboot of the VM.
+// FNV-1a over the remote identity, with a separator between fields. Unlike
+// DefaultHasher it is part of this source, so a future Rust version cannot
+// silently change the session name and orphan the agents already running.
+fn stable_hash(parts: &[&str]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for part in parts {
+        for byte in part.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        hash ^= 0xff;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 pub fn session_name(remote: &RemoteProject) -> String {
     if let Some(custom) = remote
         .session_name
@@ -157,16 +171,14 @@ pub fn session_name(remote: &RemoteProject) -> String {
         .collect();
     let base = base.trim_matches('_');
     let base = if base.is_empty() { "remote" } else { base };
-    let mut hasher = DefaultHasher::new();
-    format!(
+    let identity = format!(
         "{}@{}:{}",
         remote.user().unwrap_or(""),
         remote.host.trim(),
         remote.port()
-    )
-    .hash(&mut hasher);
-    remote.remote_path.hash(&mut hasher);
-    format!("work_{base}_{:06x}", hasher.finish() & 0xffffff)
+    );
+    let hash = stable_hash(&[&identity, &remote.remote_path]);
+    format!("work_{base}_{:06x}", hash & 0xffffff)
 }
 
 // ssh options shared by the PTY attach (tty) and the tmux management calls.
@@ -277,17 +289,47 @@ pub fn ensure_session(remote: &RemoteProject, session: &str, cwd: &str) -> Resul
     run_script(remote, &script, STATUS_TIMEOUT).map(|_| ())
 }
 
+// A tab is a control character: under a POSIX locale tmux rewrites it to '_'
+// before the bytes ever reach SSH. Use a printable separator instead; the
+// window name cannot contain ':' (check_target rejects it) and the path is the
+// last field, so a ':' inside it is preserved by splitn(4).
+const REMOTE_WINDOW_FORMAT: &str =
+    "#{window_id}:#{window_name}:#{window_active}:#{pane_current_path}";
+
+pub fn parse_remote_windows(raw: &str) -> Vec<crate::tmux::TmuxWindow> {
+    raw.lines()
+        .filter_map(|line| {
+            let line = line.trim_end_matches('\r');
+            if line.is_empty() {
+                return None;
+            }
+            let mut parts = line.splitn(4, ':');
+            let id = parts.next()?.trim().to_string();
+            let name = parts.next().unwrap_or("").trim().to_string();
+            let active = parts.next().map(|a| a.trim() == "1").unwrap_or(false);
+            let path = parts.next().unwrap_or("").trim().to_string();
+            Some(crate::tmux::TmuxWindow {
+                id,
+                name,
+                active,
+                path,
+            })
+        })
+        .collect()
+}
+
 pub fn list_windows(
     remote: &RemoteProject,
     session: &str,
 ) -> Result<Vec<crate::tmux::TmuxWindow>, String> {
     check_session(session)?;
     let script = format!(
-        "tmux list-windows -t {} -F '#{{window_id}}\t#{{window_name}}\t#{{window_active}}\t#{{pane_current_path}}'",
-        quote(session)
+        "tmux list-windows -t {} -F '{}'",
+        quote(session),
+        REMOTE_WINDOW_FORMAT
     );
     let out = run_script(remote, &script, STATUS_TIMEOUT)?;
-    Ok(crate::tmux::parse_windows(&out))
+    Ok(parse_remote_windows(&out))
 }
 
 pub fn new_window(
@@ -638,10 +680,33 @@ mod tests {
     }
 
     #[test]
+    fn remote_window_listing_does_not_depend_on_tabs_or_the_remote_locale() {
+        // A POSIX locale makes tmux replace tab/control separators with '_';
+        // the printable format keeps the fields intact.
+        assert!(!REMOTE_WINDOW_FORMAT.contains('\t'));
+        assert!(REMOTE_WINDOW_FORMAT.chars().all(|c| !c.is_control()));
+        let raw =
+            "@261:shell:0:/tmp/qa33\n@262:pm:1:/srv/app\n@263:dev1:0:/srv/app\n@264::0:/srv/a:b\n";
+        let windows = parse_remote_windows(raw);
+        assert_eq!(windows.len(), 4);
+        assert_eq!(windows[0].id, "@261");
+        assert_eq!(windows[0].name, "shell");
+        assert!(!windows[0].active);
+        assert_eq!(windows[0].path, "/tmp/qa33");
+        assert!(windows[1].active);
+        assert_eq!(windows[2].name, "dev1");
+        assert_eq!(windows[3].name, "");
+        assert_eq!(
+            windows[3].path, "/srv/a:b",
+            "colons in the last field are preserved"
+        );
+    }
+
+    #[test]
     fn session_name_is_stable_and_uses_the_custom_one_when_given() {
         let r = remote();
         assert_eq!(session_name(&r), session_name(&r));
-        assert!(session_name(&r).starts_with("work_app_"));
+        assert_eq!(session_name(&r), "work_app_b2b91f");
         let mut custom = r.clone();
         custom.session_name = Some("work-stack".into());
         assert_eq!(session_name(&custom), "work-stack");
