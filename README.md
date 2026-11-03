@@ -34,7 +34,7 @@ una squadra di agenti AI, Git/GitHub, editing file e controllo remoto — in un'
 
 ## ✦ Perché Work Stack
 
-| | |
+| Vantaggio | In pratica |
 |---|---|
 | **Un solo posto per tutto** | Progetti, terminali, file, Git, GitHub, run e agenti vivono nella stessa finestra: niente più dieci schede e quattro terminali sparsi. |
 | **Gli agenti non si fermano** | PM, sviluppatori e QA girano in una sessione tmux persistente per progetto. Chiudi l'app, aggiornala o riavvia: al ritorno le finestre sono ancora lì, con lo scrollback intatto. |
@@ -143,27 +143,29 @@ Un protocollo deterministico per far parlare i terminali tra loro. Legge lo snap
 
 ```bash
 # Chi c'è, con quale agente e in che stato
-$ work-agent list
+$ python3 scripts/work-agent.py list
 dev1	idle	opencode
 qa1	idle	codex
 agent1	idle	generic
 
 # Assegna un task a un'altra finestra
-$ work-agent prompt dev1 "esegui la suite di regressione"
+$ python3 scripts/work-agent.py prompt dev1 "esegui la suite di regressione"
 
 # Aspetta che torni idle (esce 2 dopo il timeout)
-$ work-agent wait dev1 --until idle --timeout 600
+$ python3 scripts/work-agent.py wait dev1 --until idle --timeout 600
 
 # Leggi le ultime righe, ripulite da ANSI e bordi
-$ work-agent read dev1 --lines 40 --clean
+$ python3 scripts/work-agent.py read dev1 --lines 40 --clean
 ```
 
 | Comando | Descrizione |
 |---|---|
-| `work-agent list` | Elenca le finestre agente con stato, agente e regola che ha matchato. |
-| `work-agent prompt <role> "<testo>"` | Invia un'istruzione alla finestra, con marcatore anti-race. |
-| `work-agent wait <role> [--until blocked\|idle\|done] [--timeout SEC]` | Attende uno stato; `--timeout 0` attende per sempre. |
-| `work-agent read <role> [--lines N] [--clean]` | Legge l'output recente; `--clean` rimuove ANSI, box e hint. |
+| `list` | Elenca le finestre agente con stato, agente e regola che ha matchato. |
+| `prompt <role> "<testo>"` | Invia un'istruzione alla finestra, con marcatore anti-race. |
+| `wait <role> [--until blocked\|idle\|done] [--timeout SEC]` | Attende uno stato; `--timeout 0` attende per sempre. |
+| `read <role> [--lines N] [--clean]` | Legge l'output recente; `--clean` rimuove ANSI, box e hint. |
+
+Tutti i comandi si intendono come `python3 scripts/work-agent.py <comando>` e funzionano da qualsiasi finestra del progetto; fuori da tmux la sessione viene rilevata dal nome della directory o da `WORK_TMUX_SESSION`.
 
 Exit code: `0` successo · `1` errore · `2` timeout. Opzioni globali: `--session`, `--root`, `--state`, `--tmux-bin`.
 
@@ -197,6 +199,8 @@ Un tunnel per progetto dal menu **Run → ngrok Tunnel…**:
 ## 🧭 Layout & feature matrix
 
 Sidebar a colonna singola con sezioni **accordion** in stile VS Code, tutte richiudibili:
+
+<img src="docs/screenshot.webp" alt="La finestra di Work Stack con sidebar accordion, griglia di terminali tmux per PM, Dev e QA e indicatore Live nella barra superiore" width="100%">
 
 | Ambito | Cosa include | Stato |
 |---|---|---|
