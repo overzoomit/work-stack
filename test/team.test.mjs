@@ -1,6 +1,8 @@
 // Unit tests for the Multi-Agent Team Orchestrator.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { env, $, tick } from './helpers/renderer-env.mjs';
 
 const T = await import('../src/renderer/terminals.js');
@@ -738,4 +740,20 @@ test('the init prompt is sent to a freshly created role window', async () => {
   assert.equal(await Team.injectInitPrompt(project, 'dev1', null, { delay: 0 }), false, 'no session, no send');
   assert.equal(await Team.injectInitPrompt(project, 'shell', 'work_inject', { delay: 0 }), false, 'unknown role, no send');
   assert.equal(env.tmuxCalls.length, 0);
+});
+
+test('the skill editor renders above the Agent Team popover (regression)', () => {
+  const css = readFileSync(resolve('src/renderer/style.css'), 'utf-8');
+  const z = (re) => {
+    const m = css.match(re);
+    return m ? Number(m[1]) : Number.NaN;
+  };
+  const dialog = z(/^\.modal\s*\{[^}]*z-index:\s*(\d+)/m);
+  const popover = z(/^\.team-pop\s*\{[^}]*z-index:\s*(\d+)/m);
+  const toasts = z(/^\.toasts\s*\{[^}]*z-index:\s*(\d+)/m);
+
+  assert.ok(Number.isFinite(dialog), 'the dialog layer defines a z-index');
+  assert.ok(Number.isFinite(popover), 'the team popover defines a z-index');
+  assert.ok(dialog > popover, `dialog (${dialog}) must sit above the team popover (${popover})`);
+  assert.ok(toasts > dialog, `toasts (${toasts}) must stay readable above the dialog scrim`);
 });

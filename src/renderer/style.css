@@ -439,6 +439,9 @@ body.sidebar-hidden .layout { --left: 0px; }
 .sheet[hidden], .modal[hidden] { display: none; }
 .sheet.closing, .modal.closing { animation: scrim-out 160ms var(--ease-in) forwards; }
 .sheet.closing > *, .modal.closing > * { animation: dematerialize 160ms var(--ease-in) forwards; }
+/* Dialogs always sit above popovers (Agent Team, launcher): at 50 they could
+   be covered, and their buttons would become unclickable. */
+.modal { z-index: 100; }
 @keyframes scrim-in { from { background: rgba(0, 0, 0, 0); } }
 @keyframes scrim-out { to { background: rgba(0, 0, 0, 0); } }
 .review-card, .viewer-card, .modal-card, .plugins-card, .ngrok-card {
@@ -674,7 +677,7 @@ body.sidebar-hidden .layout { --left: 0px; }
 .md-body input[type=checkbox] { accent-color: var(--accent); margin-right: .5em; }
 
 /* ── Toasts: enter from the right, leave to the right ── */
-.toasts { position: fixed; right: 16px; bottom: 38px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.toasts { position: fixed; right: 16px; bottom: 38px; display: flex; flex-direction: column; gap: 8px; z-index: 120; }
 .toast {
   background: rgba(36, 38, 48, .88); backdrop-filter: blur(30px) saturate(180%);
   border: 1px solid var(--line); box-shadow: inset 0 1px 0 var(--edge), 0 12px 30px rgba(0, 0, 0, .45);
