@@ -118,6 +118,16 @@ test('work.plugins sends the url and id under the names the Rust commands take',
   assert.equal(typeof work.app.onOpenPlugins, 'function');
 });
 
+test('work.app relays app:open-settings from the macOS menu bar', async () => {
+  const { work, emit } = load(() => null);
+  assert.equal(typeof work.app.onOpenSettings, 'function');
+  const opened = [];
+  const off = work.app.onOpenSettings(() => opened.push(true));
+  emit('app:open-settings', []);
+  assert.deepEqual(opened, [true]);
+  off();
+});
+
 test('work.ngrok sends start/stop/status with the argument names the Rust commands take', async () => {
   const seen = [];
   const { work, emit } = load((cmd, _wait, args) => { seen.push([cmd, { ...args }]); return { active: cmd === 'ngrok_start' }; });

@@ -101,6 +101,7 @@
       onQuitRequested: listen('app:quit-requested'),
       onCheckUpdate: listen('app:check-update'),
       onOpenPlugins: listen('app:open-plugins'),
+      onOpenSettings: listen('app:open-settings'),
       onUpdateProgress: listen('app:update-progress'),
     },
     projects: {
