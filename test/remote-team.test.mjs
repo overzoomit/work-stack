@@ -8,7 +8,7 @@ const T = await import('../src/renderer/terminals.js');
 T.initTerminals({ homeDir: '/home/u', changed() {} });
 const Team = await import('../src/renderer/team.js');
 
-test('initializeTeam crea i quattro ruoli sul server remoto', async () => {
+test('initializeTeam crea i ruoli della squadra sul server remoto', async () => {
   env.tmuxAvailable = false;
   env.tmuxSession = 'work_app_123456';
   env.tmuxWindows = [];
@@ -23,10 +23,10 @@ test('initializeTeam crea i quattro ruoli sul server remoto', async () => {
     savedTerminals: null,
   };
   const panes = await Team.initializeTeam(project);
-  assert.equal(panes.length, 4);
-  assert.deepEqual(env.createdWindows.map((w) => w.name), ['pm', 'dev1', 'dev2', 'qa']);
+  assert.equal(panes.length, 5);
+  assert.deepEqual(env.createdWindows.map((w) => w.name), ['pm', 'dev1', 'dev2', 'qa', 'doc1']);
   assert.ok(env.createdWindows.every((w) => w.cwd === '/srv/app'), 'windows start in the remote path');
-  assert.equal(env.created.length, 4);
+  assert.equal(env.created.length, 5);
   assert.ok(env.created.every((opts) => opts.remote?.host === 'vps'), 'each pane is an SSH pane');
   assert.ok(env.created.every((opts) => opts.cwd === '/srv/app'));
 });

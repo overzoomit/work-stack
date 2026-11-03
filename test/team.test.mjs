@@ -8,6 +8,7 @@ T.initTerminals({ homeDir: '/home/u', changed() {} });
 
 const Team = await import('../src/renderer/team.js');
 const Launcher = await import('../src/renderer/launcher.js');
+const Roles = await import('../src/renderer/teamroles.js');
 
 // Telegram bridge stub: only the PM control panel uses it.
 const telegramState = { connected: false, bot: null, chatId: null, project: null, session: null, lastError: null };
@@ -29,15 +30,15 @@ globalThis.window.work.telegram = {
   onMessage: () => {},
 };
 
-test('TEAM_ROLES defines pm, dev1, dev2, and qa with valid properties', () => {
+test('TEAM_ROLES defines pm, dev1, dev2, qa and doc1 with valid properties', () => {
   const roles = Team.TEAM_ROLES;
-  assert.equal(roles.length, 4);
+  assert.equal(roles.length, 5);
 
   const ids = roles.map((r) => r.id);
-  assert.deepEqual(ids, ['pm', 'dev1', 'dev2', 'qa']);
+  assert.deepEqual(ids, ['pm', 'dev1', 'dev2', 'qa', 'doc']);
 
   const names = roles.map((r) => r.name);
-  assert.deepEqual(names, ['pm', 'dev1', 'dev2', 'qa']);
+  assert.deepEqual(names, ['pm', 'dev1', 'dev2', 'qa', 'doc1']);
 
   const pm = roles.find((r) => r.id === 'pm');
   assert.equal(pm.role, 'PM');
@@ -54,6 +55,13 @@ test('TEAM_ROLES defines pm, dev1, dev2, and qa with valid properties', () => {
   const qa = roles.find((r) => r.id === 'qa');
   assert.equal(qa.role, 'QA');
   assert.ok(qa.command.includes('codex'));
+
+  const doc = roles.find((r) => r.id === 'doc');
+  assert.equal(doc.role, 'DOC1');
+  assert.equal(doc.title, 'Documentation Specialist #1');
+  assert.equal(doc.agentId, 'claude');
+  assert.ok(doc.command.includes('claude'));
+  assert.deepEqual(Roles.roleFor('doc2'), doc, 'numbered doc roles use the doc default');
 });
 
 test('hasPm accurately checks for PM presence (PM is unique)', () => {
@@ -82,6 +90,18 @@ test('nextQaName increments sequentially starting from qa1 and considers legacy 
   assert.equal(Team.nextQaName(['pm', 'qa1']), 'qa2');
   assert.equal(Team.nextQaName(['qa1', 'qa2']), 'qa3');
   assert.equal(Team.nextQaName(['qa', 'qa2']), 'qa3');
+});
+
+test('nextDocName increments doc members and getDocMembers sorts them', () => {
+  assert.equal(Team.nextDocName([]), 'doc1');
+  assert.equal(Team.nextDocName(['pm', 'dev1']), 'doc1');
+  assert.equal(Team.nextDocName(['doc']), 'doc2');
+  assert.equal(Team.nextDocName(['doc1']), 'doc2');
+  assert.equal(Team.nextDocName(['doc1', 'doc3']), 'doc4');
+  assert.deepEqual(Team.getDocMembers([]), []);
+  assert.deepEqual(Team.getDocMembers(['pm', 'qa1', 'dev1']), []);
+  assert.deepEqual(Team.getDocMembers(['doc2', 'pm', 'doc1']), ['doc1', 'doc2']);
+  assert.deepEqual(Team.getDocMembers(['doc', 'doc3']), ['doc', 'doc3']);
 });
 
 test('createTeamMember creates and attaches a window with the chosen agent', async () => {
@@ -119,17 +139,17 @@ test('initializeTeam on tmux creates missing windows and attaches them', async (
   T.showProject(project);
 
   const panes = await Team.initializeTeam(project);
-  assert.equal(env.createdWindows.length, 4, 'creates 4 tmux windows for the team');
-  assert.deepEqual(env.createdWindows.map((w) => w.name), ['pm', 'dev1', 'dev2', 'qa']);
+  assert.equal(env.createdWindows.length, 5, 'creates 5 tmux windows for the team');
+  assert.deepEqual(env.createdWindows.map((w) => w.name), ['pm', 'dev1', 'dev2', 'qa', 'doc1']);
   assert.deepEqual(
     env.createdWindows.map((w) => [w.cwd, w.command]),
     Team.TEAM_ROLES.map((r) => ['/home/u/team-proj', r.command]),
     'each window starts its role command in the project folder',
   );
 
-  assert.equal(panes.length, 4);
+  assert.equal(panes.length, 5);
   const titles = panes.map((p) => p.title);
-  assert.deepEqual(titles, ['pm', 'dev1', 'dev2', 'qa']);
+  assert.deepEqual(titles, ['pm', 'dev1', 'dev2', 'qa', 'doc1']);
 
   // Clean up
   for (const pane of panes) {
@@ -287,6 +307,47 @@ test('la sezione Generico elenca i membri e avvia l\'agente scelto come agentN',
   assert.equal(env.createdWindows.at(-1).name, 'agent2');
   assert.equal(env.createdWindows.at(-1).cwd, '/home/u/generic-proj');
   assert.ok(env.createdWindows.at(-1).command.includes('claude'));
+
+  for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
+  await tick(50);
+  env.tmuxAvailable = false;
+});
+
+test('la sezione Documentation sta tra QA e Generic e avvia docN con l’agente scelto', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_doc_test';
+  env.tmuxWindows = [{ id: '@8', name: 'doc1', active: false, path: '/home/u/doc-proj' }];
+  env.createdWindows = [];
+
+  const project = { path: '/home/u/doc-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  Team.initTeam({ activeProject: () => project });
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  assert.ok(pop);
+
+  const html = pop.innerHTML;
+  const qa = html.indexOf('Quality Assurance');
+  const docs = html.indexOf('Documentation');
+  const generic = html.indexOf('Generic (');
+  assert.ok(qa >= 0 && docs > qa && generic > docs, 'Documentation è tra QA e Generic');
+  assert.match(html, /Documentation \(1 active\)/);
+  assert.match(html, /tp-role-badge tp-role-doc">\[DOC1\]/);
+  assert.match(html, /data-act="kill-role" data-role="doc1"/);
+  assert.match(html, /Add Doc \(doc2\)/);
+
+  await pop.listeners.click[0]({
+    target: { closest: (sel) => (sel === '[data-act]' ? { dataset: { act: 'add-doc' } } : null) },
+  });
+  assert.match(pop.innerHTML, /documentation specialist DOC2/);
+  assert.match(pop.innerHTML, /data-agent-id="claude"/);
+
+  await pop.listeners.click[0]({
+    target: { closest: (sel) => (sel === '.tp-agent-row' ? { dataset: { agentId: 'codex' } } : null) },
+  });
+  assert.equal(env.createdWindows.at(-1).name, 'doc2');
+  assert.equal(env.createdWindows.at(-1).cwd, '/home/u/doc-proj');
+  assert.ok(env.createdWindows.at(-1).command.includes('codex'));
 
   for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
   await tick(50);

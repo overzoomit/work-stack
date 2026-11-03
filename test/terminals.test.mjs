@@ -354,3 +354,26 @@ test('un agente fuori catalogo resta leggibile con un tint neutro', async () => 
   assert.match(t.el.innerHTML, /--agent-tint-1:#94a3b8;--agent-tint-2:#64748b/);
   T.closeTerminal(t.id);
 });
+
+test('roleBadgeFor riconosce i ruoli Documentation', () => {
+  assert.deepEqual(T.roleBadgeFor('doc1'), {
+    text: 'DOC1', title: 'Documentation Specialist #1', role: 'doc',
+  });
+  assert.deepEqual(T.roleBadgeFor('doc2'), {
+    text: 'DOC2', title: 'Documentation Specialist #2', role: 'doc',
+  });
+  assert.deepEqual(T.roleBadgeFor('doc'), {
+    text: 'DOC', title: 'Documentation Specialist', role: 'doc',
+  });
+});
+
+test('il terminale DOC1 usa il badge agente Claude di default', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p, { title: 'doc1', kind: 'agent' });
+  assert.match(t.el.innerHTML, /class="pane-badge role-doc"/);
+  assert.match(t.el.innerHTML, />DOC1</);
+  assert.match(t.el.innerHTML, /class="pane-badge pane-agent-badge" data-agent="claude"/);
+  assert.match(t.el.innerHTML, />CLAUDE</);
+  T.closeTerminal(t.id);
+});

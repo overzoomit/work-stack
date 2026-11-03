@@ -183,6 +183,11 @@ export function roleBadgeFor(name) {
     const num = qaMatch[1] || '';
     return { text: num ? `QA${num}` : 'QA', title: num ? `QA Engineer #${num}` : 'QA Engineer', role: 'qa' };
   }
+  const docMatch = n.match(/^doc(\d+)?$/);
+  if (docMatch) {
+    const num = docMatch[1] || '';
+    return { text: num ? `DOC${num}` : 'DOC', title: num ? `Documentation Specialist #${num}` : 'Documentation Specialist', role: 'doc' };
+  }
   const agentMatch = n.match(/^agent(\d+)$/);
   if (agentMatch) return { text: `AGENT${agentMatch[1]}`, title: `Generic agent #${agentMatch[1]}`, role: 'agent' };
   return null;

@@ -31,8 +31,8 @@ try:
 except ModuleNotFoundError:  # Python < 3.11
     tomllib = None
 
-# Team windows the watchdog must watch: dev1, dev2..., qa, qa1..., agent1...
-AGENT_WINDOW = re.compile(r"^(?:dev\d+|qa\d*|agent\d+|generico)$", re.IGNORECASE)
+# Team windows the watchdog must watch: dev1, qa1, doc1, agent1...
+AGENT_WINDOW = re.compile(r"^(?:dev\d+|qa\d*|doc\d*|agent\d+|generico)$", re.IGNORECASE)
 
 # Declarative manifests shared with the Rust dogwatch (src-tauri/detect/manifests).
 MANIFEST_DIR = Path(__file__).resolve().parent.parent / "src-tauri" / "detect" / "manifests"

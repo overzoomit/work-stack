@@ -72,6 +72,30 @@ export function getQaMembers(existingNames = []) {
     });
 }
 
+export function nextDocName(existingNames = []) {
+  let highest = 0;
+  for (const name of existingNames) {
+    const m = String(name).match(/^doc(\d+)$/i);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (num > highest) highest = num;
+    } else if (String(name).toLowerCase() === 'doc') {
+      if (highest < 1) highest = 1;
+    }
+  }
+  return `doc${highest + 1}`;
+}
+
+export function getDocMembers(existingNames = []) {
+  return existingNames
+    .filter((n) => /^doc(\d+)?$/i.test(n))
+    .sort((a, b) => {
+      const numA = parseInt((a.match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((b.match(/\d+/) || [0])[0], 10);
+      return numA - numB;
+    });
+}
+
 // Generic members: agent1, agent2…; a window named "generico" counts too.
 const GENERIC = /^(agent(\d+)|generico)$/i;
 
@@ -95,7 +119,7 @@ function showWaiting(project, count) {
   const total = [...waitingByProject.values()].reduce((a, b) => a + b, 0);
   const btn = $('#agent-team');
   btn?.classList.toggle('attention', total > 0);
-  if (btn) btn.title = total > 0 ? `${total} agent(s) waiting for an answer` : 'Manage the agent team (PM, Dev1, Dev2, QA, Generic)';
+  if (btn) btn.title = total > 0 ? `${total} agent(s) waiting for an answer` : 'Manage the agent team (PM, Dev1, Dev2, QA, Doc, Generic)';
 }
 
 export function ledState(live, waiting) {
@@ -524,10 +548,12 @@ async function renderPopContent(probeMcp = true) {
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
   const qaList = getQaMembers(names);
+  const docList = getDocMembers(names);
   const agentList = getAgentMembers(names);
 
   const nextDev = nextDevName(names);
   const nextQa = nextQaName(names);
+  const nextDoc = nextDocName(names);
   const nextAgent = nextAgentName(names);
   const telegram = pmActive && work?.telegram?.status ? await work.telegram.status().catch(() => null) : null;
   const plane = await work?.planeDogwatch?.status().catch(() => null);
@@ -626,6 +652,33 @@ async function renderPopContent(probeMcp = true) {
         `).join('')}
         <button class="tp-add-btn qa" data-act="add-qa" data-next="${esc(nextQa)}">
           ＋ Add QA (${esc(nextQa)})
+        </button>
+      </div>
+
+      <!-- Documentation section: between QA and Generic -->
+      <div class="tp-section">
+        <div class="tp-section-head">
+          <span>📝 Documentation (${docList.length} active)</span>
+        </div>
+        ${docList.map((docName) => `
+          <div class="tp-row" data-focus-role="${esc(docName)}" title="Click to open the ${esc(docName)} terminal">
+            <span class="tp-status-dot ${dotClass(states, docName)}"></span>
+            <span class="tp-role-badge tp-role-doc">[${esc(docName.toUpperCase())}]</span>
+            <div class="tp-info">
+              <div class="tp-name">
+                <span>${esc(docName)}</span>
+                ${statusBadge(states, docName)}
+              </div>
+              <div class="tp-desc">Documentation Specialist · Click to view</div>
+              ${ticketLine(assignments, docName)}
+            </div>
+            <div class="tp-row-actions">
+              <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(docName)}" title="Terminate window ${esc(docName)}">✕</button>
+            </div>
+          </div>
+        `).join('')}
+        <button class="tp-add-btn doc" data-act="add-doc" data-next="${esc(nextDoc)}">
+          ＋ Add Doc (${esc(nextDoc)})
         </button>
       </div>
 
@@ -797,6 +850,18 @@ export async function openTeamMenu() {
         mode: 'select-agent',
         targetRoleName: qaName,
         targetRoleLabel: `Choose which CLI agent to activate for QA ${qaName.toUpperCase()}:`,
+      };
+      await renderPopContent();
+      return;
+    }
+
+    if (act === 'add-doc') {
+      const { names } = await getExistingNames(p);
+      const docName = nextDocName(names);
+      viewState = {
+        mode: 'select-agent',
+        targetRoleName: docName,
+        targetRoleLabel: `Choose which CLI agent to activate for documentation specialist ${docName.toUpperCase()}:`,
       };
       await renderPopContent();
       return;

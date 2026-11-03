@@ -38,9 +38,18 @@ export const TEAM_ROLES = [
     agentId: 'codex',
     command: 'codex --dangerously-bypass-approvals-and-sandbox',
   },
+  {
+    id: 'doc',
+    name: 'doc1',
+    role: 'DOC1',
+    title: 'Documentation Specialist #1',
+    agent: 'Claude Code',
+    agentId: 'claude',
+    command: 'claude --dangerously-skip-permissions',
+  },
 ];
 
-// Squad roles can be numbered (dev3, qa1…): the default command comes from
+// Squad roles can be numbered (dev3, qa1, doc2…): the default command comes from
 // the role family, while the concrete name stays the one tmux uses.
 export function roleFor(name) {
   if (!name) return null;
@@ -49,5 +58,6 @@ export function roleFor(name) {
   if (exact) return exact;
   if (/^dev\d+$/.test(n)) return TEAM_ROLES.find((r) => r.id === 'dev1');
   if (/^qa\d*$/.test(n)) return TEAM_ROLES.find((r) => r.id === 'qa');
+  if (/^doc\d*$/.test(n)) return TEAM_ROLES.find((r) => r.id === 'doc');
   return null;
 }

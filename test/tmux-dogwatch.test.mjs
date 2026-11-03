@@ -22,6 +22,14 @@ if [ "$DOGWATCH_CLEAN" = "1" ]; then
   esac
   exit 0
 fi
+if [ "$DOGWATCH_DOCS" = "1" ]; then
+  case "$1" in
+    list-windows) printf '@0\tdoc1\t1\t/p\n@1\tdocs\t0\t/p\n' ;;
+    capture-pane) printf 'just working\n' ;;
+    display-message) printf 'work_test\n' ;;
+  esac
+  exit 0
+fi
 if [ "$DOGWATCH_RESUMED" = "1" ]; then
   case "$1" in
     list-windows) printf '@0\\tdev1\\t1\\t/p\\n' ;;
@@ -176,6 +184,18 @@ test('--daemon scrive il file di escalation a ogni giro finché non viene fermat
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => child.once('exit', r));
+    box.cleanup();
+  }
+});
+
+test('le finestre doc1/doc2 sono agenti validi, "docs" no', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = run(box, ['--once', '--session', 'work_test'], { DOGWATCH_DOCS: '1' });
+    assert.equal(out.status, 0, out.stderr);
+    const shared = JSON.parse(readFileSync(join(box.dir, '.claude', 'dogwatch_state.json'), 'utf8'));
+    assert.deepEqual(shared.windows.map((w) => w.name), ['doc1'], 'docs is not an agent window');
+  } finally {
     box.cleanup();
   }
 });

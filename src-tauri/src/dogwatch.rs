@@ -471,14 +471,15 @@ fn engine() -> &'static ManifestEngine {
 
 // ── Prompt parser ────────────────────────────────────────────
 
-// dev1, qa, qa2, agent3, generico: the windows of the team. The PM is watched
-// for its status too, but pending() keeps its prompts out of the escalation.
+// dev1, qa, qa2, agent3, doc1, generico: the windows of the team. The PM is
+// watched for its status too, but pending() keeps its prompts out of escalation.
 pub fn is_agent_window(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let digits = |rest: &str| rest.chars().all(|c| c.is_ascii_digit());
     name == "pm"
         || name == "generico"
         || name.strip_prefix("qa").is_some_and(digits)
+        || name.strip_prefix("doc").is_some_and(digits)
         || name
             .strip_prefix("dev")
             .or(name.strip_prefix("agent"))
@@ -1003,10 +1004,10 @@ mod tests {
 
     #[test]
     fn only_team_windows_are_watched() {
-        for name in ["pm", "dev1", "DEV12", "qa", "qa2", "agent3", "generico"] {
+        for name in ["pm", "dev1", "DEV12", "qa", "qa2", "agent3", "doc1", "DOC2", "doc", "generico"] {
             assert!(is_agent_window(name), "{name}");
         }
-        for name in ["shell", "dev", "agent", "qatest", "dev1x", ""] {
+        for name in ["shell", "dev", "agent", "qatest", "dev1x", "docx", "docs", ""] {
             assert!(!is_agent_window(name), "{name}");
         }
     }

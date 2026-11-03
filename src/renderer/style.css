@@ -932,6 +932,9 @@ body.sidebar-hidden .layout { --left: 0px; }
 .pane-badge.role-qa {
   color: #34d399; background: rgba(16, 185, 129, .18); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, .45);
 }
+.pane-badge.role-doc {
+  color: #22d3ee; background: rgba(6, 182, 212, .16); box-shadow: inset 0 0 0 1px rgba(6, 182, 212, .45);
+}
 /* The agent badge reuses .pane-badge and takes its two tint colors from the
    same catalog entry as the team picker tile. */
 .pane-agent-badge {
@@ -1139,6 +1142,7 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-role-pm { background: rgba(168, 85, 247, .2); color: #c084fc; border: 1px solid rgba(168, 85, 247, .4); }
 .tp-role-dev1, .tp-role-dev2, .tp-role-dev { background: rgba(14, 165, 233, .2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, .4); }
 .tp-role-qa { background: rgba(16, 185, 129, .2); color: #34d399; border: 1px solid rgba(16, 185, 129, .4); }
+.tp-role-doc { background: rgba(6, 182, 212, .2); color: #22d3ee; border: 1px solid rgba(6, 182, 212, .42); }
 .tp-role-agent, .tp-role-generic { background: rgba(245, 158, 11, .2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, .4); }
 .tp-info { flex: 1; min-width: 0; }
 .tp-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
@@ -1194,6 +1198,8 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-add-btn.dev:hover { background: rgba(14, 165, 233, .12); border-color: rgba(14, 165, 233, .5); }
 .tp-add-btn.qa { border-color: rgba(16, 185, 129, .3); color: #34d399; background: rgba(16, 185, 129, .05); }
 .tp-add-btn.qa:hover { background: rgba(16, 185, 129, .12); border-color: rgba(16, 185, 129, .5); }
+.tp-add-btn.doc { border-color: rgba(6, 182, 212, .32); color: #22d3ee; background: rgba(6, 182, 212, .06); }
+.tp-add-btn.doc:hover { background: rgba(6, 182, 212, .14); border-color: rgba(6, 182, 212, .52); }
 .tp-add-btn.agent, .tp-add-btn.generic { border-color: rgba(245, 158, 11, .3); color: #fbbf24; background: rgba(245, 158, 11, .05); }
 .tp-add-btn.agent:hover, .tp-add-btn.generic:hover { background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .5); }
 
