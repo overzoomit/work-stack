@@ -879,10 +879,13 @@ pub fn run_cycle(
             )
         };
         // The task is over: reset the window that held it, if it is idle and
-        // runs OpenCode, so the next ticket starts from a fresh session.
+        // runs OpenCode, so the next ticket starts from a fresh session. Never
+        // touch a window that received a new ticket in this same cycle: its
+        // delegation already opened a fresh session and this cleanup would wipe it.
         if prev_state != now
             && matches!(now.as_str(), "test" | "done" | "re-open")
             && !prev_target.is_empty()
+            && !run.busy.contains(&prev_target)
             && run.agents.is_opencode(&prev_target)
             && run.agents.idle(&prev_target)
         {
@@ -1861,6 +1864,29 @@ mod tests {
             ["reset:dev1", "send:dev1", "send:qa1", "reset:dev1"]
         );
         assert_eq!(moves(&r)[0].3.as_deref(), Some("qa1"));
+    }
+
+    #[test]
+    fn cleanup_does_not_wipe_a_task_delegated_to_the_same_window_in_the_same_cycle() {
+        let b = scenario(vec![issue(1, "s-todo"), issue(2, "s-todo")]);
+        let a = agents(&["dev1"]); // only dev1 is free: ticket 2 waits for cycle 2
+        a.opencode.borrow_mut().insert("dev1".into());
+        b.cycle(&a);
+        assert_eq!(a.resets.borrow().as_slice(), ["dev1"]);
+        b.mock.set_state(1, "s-test");
+
+        let second = b.cycle(&a);
+        assert_eq!(
+            a.resets.borrow().as_slice(),
+            ["dev1", "dev1"],
+            "one reset per new task; the completion cleanup must skip dev1"
+        );
+        assert_eq!(
+            a.events.borrow().as_slice(),
+            ["reset:dev1", "send:dev1", "reset:dev1", "send:dev1"],
+            "the last action is ticket 2's prompt, not a reset that would wipe it"
+        );
+        assert_eq!(moves(&second)[0].0, Some(2));
     }
 
     #[test]

@@ -330,3 +330,31 @@ esac
     assert.equal(existsSync(join(box.dir, '.claude', 'opencode_cleanup.json')), true, 'the next prune waits for the interval');
   });
 });
+
+test('cleanup of a finished ticket never wipes a new task delegated to the same window', { skip }, () => {
+  const tickets = [issue(1, 's-todo'), issue(2, 's-todo')];
+  return scenario(tickets, {}, async (api, box) => {
+    // Only dev1 is free: ticket 1 goes there, ticket 2 waits for the next cycle.
+    const first = await run(box, ['--once', '--devs', 'dev1']);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(box.resets().length, 1, 'reset before ticket 1');
+    assert.equal(box.sends().length, 1);
+
+    tickets[0].state = 's-test';
+    tickets[0].updated_at = '2026-11-02T11:00:00Z';
+    const second = await run(box, ['--once', '--devs', 'dev1']);
+    assert.equal(second.status, 0, second.stderr);
+
+    assert.equal(box.resets().length, 2, 'one reset per new task, never a third after ticket 2');
+    assert.deepEqual(
+      second.json().cleanups.map((c) => [c.issue, c.reason]),
+      [[2, 'before delegation']],
+      'the completed ticket skips cleanup because dev1 just received ticket 2',
+    );
+    const log = readFileSync(join(box.dir, 'tmux.log'), 'utf8');
+    const prompt = box.sends().at(-1);
+    const promptAt = log.lastIndexOf(prompt);
+    assert.ok(promptAt > log.lastIndexOf('-l -- /new'), 'the last reset precedes the new prompt');
+    assert.ok(!log.slice(promptAt).includes('-l -- /new'), 'no reset after ticket 2 was written');
+  });
+});

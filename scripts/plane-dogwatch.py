@@ -497,15 +497,22 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
         now = current[issue["id"]]
         prev_state, prev_target = before_cycle.get(issue["id"], (None, None))
         # The task is over: reset the window that held it, if it is idle and
-        # runs OpenCode, so the next ticket starts from a fresh session.
-        if prev_state != now and now in ("test", "done", "re-open"):
-            target = prev_target
-            if target and session.is_opencode(target) and session.idle(target):
-                try:
-                    session.reset(target)
-                    cleanups.append({"target": target, "reason": f"task reached {now}", "issue": issue.get("sequence_id")})
-                except RuntimeError as exc:
-                    cleanups.append({"target": target, "reason": f"task reached {now}", "issue": issue.get("sequence_id"), "error": str(exc)})
+        # runs OpenCode, so the next ticket starts from a fresh session. Never
+        # touch a window that received a new ticket in this same cycle: its
+        # delegation already opened a fresh session and this cleanup would wipe it.
+        if (
+            prev_state != now
+            and now in ("test", "done", "re-open")
+            and prev_target
+            and prev_target not in busy
+            and session.is_opencode(prev_target)
+            and session.idle(prev_target)
+        ):
+            try:
+                session.reset(prev_target)
+                cleanups.append({"target": prev_target, "reason": f"task reached {now}", "issue": issue.get("sequence_id")})
+            except RuntimeError as exc:
+                cleanups.append({"target": prev_target, "reason": f"task reached {now}", "issue": issue.get("sequence_id"), "error": str(exc)})
         # A ticket already Done at the first look is history, not news.
         if now == "done" and seen and seen != "done":
             sent = notify_telegram(telegram, f"✅ {ticket(issue)} completato: {plain(issue.get('name'), 200)}")
