@@ -24,7 +24,10 @@ python3 scripts/work-agent.py read dev1 --lines 200 --clean
 
 Opzioni comuni: `--session <nome>`, `--root <progetto>`, `--state <file>`,
 `--tmux-bin <percorso>`. La sessione viene rilevata da `--session`,
-`WORK_TMUX_SESSION`, dal pannello tmux corrente o dal nome del progetto.
+`WORK_TMUX_SESSION`, dal pannello tmux corrente (quando `TMUX` è impostato) o
+dal nome della directory del progetto. Fuori da tmux non viene usato il client
+più recente: si cercano solo le sessioni del progetto, ignorando i client
+raggruppati `_pty_<n>`.
 
 ## Stati e semantica
 
@@ -38,12 +41,19 @@ Opzioni comuni: `--session <nome>`, `--root <progetto>`, `--state <file>`,
 sporca il pane del collega. Il timeout predefinito è 300 secondi; `0` attende
 senza limite.
 
+Dopo un `prompt`, `wait --until done` (e `--until idle`) non accetta lo snapshot
+idle precedente all'avvio: attende di aver osservato l'agente passare a
+`working`/`blocked` e solo dopo considera conclusa l'attività. La CLI aggiorna
+lo stato subito dopo il prompt e, se serve, legge direttamente il pane per non
+perdere l'avvio tra due aggiornamenti di Dogwatch. Un prompt che non fa partire
+l'agente porta quindi a timeout (exit 2), non a un falso successo.
+
 ## Codici di uscita
 
 | Codice | Significato |
 | --- | --- |
 | `0` | successo / stato raggiunto |
-| `1` | errore (sessione, finestra o tmux non disponibili) |
+| `1` | errore, inclusi usage e opzioni non valide (sessione, finestra o tmux non disponibili) |
 | `2` | timeout di `wait` |
 
 ## Esempi di coordinamento

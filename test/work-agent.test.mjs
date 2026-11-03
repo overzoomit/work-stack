@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLI = fileURLToPath(new URL('../scripts/work-agent.py', import.meta.url));
@@ -15,13 +15,17 @@ const hasPython = python.status === 0;
 const FAKE = `#!/bin/sh
 printf '%s\\n' "$*" >> "$TMUX_LOG"
 case "$1" in
-  display-message) printf 'work_test\\n' ;;
-  list-sessions) printf 'work_test\\n' ;;
+  display-message)
+    if [ -n "$TMUX_CURRENT" ]; then printf '%s\\n' "$TMUX_CURRENT"; else printf 'work_test\\n'; fi
+    ;;
+  list-sessions)
+    if [ -n "$TMUX_SESSIONS" ]; then printf '%b' "$TMUX_SESSIONS"; else printf 'work_test\\n'; fi
+    ;;
   list-windows) printf '@0\\tdev1\\t1\\t/p\\n@1\\tqa1\\t0\\t/p\\n' ;;
   send-keys) exit 0 ;;
   capture-pane)
     case "$*" in
-      *:dev1*) printf '\\033[31mDo you want to proceed?\\033[0m\\n│ ❯ 1. Yes │\\n│   2. No │\\n  Esc to cancel\\n' ;;
+      *:dev1*) printf '\\033[31mDo you want to proceed?\\033[0m\\n│ ❯ 1. Yes │\\n│   2. No │\\n  Esc to cancel\\n⠋ Working… (esc to interrupt)\\n' ;;
       *) printf 'all good\\n' ;;
     esac
     ;;
@@ -44,11 +48,11 @@ function sandbox() {
   };
 }
 
-function writeState(box, windows) {
+function writeState(box, windows, session = 'work_test') {
   mkdirSync(dirname(box.state), { recursive: true });
   writeFileSync(box.state, JSON.stringify({
     updated_at: new Date().toISOString(),
-    session: 'work_test',
+    session,
     live: true,
     windows,
   }));
@@ -65,6 +69,18 @@ const windows = () => [
   { id: '@0', name: 'dev1', agent: 'opencode', state: 'working', rule: 'opencode-spinner', prompt: null },
   { id: '@1', name: 'qa1', agent: 'codex', state: 'idle', rule: null, prompt: null },
 ];
+
+// No --session: the CLI must resolve the project itself.
+const runBare = (box, args, env = {}) => {
+  const clean = { ...box.env, ...env };
+  if (!('TMUX' in env)) delete clean.TMUX;
+  if (!('WORK_TMUX_SESSION' in env)) delete clean.WORK_TMUX_SESSION;
+  return spawnSync('python3', [CLI, ...args, '--root', box.dir, '--tmux-bin', box.tmux, '--state', box.state], {
+    encoding: 'utf8',
+    env: clean,
+    timeout: 20_000,
+  });
+};
 
 test('list prints the shared Dogwatch state for every agent window', { skip: !hasPython }, () => {
   const box = sandbox();
@@ -106,6 +122,7 @@ test('read strips ANSI and --clean removes box borders and key hints', { skip: !
     assert.match(out.stdout, /Do you want to proceed\?/);
     assert.match(out.stdout, /1\. Yes/);
     assert.doesNotMatch(out.stdout, /Esc to cancel/);
+    assert.doesNotMatch(out.stdout, /Working… \(esc to interrupt\)/);
     assert.doesNotMatch(out.stdout, /│/);
   } finally {
     box.cleanup();
@@ -116,7 +133,7 @@ test('wait returns 0 when the shared state reaches the requested value', { skip:
   const box = sandbox();
   try {
     writeState(box, windows());
-    const child = spawn('python3', [CLI, 'wait', 'dev1', '--until', 'blocked', '--timeout', '5', '--root', box.dir, '--session', 'work_test', '--tmux-bin', box.tmux, '--state', box.state], {
+    const child = spawn('python3', [CLI, 'wait', 'qa1', '--until', 'blocked', '--timeout', '5', '--root', box.dir, '--session', 'work_test', '--tmux-bin', box.tmux, '--state', box.state], {
       env: box.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -125,10 +142,10 @@ test('wait returns 0 when the shared state reaches the requested value', { skip:
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
     await new Promise((r) => setTimeout(r, 300));
-    writeState(box, [{ ...windows()[0], state: 'blocked', rule: 'opencode-permission', prompt: { question: 'Proceed?' } }]);
+    writeState(box, [{ ...windows()[0] }, { ...windows()[1], state: 'blocked', rule: 'codex-permission', prompt: { question: 'Proceed?' } }]);
     const code = await new Promise((r) => child.once('exit', r));
     assert.equal(code, 0, stderr);
-    assert.equal(stdout.trim(), 'dev1\tblocked');
+    assert.equal(stdout.trim(), 'qa1\tblocked');
   } finally {
     box.cleanup();
   }
@@ -145,6 +162,99 @@ test('wait exits 2 on timeout and 1 when the target does not exist', { skip: !ha
     const missing = run(box, ['read', 'dev9']);
     assert.equal(missing.status, 1);
     assert.match(missing.stderr, /not found/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('fuori da tmux la sessione viene scelta dalla directory, non dal client corrente', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const base = `work_${basename(box.dir)}_abc123`;
+    writeState(box, windows(), base);
+    const out = runBare(box, ['list'], {
+      TMUX_CURRENT: 'work_other_project_pty_9',
+      TMUX_SESSIONS: `${base}\n${base}_pty_2\nwork_other_project_abc123\n`,
+    });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /^dev1\tworking\topencode\topencode-spinner$/m);
+    assert.match(out.stdout, /^qa1\tidle\tcodex$/m);
+
+    const unrelated = runBare(box, ['list'], {
+      TMUX_CURRENT: 'work_other_project_abc123',
+      TMUX_SESSIONS: 'work_other_project_abc123\n',
+    });
+    assert.equal(unrelated.status, 1);
+    assert.match(unrelated.stderr, /no tmux session found/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('dentro tmux il client raggruppato _pty_N viene normalizzato alla sessione base', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows(), 'work_test');
+    const out = runBare(box, ['list'], { TMUX: '1', TMUX_CURRENT: 'work_test_pty_3' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /^dev1\tworking\topencode/m);
+    assert.doesNotMatch(out.stdout, /work_test_pty_3/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prompt + wait --until done non accetta lo snapshot idle precedente all’avvio', { skip: !hasPython }, async () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    const sent = run(box, ['prompt', 'qa1', 'long', 'task']);
+    assert.equal(sent.status, 0, sent.stderr);
+
+    const started = Date.now();
+    const child = spawn('python3', [CLI, 'wait', 'qa1', '--until', 'done', '--timeout', '5', '--root', box.dir, '--session', 'work_test', '--tmux-bin', box.tmux, '--state', box.state], {
+      env: box.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    await new Promise((r) => setTimeout(r, 400));
+    writeState(box, [{ ...windows()[0] }, { ...windows()[1], state: 'working', rule: 'codex-spinner' }]);
+    await new Promise((r) => setTimeout(r, 400));
+    writeState(box, windows());
+    const code = await new Promise((r) => child.once('exit', r));
+    assert.equal(code, 0, stderr);
+    assert.equal(stdout.trim(), 'qa1\tdone');
+    assert.ok(Date.now() - started >= 600, 'deve osservare working prima di done');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('wait dopo un prompt va in timeout finché l’agente non è partito', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    assert.equal(run(box, ['prompt', 'qa1', 'task']).status, 0);
+    const out = run(box, ['wait', 'qa1', '--until', 'done', '--timeout', '0.5']);
+    assert.equal(out.status, 2, out.stdout);
+    assert.match(out.stderr, /timeout waiting for qa1/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('gli errori di usage escono con 1, lasciando 2 ai timeout', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    const invalid = run(box, ['wait', 'dev1', '--until', 'working']);
+    assert.equal(invalid.status, 1, invalid.stderr);
+    assert.match(invalid.stderr, /invalid choice/);
+    const empty = run(box, []);
+    assert.equal(empty.status, 1, empty.stderr);
   } finally {
     box.cleanup();
   }
