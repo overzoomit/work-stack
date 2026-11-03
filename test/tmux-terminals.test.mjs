@@ -99,8 +99,8 @@ test('after closing a pane, a restart reopens only the tmux windows that were st
   const saved = JSON.parse(JSON.stringify(T.terminalLayout(before)));
   assert.deepEqual(saved, [
     { title: 'shell', tmuxWindow: '@0', tmuxName: 'shell', cwd: '/home/u/porto-genova' },
-    { title: 'dev1', tmuxWindow: '@2', tmuxName: 'dev1', cwd: '/home/u/porto-genova' },
-    { title: 'qa', tmuxWindow: '@3', tmuxName: 'qa', cwd: '/home/u/porto-genova' },
+    { title: 'dev1', tmuxWindow: '@2', tmuxName: 'dev1', cwd: '/home/u/porto-genova', role: 'dev1', agentId: 'ollama', command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud' },
+    { title: 'qa', tmuxWindow: '@3', tmuxName: 'qa', cwd: '/home/u/porto-genova', role: 'qa', agentId: 'codex', command: 'codex --dangerously-bypass-approvals-and-sandbox' },
   ]);
   await closeAll(before);
 
@@ -286,5 +286,147 @@ test('an ensureSession failure also preserves savedTerminals', async () => {
   assert.equal(reattached[0].tmuxWindow, '@0');
 
   await closeAll(p);
+  env.tmuxAvailable = false;
+});
+
+test('a reattached squad pane keeps role, agentId, command and sessionRef', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_meta_proj';
+  env.tmuxWindows = [{ id: '@4', name: 'pm', active: true, path: '/home/u/meta-proj' }];
+  env.created = [];
+  const ref = '11111111-2222-3333-4444-555555555555';
+
+  const p = {
+    path: '/home/u/meta-proj', focusedId: null, maximizedId: null,
+    savedTerminals: [{
+      title: 'PM', tmuxWindow: '@15', tmuxName: 'pm', cwd: '/home/u/meta-proj',
+      role: 'pm', agentId: 'claude', command: 'claude', sessionRef: ref,
+    }],
+  };
+  T.showProject(p);
+
+  const panes = await T.ensureInitialTerminal(p);
+  assert.equal(panes.length, 1);
+  assert.equal(panes[0].tmuxWindow, '@4');
+  assert.equal(panes[0].role, 'pm');
+  assert.equal(panes[0].agentId, 'claude');
+  assert.equal(panes[0].command, 'claude');
+  assert.equal(panes[0].sessionRef, ref);
+  assert.deepEqual(env.created[0], {
+    cwd: '/home/u/meta-proj', cols: 80, rows: 24, command: 'claude',
+    tmux_session: 'work_meta_proj', tmux_window: '@4', tmux_name: 'pm',
+    role: 'pm', agent_id: 'claude', session_ref: ref,
+  }, 'the IPC keeps the resume metadata too');
+  assert.deepEqual(T.terminalLayout(p), [{
+    title: 'PM', tmuxWindow: '@4', tmuxName: 'pm', cwd: '/home/u/meta-proj',
+    role: 'pm', agentId: 'claude', command: 'claude', sessionRef: ref,
+  }], 'state.json saves everything needed to resume the agent');
+
+  await closeAll(p);
+  env.tmuxAvailable = false;
+});
+
+test('after the tmux server dies, saved squad roles are relaunched with their commands', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_reboot_proj';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  env.created = [];
+
+  const p = {
+    path: '/home/u/reboot-proj', focusedId: null, maximizedId: null,
+    savedTerminals: [
+      {
+        title: 'pm', tmuxWindow: '@15', tmuxName: 'pm', cwd: '/home/u/reboot-proj',
+        role: 'pm', agentId: 'antigravity', command: 'agy --dangerously-skip-permissions',
+      },
+      { title: 'dev1', tmuxWindow: '@16', tmuxName: 'dev1', cwd: '/home/u/reboot-proj', role: 'dev1' },
+      {
+        title: 'qa1', tmuxWindow: '@17', tmuxName: 'qa1', cwd: '/home/u/reboot-proj',
+        role: 'qa1', agentId: 'codex', command: 'codex --dangerously-bypass-approvals-and-sandbox',
+      },
+    ],
+  };
+  T.showProject(p);
+
+  const panes = await T.ensureInitialTerminal(p);
+  assert.deepEqual(env.createdWindows.map((w) => [w.name, w.command]), [
+    ['pm', 'agy --dangerously-skip-permissions'],
+    ['dev1', 'ollama launch opencode --model deepseek-v4.1-flash:cloud'],
+    ['qa1', 'codex --dangerously-bypass-approvals-and-sandbox'],
+  ], 'each role is relaunched with its stored or default command');
+  assert.deepEqual(panes.map((t) => [t.title, t.tmuxWindow, t.role]), [
+    ['pm', '@0', 'pm'], ['dev1', '@1', 'dev1'], ['qa1', '@2', 'qa1'],
+  ]);
+  assert.deepEqual(p.savedTerminals, [], 'restored once');
+  assert.deepEqual(T.terminalLayout(p).map((t) => [t.role, t.tmuxName]), [
+    ['pm', 'pm'], ['dev1', 'dev1'], ['qa1', 'qa1'],
+  ]);
+
+  await closeAll(p);
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  env.tmuxAvailable = false;
+});
+
+test('a saved Claude session relaunches with --resume <id>', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_claude_proj';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  env.created = [];
+  const ref = '11111111-2222-3333-4444-555555555555';
+
+  const p = {
+    path: '/home/u/claude-proj', focusedId: null, maximizedId: null,
+    savedTerminals: [{
+      title: 'Claude Code', tmuxWindow: '@9', tmuxName: 'claude',
+      cwd: '/home/u/claude-proj', role: 'claude', agentId: 'claude',
+      command: 'claude --dangerously-skip-permissions', sessionRef: ref,
+    }],
+  };
+  T.showProject(p);
+
+  const panes = await T.ensureInitialTerminal(p);
+  assert.equal(panes.length, 1);
+  assert.deepEqual(env.createdWindows, [{
+    session: 'work_claude_proj', name: 'claude', cwd: '/home/u/claude-proj',
+    command: `claude --dangerously-skip-permissions --resume ${ref}`,
+  }]);
+  assert.equal(panes[0].sessionRef, ref);
+
+  await closeAll(p);
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  env.tmuxAvailable = false;
+});
+
+test('a role window that cannot be recreated keeps its resume metadata', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_resume_fail';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  env.created = [];
+  env.tmuxNewError = new Error('tmux: cannot create window');
+
+  const saved = [{
+    title: 'pm', tmuxWindow: '@15', tmuxName: 'pm', cwd: '/home/u/resume-fail',
+    role: 'pm', agentId: 'antigravity', command: 'agy --dangerously-skip-permissions',
+  }];
+  const p = { path: '/home/u/resume-fail', focusedId: null, maximizedId: null, savedTerminals: saved };
+  T.showProject(p);
+
+  assert.deepEqual(await T.ensureInitialTerminal(p), [], 'does not replace the agent with a shell');
+  assert.deepEqual(p.savedTerminals, saved, 'the entry stays queued for the next attempt');
+  assert.deepEqual(T.terminalLayout(p), saved, 'and state.json keeps it');
+
+  env.tmuxNewError = null;
+  const reattached = await T.ensureInitialTerminal(p);
+  assert.equal(reattached.length, 1);
+  assert.deepEqual(p.savedTerminals, []);
+
+  await closeAll(p);
+  env.tmuxWindows = [];
+  env.createdWindows = [];
   env.tmuxAvailable = false;
 });

@@ -111,6 +111,7 @@ export function launch(agent, project = getProject(), extra = {}) {
     title: agent.name,
     kind: 'agent',
     badge: badgeFor(agent),
+    agentId: agent.id,
     ...extra,
   });
 }
@@ -135,6 +136,8 @@ export function resumeClaude(project, cwd, sessionId, title) {
     title,
     kind: 'agent',
     badge: badgeFor(claude),
+    agentId: claude.id,
+    sessionRef: sessionId,
   });
 }
 

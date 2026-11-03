@@ -32,6 +32,14 @@ pub struct CreateOpts {
     pub tmux_session: Option<String>,
     pub tmux_window: Option<String>,
     pub tmux_name: Option<String>,
+    // Agent resume identity carried over IPC. The PTY spawn itself only needs
+    // command/tmux_*; these fields keep the renderer's saved layout intact.
+    #[allow(dead_code)]
+    pub role: Option<String>,
+    #[allow(dead_code)]
+    pub agent_id: Option<String>,
+    #[allow(dead_code)]
+    pub session_ref: Option<String>,
 }
 
 #[derive(Default)]
@@ -912,7 +920,7 @@ mod tests {
 
     #[test]
     fn test_create_opts_deserialization_with_tmux() {
-        let json = r#"{"cols": 80, "rows": 24, "cwd": "/tmp", "tmux_session": "work_test", "tmux_window": "@1", "tmux_name": "pm"}"#;
+        let json = r#"{"cols": 80, "rows": 24, "cwd": "/tmp", "tmux_session": "work_test", "tmux_window": "@1", "tmux_name": "pm", "role": "pm", "agent_id": "antigravity", "session_ref": "11111111-2222-3333-4444-555555555555"}"#;
         let opts: CreateOpts = serde_json::from_str(json).unwrap();
         assert_eq!(opts.cols, 80);
         assert_eq!(opts.rows, 24);
@@ -920,5 +928,8 @@ mod tests {
         assert_eq!(opts.tmux_session.as_deref(), Some("work_test"));
         assert_eq!(opts.tmux_window.as_deref(), Some("@1"));
         assert_eq!(opts.tmux_name.as_deref(), Some("pm"));
+        assert_eq!(opts.role.as_deref(), Some("pm"));
+        assert_eq!(opts.agent_id.as_deref(), Some("antigravity"));
+        assert_eq!(opts.session_ref.as_deref(), Some("11111111-2222-3333-4444-555555555555"));
     }
 }

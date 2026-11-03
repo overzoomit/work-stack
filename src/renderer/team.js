@@ -3,45 +3,13 @@ import { $, esc, leave, toast, ask } from './ui.js';
 import { openTerminal, closeTerminal, focus, terminalsOf, syncProjectTerminals } from './terminals.js';
 import { AGENTS, commandFor } from './launcher.js';
 import { mcpSection } from './mcp.js';
+import { TEAM_ROLES, roleFor } from './teamroles.js';
+
+export { TEAM_ROLES } from './teamroles.js';
 
 const { work } = window;
 
 let getProject = () => null;
-
-export const TEAM_ROLES = [
-  {
-    id: 'pm',
-    name: 'pm',
-    role: 'PM',
-    title: 'Senior PM & Architect',
-    agent: 'Antigravity (AGY)',
-    command: 'agy --dangerously-skip-permissions',
-  },
-  {
-    id: 'dev1',
-    name: 'dev1',
-    role: 'DEV1',
-    title: 'Senior Developer #1',
-    agent: 'OpenCode (Ollama DeepSeek)',
-    command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud',
-  },
-  {
-    id: 'dev2',
-    name: 'dev2',
-    role: 'DEV2',
-    title: 'Senior Developer #2',
-    agent: 'OpenCode (Ollama DeepSeek)',
-    command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud',
-  },
-  {
-    id: 'qa',
-    name: 'qa',
-    role: 'QA',
-    title: 'QA Engineer',
-    agent: 'OpenAI Codex',
-    command: 'codex --dangerously-bypass-approvals-and-sandbox',
-  },
-];
 
 let pop = null;
 const waitingByProject = new Map();
@@ -349,12 +317,16 @@ export async function openOrFocusRole(project, roleName) {
       const windows = await work.tmux.listWindows(session).catch(() => []);
       const win = windows.find((w) => w.name === roleName);
       if (win) {
+        const roleDef = roleFor(roleName);
         return openTerminal(project, {
           cwd: win.path || project.path,
           title: win.name,
           tmuxSession: session,
           tmuxWindow: win.id,
           tmuxName: win.name,
+          role: roleName,
+          agentId: roleDef?.agentId || null,
+          command: roleDef?.command || null,
         });
       }
     }
@@ -410,6 +382,9 @@ export async function createTeamMember(project, roleName, agent) {
         tmuxSession: session,
         tmuxWindow: newWinId || roleName,
         tmuxName: roleName,
+        role: roleName,
+        agentId: agent.id,
+        command: cmd,
       });
       toast(`Started [${roleName.toUpperCase()}] with ${agent.name} on tmux.`);
       return pane;
@@ -426,6 +401,8 @@ export async function createTeamMember(project, roleName, agent) {
     title: roleName,
     command: cmd,
     tmuxName: roleName,
+    role: roleName,
+    agentId: agent.id,
   });
   toast(`Started [${roleName.toUpperCase()}] with ${agent.name}.`);
   return pane;
@@ -850,6 +827,12 @@ export async function launchTeamMember(project, role) {
     if (session) {
       const windows = await work.tmux.listWindows(session).catch(() => []);
       const win = windows.find((w) => w.name === role.name);
+      const roleDef = roleFor(role.name);
+      const meta = {
+        role: role.name,
+        agentId: role.agentId || roleDef?.agentId || null,
+        command: role.command || roleDef?.command || null,
+      };
       if (win) {
         return openTerminal(project, {
           cwd: win.path || project.path,
@@ -857,6 +840,7 @@ export async function launchTeamMember(project, role) {
           tmuxSession: session,
           tmuxWindow: win.id,
           tmuxName: win.name,
+          ...meta,
         });
       } else {
         await work.tmux.newWindow(session, role.name, project.path, role.command);
@@ -868,6 +852,7 @@ export async function launchTeamMember(project, role) {
           tmuxSession: session,
           tmuxWindow: newWin ? newWin.id : null,
           tmuxName: role.name,
+          ...meta,
         });
       }
     }
@@ -879,6 +864,8 @@ export async function launchTeamMember(project, role) {
     title: role.name,
     command: role.command,
     tmuxName: role.name,
+    role: role.name,
+    agentId: role.agentId || roleFor(role.name)?.agentId || null,
   });
 }
 

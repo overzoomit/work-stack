@@ -127,6 +127,50 @@ mod tests {
         );
     }
 
+    // Agent resume metadata lives in each terminal entry: it must survive a
+    // save/load/merge cycle, or a reboot would lose the role commands and
+    // session ids needed to relaunch the squad.
+    #[test]
+    fn keeps_agent_resume_metadata_in_terminals() {
+        let d = dir();
+        let f = d.path().join("state.json");
+        let terminals = json!([
+            {
+                "title": "pm",
+                "tmuxWindow": "@3",
+                "tmuxName": "pm",
+                "cwd": "/a",
+                "role": "pm",
+                "agentId": "antigravity",
+                "command": "agy --dangerously-skip-permissions",
+                "sessionRef": null,
+            },
+            {
+                "title": "dev1",
+                "tmuxWindow": "@4",
+                "tmuxName": "dev1",
+                "cwd": "/a",
+                "role": "dev1",
+                "agentId": "ollama",
+                "command": "ollama launch opencode --model deepseek-v4.1-flash:cloud",
+                "sessionRef": "11111111-2222-3333-4444-555555555555",
+            },
+        ]);
+        let state = json!({
+            "projects": [{ "path": "/a", "terminals": terminals }],
+            "active": "/a",
+        });
+        save(&f, &state).unwrap();
+        assert_eq!(load(&f, None)["projects"][0]["terminals"], terminals);
+
+        let mut s = load(&f, None);
+        merge(&mut s, json!({ "active": "/b" }));
+        assert_eq!(
+            s["projects"][0]["terminals"], terminals,
+            "saving another key keeps the agent resume metadata"
+        );
+    }
+
     // The renderer keeps the last tunnel settings in the project's run field
     // (run.js, ngrok.js): they come back after a restart as they were saved.
     #[test]

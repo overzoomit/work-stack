@@ -812,7 +812,9 @@ more.onclick = (e) => {
   const first = opened || projects.find((p) => p.path === saved.active) || projects[0];
   if (first) {
     await activateProject(first);
-    if (!terminalsOf(first).length) openTerminal(first);
+    // A project whose saved squad could not be resumed keeps its metadata (and
+    // no pane) so the next activation retries; do not replace it with a shell.
+    if (!terminalsOf(first).length && !first.savedTerminals?.length) openTerminal(first);
   } else showWelcome();
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();

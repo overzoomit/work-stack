@@ -145,6 +145,7 @@ export const env = {
   tmuxCalls: [],
   tmuxEnsureError: null,
   tmuxListError: null,
+  tmuxNewError: null,
   tmuxWindowOf: null,
   createdWindows: [],
 };
@@ -194,6 +195,7 @@ globalThis.window = {
       },
       // Same argument order as bridge.js: call('tmux_new_window', 'session', 'name', 'cwd', 'command').
       newWindow: async (session, name, cwd, command) => {
+        if (env.tmuxNewError) throw env.tmuxNewError;
         const id = `@${(env.tmuxWindows?.length || 0)}`;
         const win = { id, name, active: false, path: cwd };
         env.tmuxWindows = [...(env.tmuxWindows || []), win];

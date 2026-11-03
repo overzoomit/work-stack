@@ -6,6 +6,7 @@ import { WebLinksAddon } from './vendor/addon-web-links.mjs';
 import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';
+import { roleFor } from './teamroles.js';
 
 const { work } = window;
 
@@ -188,7 +189,7 @@ export function roleBadgeFor(name) {
 
 // `container`: mount somewhere other than the terminal grid (e.g. the Run
 // console). Such panes stay out of the grid, the terminal list and drag.
-export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null } = {}) {
+export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null } = {}) {
   const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
   const el = document.createElement('div');
   el.className = container ? 'pane console' : 'pane';
@@ -227,6 +228,8 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   const t = {
     id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || project.path, exited: false, onOutput, onExit,
     tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
+    role: role || roleFor(tmuxName || title)?.name || null,
+    agentId: agentId || null, command: command || null, sessionRef: sessionRef || null,
   };
   el._t = t;
   t.console = !!container;
@@ -248,6 +251,9 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
         ptyOpts.tmux_session = session;
         if (tmuxWindow) ptyOpts.tmux_window = tmuxWindow;
         if (tmuxName || title) ptyOpts.tmux_name = tmuxName || title;
+        if (t.role) ptyOpts.role = t.role;
+        if (t.agentId) ptyOpts.agent_id = t.agentId;
+        if (t.sessionRef) ptyOpts.session_ref = t.sessionRef;
         t.tmuxSession = session;
       }
     }
@@ -588,25 +594,45 @@ function startPaneDrag(t, e) {
   addEventListener('keydown', esc, true);
 }
 
-// What a restart reopens: the panes open now, in grid order. A project not
-// shown yet this session keeps the list it was saved with.
+// A pane's resume identity is only written when it has one: plain shells keep
+// the four-field shape older state.json files already use.
+function savedTerminal(t) {
+  const saved = { title: t.title, tmuxWindow: t.tmuxWindow || null, tmuxName: t.tmuxName || null, cwd: t.cwd || null };
+  if (t.role) saved.role = t.role;
+  if (t.agentId) saved.agentId = t.agentId;
+  if (t.command) saved.command = t.command;
+  if (t.sessionRef) saved.sessionRef = t.sessionRef;
+  return saved;
+}
+
+// What a restart reopens: the panes open now, in grid order, plus any saved
+// agent entries that could not be resumed yet (a transient tmux failure must
+// not let a state.json write erase them). A project not shown yet this session
+// keeps the list it was saved with.
 export function terminalLayout(project) {
   const open = terminalsOf(project);
   if (!open.length) return project.savedTerminals ?? null;
-  return open.map((t) => ({ title: t.title, tmuxWindow: t.tmuxWindow || null, tmuxName: t.tmuxName || null, cwd: t.cwd || null }));
+  const saved = Array.isArray(project.savedTerminals) ? project.savedTerminals : [];
+  const pending = saved.filter((s) => !open.some((t) =>
+    t.tmuxWindow === s.tmuxWindow
+    || (s.tmuxName && (t.tmuxName === s.tmuxName || t.title === s.tmuxName))
+    || (s.title && t.title === s.title)));
+  return [...open.map(savedTerminal), ...pending];
 }
 
 // A project with no panes gets back the tmux windows it had open when Work
-// closed (`savedTerminals`), or every window of its session the first time;
-// without any, one plain shell. Windows closed with ✕ stay detached in tmux.
+// closed (`savedTerminals`), or every window of its session the first time.
+// A squad window that vanished with the tmux server is recreated from its
+// saved role/command (agent resume); without anything, one plain shell.
 export async function ensureInitialTerminal(project) {
   if (!project || terminalsOf(project).length > 0) return [];
   const saved = Array.isArray(project.savedTerminals) ? project.savedTerminals : null;
-  const { reattached, ok } = await syncProjectTerminalsResult(project, saved);
+  const { reattached, ok, pending = [] } = await syncProjectTerminalsResult(project, saved, { resume: true });
 
   if (reattached.length) {
     // Restored once: closing every pane later must not bring the windows back.
-    project.savedTerminals = [];
+    // Entries that could not be resumed yet stay saved for the next attempt.
+    project.savedTerminals = pending;
     return reattached;
   }
   // tmux did not answer (socket still coming up, server restarting, session
@@ -614,15 +640,41 @@ export async function ensureInitialTerminal(project) {
   // be written straight over state.json, losing the agent windows for good.
   // The next activation retries the realignment.
   if (!ok && saved?.length) return [];
+  // A saved agent could not be relaunched (tmux refused the new window): keep
+  // its resume metadata rather than replacing it with an anonymous shell.
+  if (pending.length) return [];
 
   project.savedTerminals = [];
   return [await openTerminal(project)];
 }
 
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The command that brings a saved team window back. A stored command wins; a
+// Claude session id turns it into `--resume <id>`, while a Claude pane with no
+// id continues the folder's latest conversation when there is one. Roles
+// without stored metadata fall back to TEAM_ROLES.
+async function resumeCommandFor(entry, project) {
+  const role = roleFor(entry.role || entry.tmuxName || entry.title);
+  const base = entry.command || role?.command || null;
+  if (!base) return null;
+  const id = entry.sessionRef;
+  if (id && SESSION_ID.test(id) && /\bclaude\b/.test(base) && !/--resume\b/.test(base)) {
+    return `${base} --resume ${id}`;
+  }
+  if (!id && entry.agentId === 'claude' && /\bclaude\b/.test(base) && !/--continue\b/.test(base)) {
+    const hasHistory = await work.agents?.hasHistory?.(entry.cwd || project.path).catch(() => false);
+    if (hasHistory) return `${base} --continue`;
+  }
+  return base;
+}
+
+const resumable = (entry) => !!(entry.role || entry.sessionRef);
+
 // One re-attach pass. `ok` tells whether tmux actually answered: on a
 // transient failure an empty result means "unknown", not "nothing to restore".
-async function syncProjectTerminalsResult(project, saved = null) {
-  const failed = { reattached: [], ok: false };
+async function syncProjectTerminalsResult(project, saved = null, { resume = false } = {}) {
+  const failed = { reattached: [], ok: false, pending: [] };
   if (!project || !work?.tmux) return failed;
 
   const available = await work.tmux.isAvailable().catch(() => false);
@@ -641,19 +693,26 @@ async function syncProjectTerminalsResult(project, saved = null) {
   const windows = await work.tmux.listWindows(session).catch(() => null);
   if (!Array.isArray(windows)) return failed;
 
-  const wanted = saved
-    ? saved.flatMap((s) => {
-        // A tmux restart renumbers windows (@15 becomes @0): follow a saved
-        // window by its name too, not only by the id it had last time.
-        const win = windows.find((w) =>
-          w.id === s.tmuxWindow
-          || (s.tmuxName && w.name === s.tmuxName)
-          || (s.title && w.name === s.title));
-        return win ? [{ ...win, title: s.title || win.name, saved: s }] : [];
-      })
-    : windows.map((w) => ({ ...w, title: w.name, saved: null }));
+  const wanted = [];
+  const missing = [];
+  if (saved) {
+    for (const s of saved) {
+      // A tmux restart renumbers windows (@15 becomes @0): follow a saved
+      // window by its name too, not only by the id it had last time.
+      const win = windows.find((w) =>
+        w.id === s.tmuxWindow
+        || (s.tmuxName && w.name === s.tmuxName)
+        || (s.title && w.name === s.title));
+      if (win) wanted.push({ ...win, title: s.title || win.name, saved: s });
+      else if (resume && resumable(s)) missing.push(s);
+    }
+  } else {
+    for (const w of windows) wanted.push({ ...w, title: w.name, saved: null });
+  }
+
   const existingPanes = terminalsOf(project);
   const reattached = [];
+  const pending = [];
 
   for (const win of wanted) {
     // Remember the id the window has now, so the saved layout stops pointing
@@ -667,16 +726,52 @@ async function syncProjectTerminalsResult(project, saved = null) {
       alreadyOpen.tmuxWindow = win.id;
       continue;
     }
+    const role = roleFor(win.saved?.role || win.saved?.tmuxName || win.name);
     const pane = await openTerminal(project, {
-      cwd: win.path || project.path,
+      cwd: win.path || win.saved?.cwd || project.path,
       title: win.title,
       tmuxSession: session,
       tmuxWindow: win.id,
       tmuxName: win.name,
+      role: win.saved?.role || role?.name || null,
+      agentId: win.saved?.agentId || role?.agentId || null,
+      command: win.saved?.command || role?.command || null,
+      sessionRef: win.saved?.sessionRef || null,
     });
     reattached.push(pane);
   }
-  return { reattached, ok: true };
+
+  // tmux was killed or rebooted: the saved squad windows are gone, so relaunch
+  // each role in a fresh window with its stored agent command.
+  for (const entry of missing) {
+    const roleName = entry.role || entry.tmuxName || entry.title;
+    const command = await resumeCommandFor(entry, project);
+    if (!roleName || !command) {
+      pending.push(entry);
+      continue;
+    }
+    const cwd = entry.cwd || project.path;
+    const newId = await work.tmux.newWindow(session, roleName, cwd, command).catch(() => null);
+    if (!newId) {
+      pending.push(entry);
+      continue;
+    }
+    entry.tmuxWindow = newId;
+    const role = roleFor(roleName);
+    reattached.push(await openTerminal(project, {
+      cwd,
+      title: entry.title || roleName,
+      tmuxSession: session,
+      tmuxWindow: newId,
+      tmuxName: entry.tmuxName || roleName,
+      role: entry.role || roleName,
+      agentId: entry.agentId || role?.agentId || null,
+      command,
+      sessionRef: entry.sessionRef || null,
+    }));
+  }
+
+  return { reattached, ok: true, pending };
 }
 
 // Reattaches the project's tmux windows that have no pane: all of them, or
