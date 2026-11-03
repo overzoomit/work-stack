@@ -932,6 +932,18 @@ body.sidebar-hidden .layout { --left: 0px; }
 .pane-badge.role-qa {
   color: #34d399; background: rgba(16, 185, 129, .18); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, .45);
 }
+/* The agent badge reuses .pane-badge and takes its two tint colors from the
+   same catalog entry as the team picker tile. */
+.pane-agent-badge {
+  font: 600 10px var(--sans); letter-spacing: .02em; padding: 1px 7px; border-radius: 5px;
+  white-space: nowrap; flex: none; color: var(--agent-tint-1, var(--text-2));
+  background: rgba(255, 255, 255, .06);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--agent-tint-1, #94a3b8) 20%, transparent),
+    color-mix(in srgb, var(--agent-tint-2, #64748b) 14%, transparent));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-tint-1, #94a3b8) 48%, transparent);
+}
 
 /* ── Sidebar toggle ── */
 .sidebar { min-width: 0; overflow: hidden; position: relative; }

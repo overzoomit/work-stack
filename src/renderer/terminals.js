@@ -7,6 +7,7 @@ import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';
 import { roleFor } from './teamroles.js';
+import { agentBadgeFor } from './agentcatalog.js';
 
 const { work } = window;
 
@@ -192,6 +193,9 @@ export function roleBadgeFor(name) {
 export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null } = {}) {
   const remote = project?.remote || null;
   const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
+  // An explicit agent wins; otherwise a team role falls back to its default
+  // agent (PM -> Antigravity, DEV* -> OpenCode/Ollama, QA* -> Codex).
+  const effectiveAgent = agentBadgeFor(agentId || roleFor(role || tmuxName || title)?.agentId);
   const el = document.createElement('div');
   el.className = container ? 'pane console' : 'pane';
   el.innerHTML = `
@@ -199,6 +203,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
       <span class="dot"></span>
       <span class="pane-title"></span>
       ${effectiveBadge ? `<span class="pane-badge${effectiveBadge.role ? ' role-' + effectiveBadge.role : ''}" data-role="${effectiveBadge.role || ''}" title="${esc(effectiveBadge.title || '')}">${esc(effectiveBadge.text)}</span>` : ''}
+      ${effectiveAgent ? `<span class="pane-badge pane-agent-badge" data-agent="${esc(effectiveAgent.id)}" title="${esc(effectiveAgent.name)}" style="--agent-tint-1:${esc(effectiveAgent.tint[0])};--agent-tint-2:${esc(effectiveAgent.tint[1])}">${esc(effectiveAgent.text)}</span>` : ''}
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
       <button class="icon-btn pane-aa" data-act="look" title="Terminal appearance">Aa</button>
@@ -230,7 +235,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || remote?.remotePath || project.path, exited: false, onOutput, onExit,
     tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
     role: role || roleFor(tmuxName || title)?.name || null,
-    agentId: agentId || null, command: command || null, sessionRef: sessionRef || null,
+    agentId: agentId || null, agent: effectiveAgent, command: command || null, sessionRef: sessionRef || null,
   };
   el._t = t;
   t.console = !!container;

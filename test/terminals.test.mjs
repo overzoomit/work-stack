@@ -307,3 +307,50 @@ test('trascinare file su un terminale ne incolla i percorsi, tra virgolette se s
   T.closeTerminal(t.id);
   await tick(700);
 });
+
+// Il badge agente vive accanto a quello del ruolo: testo maiuscolo e tint del
+// catalogo condiviso con la tendina di selezione della squadra.
+const { AGENTS, agentBadgeFor } = await import('../src/renderer/agentcatalog.js');
+
+test('ogni agente del catalogo produce un badge maiuscolo con il proprio tint', () => {
+  for (const a of AGENTS) {
+    const badge = agentBadgeFor(a.id);
+    assert.equal(badge.text, a.id === 'ollama' ? 'OPENCODE' : a.id.toUpperCase());
+    assert.deepEqual(badge.tint, a.tint, a.id);
+  }
+  assert.equal(agentBadgeFor('ollama').text, 'OPENCODE', 'Ollama lancia OpenCode');
+  assert.equal(agentBadgeFor('generic').text, 'GENERIC');
+  assert.equal(agentBadgeFor(null), null);
+});
+
+test('il terminale di squadra mostra il badge agente esplicito accanto al ruolo', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p, { title: 'dev1', kind: 'agent', agentId: 'ollama' });
+  assert.match(t.el.innerHTML, /class="pane-badge role-dev1"/);
+  assert.match(t.el.innerHTML, /class="pane-badge pane-agent-badge" data-agent="ollama"/);
+  assert.match(t.el.innerHTML, />OPENCODE</);
+  assert.match(t.el.innerHTML, /--agent-tint-1:#ea580c;--agent-tint-2:#c2410c/);
+  assert.equal(t.agent.text, 'OPENCODE');
+  T.closeTerminal(t.id);
+});
+
+test('un terminale senza agentId usa l’agente di default del ruolo', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p, { title: 'pm', kind: 'agent' });
+  assert.match(t.el.innerHTML, /class="pane-badge role-pm"/);
+  assert.match(t.el.innerHTML, />ANTIGRAVITY</);
+  assert.match(t.el.innerHTML, /--agent-tint-1:#4285f4;--agent-tint-2:#34a853/);
+  T.closeTerminal(t.id);
+});
+
+test('un agente fuori catalogo resta leggibile con un tint neutro', async () => {
+  const p = { path: '/p', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const t = await T.openTerminal(p, { title: 'agent1', kind: 'agent', agentId: 'generic' });
+  assert.match(t.el.innerHTML, /class="pane-badge role-agent"/);
+  assert.match(t.el.innerHTML, />GENERIC</);
+  assert.match(t.el.innerHTML, /--agent-tint-1:#94a3b8;--agent-tint-2:#64748b/);
+  T.closeTerminal(t.id);
+});
