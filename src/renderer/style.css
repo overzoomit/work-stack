@@ -453,6 +453,14 @@ body.sidebar-hidden .layout { --left: 0px; }
   padding: 7px 10px; font: 13px var(--mono);
 }
 .modal-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, .22); }
+.remote-card { width: 480px; }
+.remote-fields { display: flex; flex-direction: column; gap: 10px; }
+.remote-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text-2); }
+.remote-row { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+.remote-error { margin: 10px 0 0; color: var(--red); font-size: 12px; font-weight: 500; }
+.remote-hint { margin: 10px 0 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.ptab-remote { font: 500 11px var(--mono); color: var(--accent); max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.remote-note { padding: 18px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 .segmented { display: flex; background: rgba(0, 0, 0, .3); border-radius: 7px; padding: 2px; gap: 2px; }
 .segmented[hidden] { display: none; }
@@ -820,6 +828,7 @@ body.sidebar-hidden .layout { --left: 0px; }
 .list .list-label:hover { background: none; }
 .list .list-label:active { transform: none; }
 .git-none { padding: 24px 16px; color: var(--muted); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.git-none[hidden] { display: none; }
 .git-none p { margin: 0; }
 .git-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .git-body[hidden], .graph[hidden] { display: none; }

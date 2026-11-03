@@ -67,6 +67,18 @@ export async function showGit(project) {
   if (project !== active) $('#amend').checked = false;
   active = project;
   $('#commit-msg').value = project?.draft || '';
+  // A remote project keeps Git on the server, inside its SSH terminal: there
+  // is no local repository to read, and pretending otherwise would be wrong.
+  if (project?.remote) {
+    $('#git-body').hidden = true;
+    $('#graph').hidden = true;
+    $('#git-none').hidden = true;
+    $('#git-remote').hidden = false;
+    $('#graph-none').hidden = true;
+    renderChanges(null);
+    return;
+  }
+  $('#git-remote').hidden = true;
   const isRepo = !!project?.root;
   $('#git-body').hidden = !isRepo;
   $('#graph').hidden = !isRepo;
@@ -96,6 +108,8 @@ export async function refreshGit(project, full = false) {
 }
 
 async function refreshGitNow(project, full) {
+  // Remote Git lives on the server and is driven from its terminal.
+  if (project.remote) return onStatus(project);
   if (!project.root) {
     // A folder may have become a repository (git init from a terminal).
     project.root = await work.git.root(project.path);

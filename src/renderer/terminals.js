@@ -190,6 +190,7 @@ export function roleBadgeFor(name) {
 // `container`: mount somewhere other than the terminal grid (e.g. the Run
 // console). Such panes stay out of the grid, the terminal list and drag.
 export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null } = {}) {
+  const remote = project?.remote || null;
   const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
   const el = document.createElement('div');
   el.className = container ? 'pane console' : 'pane';
@@ -226,7 +227,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   term.open(el.querySelector('.pane-body'));
 
   const t = {
-    id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || project.path, exited: false, onOutput, onExit,
+    id: null, project, term, fit, el, kind, title: title || `Terminal ${++counter}`, cwd: cwd || remote?.remotePath || project.path, exited: false, onOutput, onExit,
     tmuxSession, tmuxWindow, tmuxName: tmuxName || title,
     role: role || roleFor(tmuxName || title)?.name || null,
     agentId: agentId || null, command: command || null, sessionRef: sessionRef || null,
@@ -243,10 +244,12 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   }
 
   let ptyOpts = { cwd: t.cwd, cols: term.cols, rows: term.rows, command };
+  if (remote) ptyOpts.remote = remote;
   if (!container && work?.tmux) {
-    const isTmux = await work.tmux.isAvailable().catch(() => false);
+    // A remote project uses tmux on the server even when the local machine has none.
+    const isTmux = remote ? true : await work.tmux.isAvailable().catch(() => false);
     if (isTmux && project?.path) {
-      const session = tmuxSession || (await work.tmux.sessionForProject(project.path).catch(() => null));
+      const session = tmuxSession || (await work.tmux.sessionForProject(project.path, remote).catch(() => null));
       if (session) {
         ptyOpts.tmux_session = session;
         if (tmuxWindow) ptyOpts.tmux_window = tmuxWindow;
@@ -627,6 +630,13 @@ export function terminalLayout(project) {
 export async function ensureInitialTerminal(project) {
   if (!project || terminalsOf(project).length > 0) return [];
   const saved = Array.isArray(project.savedTerminals) ? project.savedTerminals : null;
+  // A new remote project opens its SSH terminal straight away: waiting for a
+  // tmux round trip before the first pane would make an offline host look
+  // like a frozen app. The PTY itself reports the connection error.
+  if (project.remote && !saved?.length) {
+    project.savedTerminals = [];
+    return [await openTerminal(project)];
+  }
   const { reattached, ok, pending = [] } = await syncProjectTerminalsResult(project, saved, { resume: true });
 
   if (reattached.length) {
@@ -662,7 +672,7 @@ async function resumeCommandFor(entry, project) {
   if (id && SESSION_ID.test(id) && /\bclaude\b/.test(base) && !/--resume\b/.test(base)) {
     return `${base} --resume ${id}`;
   }
-  if (!id && entry.agentId === 'claude' && /\bclaude\b/.test(base) && !/--continue\b/.test(base)) {
+  if (!id && entry.agentId === 'claude' && /\bclaude\b/.test(base) && !/--continue\b/.test(base) && !project.remote) {
     const hasHistory = await work.agents?.hasHistory?.(entry.cwd || project.path).catch(() => false);
     if (hasHistory) return `${base} --continue`;
   }
@@ -677,20 +687,22 @@ async function syncProjectTerminalsResult(project, saved = null, { resume = fals
   const failed = { reattached: [], ok: false, pending: [] };
   if (!project || !work?.tmux) return failed;
 
-  const available = await work.tmux.isAvailable().catch(() => false);
+  const remote = project.remote || null;
+  const cwd = remote?.remotePath || project.path;
+  const available = remote ? true : await work.tmux.isAvailable().catch(() => false);
   if (!available) return failed;
 
-  const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+  const session = await work.tmux.sessionForProject(project.path, remote).catch(() => null);
   if (!session) return failed;
 
   // Right after launch the tmux daemon or the project session may not exist
   // yet: ensure it before listing, or list-windows races the socket.
   if (work.tmux.ensureSession) {
-    const ensured = await work.tmux.ensureSession(session, project.path).then(() => true).catch(() => false);
+    const ensured = await work.tmux.ensureSession(session, cwd, remote).then(() => true).catch(() => false);
     if (!ensured) return failed;
   }
 
-  const windows = await work.tmux.listWindows(session).catch(() => null);
+  const windows = await work.tmux.listWindows(session, remote).catch(() => null);
   if (!Array.isArray(windows)) return failed;
 
   const wanted = [];
@@ -750,8 +762,8 @@ async function syncProjectTerminalsResult(project, saved = null, { resume = fals
       pending.push(entry);
       continue;
     }
-    const cwd = entry.cwd || project.path;
-    const newId = await work.tmux.newWindow(session, roleName, cwd, command).catch(() => null);
+    const cwd = entry.cwd || remote?.remotePath || project.path;
+    const newId = await work.tmux.newWindow(session, roleName, cwd, command, remote).catch(() => null);
     if (!newId) {
       pending.push(entry);
       continue;

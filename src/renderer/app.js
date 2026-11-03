@@ -24,6 +24,8 @@ import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
 import { isRefreshKey, isCloseTerminalKey } from './keys.js';
 import { initAccordion, revealSection } from './accordion.js';
+import { remotePathFor, remoteLabel, remoteHostBadge } from './remoteproject.js';
+import { openRemoteProjectDialog } from './remotedialog.js';
 
 const { work } = window;
 
@@ -33,7 +35,12 @@ let active = null;
 
 // ── Projects ─────────────────────────────────────────────────
 
-const serialize = () => projects.map((p) => ({ path: p.path, run: p.run, terminals: terminalLayout(p) }));
+const serialize = () => projects.map((p) => ({
+  path: p.path,
+  ...(p.remote ? { remote: p.remote } : {}),
+  run: p.run,
+  terminals: terminalLayout(p),
+}));
 
 function save() {
   work.projects.save({ projects: serialize(), active: active?.path || null });
@@ -53,7 +60,7 @@ function projectFor(cwd) {
   return projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0] || null;
 }
 
-async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null } = {}) {
+async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null, remote = null } = {}) {
   const existing = projects.find((p) => p.path === path);
   if (existing) {
     if (activate) await activateProject(existing);
@@ -61,8 +68,9 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
   }
   const p = {
     path,
-    name: basename(path),
-    root: await work.git.root(path),
+    name: remote ? basename(remote.remotePath) || remote.host : basename(path),
+    remote,
+    root: remote ? null : await work.git.root(path),
     gitStatus: null,
     draft: '',
     focusedId: null,
@@ -70,7 +78,8 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
     run: run || { selected: null, custom: [] },
     savedTerminals: Array.isArray(terminals) ? terminals : null,
   };
-  p.tree = new ProjectTree(p, treeHooks(p));
+  // Remote projects have no local tree: files and Git run in their SSH terminal.
+  if (!remote) p.tree = new ProjectTree(p, treeHooks(p));
   if (p.root) work.git.watch(p.root);
   projects.push(p);
   // Register the folder first: the main process only allows fs access inside open projects.
@@ -83,6 +92,24 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
   return p;
 }
 
+async function addRemoteProject(remote, opts = {}) {
+  return addProject(remotePathFor(remote), { ...opts, remote });
+}
+
+async function pickRemoteProject() {
+  const remote = await openRemoteProjectDialog();
+  if (remote) await addRemoteProject(remote);
+}
+
+// The + New button offers a local folder or an SSH host, instead of silently
+// assuming every project lives on this machine.
+function newProjectMenu(anchor = $('#new-project')) {
+  contextMenu(0, 0, [
+    { label: 'Open local folder…', hint: 'Ctrl+Shift+O', run: pickProject },
+    { label: 'Connect to remote host…', run: pickRemoteProject },
+  ], { anchor });
+}
+
 async function activateProject(p) {
   active = p;
   save();
@@ -93,8 +120,9 @@ async function activateProject(p) {
   }
   showProject(p);
   renderTermList(p);
-  p.tree.mount($('#tree'));
-  $('#status-repo').textContent = tildify(p.path, info.home);
+  if (p.tree) p.tree.mount($('#tree'));
+  else $('#tree').innerHTML = `<p class="remote-note">Remote SSH project.<br><span>${esc(remoteLabel(p.remote))}</span><br>Files and Git are available from the terminal on the server.</p>`;
+  $('#status-repo').textContent = p.remote ? remoteLabel(p.remote) : tildify(p.path, info.home);
   renderAgentList();
   showLiveLed();
   showRun(p);
@@ -176,10 +204,11 @@ function renderProjectTabs() {
   const changed = setHtml(box, projects.map((p, i) => {
     const branch = p.gitStatus?.branch.name;
     const changes = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
-    return `<div class="ptab${p === active ? ' active' : ''}" data-i="${i}" data-path="${esc(p.path)}" title="${esc(p.path)}">
+    return `<div class="ptab${p === active ? ' active' : ''}" data-i="${i}" data-path="${esc(p.path)}" title="${esc(p.remote ? remoteLabel(p.remote) : p.path)}">
       ${runningIn(p) ? '<span class="ptab-run" title="Running"></span>' : ''}
       ${projectLedHtml(p)}
       <span class="ptab-name">${esc(p.name)}</span>
+      ${p.remote ? `<span class="ptab-remote" title="${esc(remoteLabel(p.remote))}">${esc(remoteHostBadge(p.remote))}</span>` : ''}
       ${branch ? `<span class="ptab-branch">${esc(branch)}${changes ? '<i>•</i>' : ''}</span>` : ''}
       <button class="ptab-close" title="Close project">✕</button>
     </div>`;
@@ -349,8 +378,8 @@ function projectMenu(p, x, y) {
     { label: 'New agent (last used)', hint: 'Ctrl+Shift+A', run: async () => { await open(); launchDefault(); } },
     '-',
     { label: 'Refresh', hint: 'F5', run: async () => { await open(); refreshAll(); } },
-    { label: 'Show in file manager', run: () => work.fs.openPath(p.path) },
-    { label: 'Copy path', run: () => work.app.copy(p.path) },
+    ...(p.remote ? [] : [{ label: 'Show in file manager', run: () => work.fs.openPath(p.path) }]),
+    { label: 'Copy path', run: () => work.app.copy(p.remote ? remoteLabel(p.remote) : p.path) },
     '-',
     { label: 'Close other projects', disabled: !others.length, run: async () => { for (const o of others) await closeProject(o); } },
     { label: 'Close project', run: () => closeProject(p) },
@@ -362,7 +391,7 @@ setGitHooks({
   reveal: (abs) => {
     if (!active) return;
     revealSection('project');
-    active.tree.reveal(abs);
+    active.tree?.reveal(abs);
   },
 });
 
@@ -371,7 +400,7 @@ setSearchHooks({
   reveal: (abs) => {
     if (!active) return;
     revealSection('project');
-    active.tree.reveal(abs);
+    active.tree?.reveal(abs);
   },
 });
 
@@ -497,7 +526,10 @@ async function refreshAll() {
   if (!active) return;
   const btn = $('#refresh');
   btn.classList.add('spin');
-  await Promise.all([active.tree.reload(), refreshGit(active, true), detectRun(active)]);
+  const jobs = [refreshGit(active, true)];
+  if (active.tree) jobs.push(active.tree.reload());
+  if (!active.remote) jobs.push(detectRun(active));
+  await Promise.all(jobs);
   renderAgentList();
   btn.addEventListener('animationiteration', () => btn.classList.remove('spin'), { once: true });
 }
@@ -561,15 +593,15 @@ for (const side of Object.keys(PANELS)) {
 
 const newTerminal = () => (active ? openTerminal(active) : pickProject());
 
-$('#new-project').onclick = pickProject;
+$('#new-project').onclick = () => newProjectMenu($('#new-project'));
 $('#refresh').onclick = refreshAll;
 $('#new-term').onclick = newTerminal;
 $('#search-field').onclick = () => openSearch(active);
 $('#empty-new-term').onclick = newTerminal;
-$('#tree-new-file').onclick = () => active?.tree.create(active.tree.selected || active.path, false);
-$('#tree-new-dir').onclick = () => active?.tree.create(active.tree.selected || active.path, true);
+$('#tree-new-file').onclick = () => active?.tree?.create(active.tree.selected || active.path, false);
+$('#tree-new-dir').onclick = () => active?.tree?.create(active.tree.selected || active.path, true);
 $('#tree-collapse').onclick = () => {
-  if (!active) return;
+  if (!active?.tree) return;
   active.tree.expanded = new Set([active.path]);
   active.tree.render();
 };
@@ -611,7 +643,7 @@ addEventListener('keydown', (e) => {
   const actions = {
     T: newTerminal,
     A: () => active && launchDefault(),
-    O: pickProject,
+    O: () => newProjectMenu($('#new-project')),
     B: () => togglePanel('left'),
     M: () => active?.focusedId && toggleMax(active.focusedId),
     P: () => openSearch(active),
@@ -749,7 +781,7 @@ more.onclick = (e) => {
   initGit({
     pushed: githubPushed,
     statusChanged: (p) => {
-      p.tree.setGitStatus(p.gitStatus, p.root);
+      p.tree?.setGitStatus(p.gitStatus, p.root);
       renderProjectTabs();
       if (p === active) {
         const n = p.gitStatus ? p.gitStatus.staged.length + p.gitStatus.unstaged.length : 0;
@@ -795,6 +827,12 @@ more.onclick = (e) => {
   // which is also what authorizes file access in the main process.
   const valid = [];
   for (const entry of saved.projects || []) {
+    // A remote project has no local folder to check: its SSH settings are
+    // validated by the backend when the first terminal opens.
+    if (entry.remote) {
+      valid.push(entry);
+      continue;
+    }
     try {
       await work.fs.list(entry.path);
       valid.push(entry);
@@ -802,7 +840,9 @@ more.onclick = (e) => {
       // folder removed since last session
     }
   }
-  for (const { path, run, terminals } of valid) await addProject(path, { activate: false, withTerminal: false, run, terminals });
+  for (const { path, run, terminals, remote } of valid) {
+    await addProject(path, { activate: false, withTerminal: false, run, terminals, remote });
+  }
   // `work <folder>` from a terminal: that folder wins over the last active one.
   const opened = info.open && await addProject(info.open, { activate: false, withTerminal: false });
   if (!projects.length) {
@@ -840,6 +880,6 @@ more.onclick = (e) => {
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).
   setInterval(() => refreshGit(active), 20000);
   setInterval(() => projects.filter((p) => p !== active).forEach((p) => refreshGit(p)), 60000);
-  work.app.onFocus(() => active?.tree.reload());
+  work.app.onFocus(() => active?.tree?.reload());
   work.app.onOpen((path) => addProject(path).catch(toastError));
 })().catch(toastError);

@@ -176,3 +176,28 @@ test('object event payloads do not break the spread listener; arrays still sprea
     ['agents', ['claude']],
   ]);
 });
+
+test('the tmux bridge forwards the remote settings to every remote-aware command', async () => {
+  const seen = [];
+  const remote = { host: 'vps', user: 'deploy', port: 2222, remotePath: '/srv/app' };
+  const { work } = load((cmd, _wait, args) => {
+    seen.push([cmd, { ...args }]);
+    if (cmd === 'tmux_session_for_project') return 'work_app_123456';
+    if (cmd === 'tmux_list_windows') return [];
+    return cmd === 'tmux_new_window' ? '@3' : null;
+  });
+  await work.tmux.sessionForProject('ssh://deploy@vps:2222/srv/app', remote);
+  await work.tmux.ensureSession('work_app_123456', '/srv/app', remote);
+  await work.tmux.listWindows('work_app_123456', remote);
+  await work.tmux.newWindow('work_app_123456', 'dev1', '/srv/app', 'echo ok', remote);
+  await work.tmux.killWindow('work_app_123456', '@3', remote);
+  await work.tmux.killSession('work_app_123456', remote);
+  await work.tmux.sendKeys('work_app_123456', 'dev1', 'yes', remote);
+  await work.tmux.capturePane('work_app_123456', 'dev1', 20, remote);
+
+  assert.deepEqual(seen.map(([cmd]) => cmd), [
+    'tmux_session_for_project', 'tmux_ensure_session', 'tmux_list_windows', 'tmux_new_window',
+    'tmux_kill_window', 'tmux_kill_session', 'tmux_send_keys', 'tmux_capture_pane',
+  ]);
+  assert.ok(seen.every(([, args]) => args.remote === remote), 'every call carries the remote object');
+});

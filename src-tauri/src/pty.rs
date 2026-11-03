@@ -32,6 +32,9 @@ pub struct CreateOpts {
     pub tmux_session: Option<String>,
     pub tmux_window: Option<String>,
     pub tmux_name: Option<String>,
+    // A remote project runs the whole shell over SSH; its tmux session lives
+    // on the server and survives Work closing.
+    pub remote: Option<crate::remote::RemoteProject>,
     // Agent resume identity carried over IPC. The PTY spawn itself only needs
     // command/tmux_*; these fields keep the renderer's saved layout intact.
     #[allow(dead_code)]
@@ -60,6 +63,10 @@ struct Session {
     resume: Condvar,
     tmux_target: Option<String>,
     tmux_client_session: Option<String>,
+    // On a remote project these refer to the server, not to the local tmux.
+    remote_client: Option<(crate::remote::RemoteProject, String)>,
+    remote_cwd: Option<String>,
+    remote_window: Option<String>,
 }
 
 enum Msg {
@@ -192,7 +199,14 @@ impl PtyManager {
         if self.spawn(id, &opts).is_err() {
             if let Some(session) = &opts.tmux_session {
                 let client_session = format!("{session}_pty_{id}");
-                let _ = crate::tmux::kill_session(&client_session);
+                if let Some(remote) = &opts.remote {
+                    let (remote, client) = (remote.clone(), client_session);
+                    std::thread::spawn(move || {
+                        let _ = crate::remote::kill_session(&remote, &client);
+                    });
+                } else {
+                    let _ = crate::tmux::kill_session(&client_session);
+                }
             }
             // The shell could not start (missing, not executable): the terminal
             // ends like a shell that exits with 127. Reported a moment later, so
@@ -215,44 +229,77 @@ impl PtyManager {
             .filter(|d| d.is_dir())
             .unwrap_or_else(home);
 
-        let (mut cmd, tmux_target, tmux_client_session) = if let Some(session) = &opts.tmux_session
-        {
-            let _ = crate::tmux::ensure_session(session, &cwd);
-            let window_id = if let Some(win) = &opts.tmux_window {
-                win.clone()
-            } else {
-                let existing = crate::tmux::list_windows(session).unwrap_or_default();
-                if opts.command.is_none()
-                    && existing.len() == 1
-                    && existing[0].name == "shell"
-                    && opts.tmux_name.as_deref().unwrap_or("shell") == "shell"
-                {
-                    existing[0].id.clone()
+        let (mut cmd, tmux_target, tmux_client_session, remote_client, remote_cwd, remote_window) =
+            if let Some(remote) = &opts.remote {
+                // The session lives on the server: Work simply opens one SSH
+                // PTY that attaches to (or creates) the remote window.
+                let session = opts
+                    .tmux_session
+                    .clone()
+                    .unwrap_or_else(|| crate::remote::session_name(remote));
+                let client_session = format!("{session}_pty_{id}");
+                let remote_path = opts
+                    .cwd
+                    .clone()
+                    .unwrap_or_else(|| remote.remote_path.clone());
+                let script = crate::remote::attach_script(
+                    remote,
+                    &session,
+                    opts.tmux_window.as_deref(),
+                    opts.tmux_name.as_deref(),
+                    &remote_path,
+                    opts.command.as_deref(),
+                    &client_session,
+                )?;
+                let mut args = crate::remote::ssh_args(remote, true);
+                args.push(script);
+                let mut c = CommandBuilder::new("ssh");
+                c.args(args);
+                (
+                    c,
+                    None,
+                    None,
+                    Some((remote.clone(), client_session)),
+                    Some(remote_path),
+                    opts.tmux_window.clone(),
+                )
+            } else if let Some(session) = &opts.tmux_session {
+                let _ = crate::tmux::ensure_session(session, &cwd);
+                let window_id = if let Some(win) = &opts.tmux_window {
+                    win.clone()
                 } else {
-                    crate::tmux::new_window(
-                        session,
-                        opts.tmux_name.as_deref(),
-                        &cwd,
-                        opts.command.as_deref(),
-                    )
-                    .unwrap_or_else(|_| "0".into())
-                }
-            };
-            let target = format!("{session}:{window_id}");
-            let client_session = format!("{session}_pty_{id}");
-            let _ = crate::tmux::attach_client_session(session, &client_session, &window_id);
+                    let existing = crate::tmux::list_windows(session).unwrap_or_default();
+                    if opts.command.is_none()
+                        && existing.len() == 1
+                        && existing[0].name == "shell"
+                        && opts.tmux_name.as_deref().unwrap_or("shell") == "shell"
+                    {
+                        existing[0].id.clone()
+                    } else {
+                        crate::tmux::new_window(
+                            session,
+                            opts.tmux_name.as_deref(),
+                            &cwd,
+                            opts.command.as_deref(),
+                        )
+                        .unwrap_or_else(|_| "0".into())
+                    }
+                };
+                let target = format!("{session}:{window_id}");
+                let client_session = format!("{session}_pty_{id}");
+                let _ = crate::tmux::attach_client_session(session, &client_session, &window_id);
 
-            let mut c = CommandBuilder::new("tmux");
-            c.args(["attach-session", "-t", &client_session]);
-            (c, Some(target), Some(client_session))
-        } else {
-            let mut c = CommandBuilder::new(&self.shell);
-            match &opts.command {
-                Some(cmd_str) => c.args(["-lc", cmd_str]),
-                None => c.arg("-l"),
+                let mut c = CommandBuilder::new("tmux");
+                c.args(["attach-session", "-t", &client_session]);
+                (c, Some(target), Some(client_session), None, None, None)
+            } else {
+                let mut c = CommandBuilder::new(&self.shell);
+                match &opts.command {
+                    Some(cmd_str) => c.args(["-lc", cmd_str]),
+                    None => c.arg("-l"),
+                };
+                (c, None, None, None, None, None)
             };
-            (c, None, None)
-        };
 
         cmd.cwd(&cwd);
         cmd.env_clear();
@@ -297,6 +344,9 @@ impl PtyManager {
             resume: Condvar::new(),
             tmux_target,
             tmux_client_session,
+            remote_client,
+            remote_cwd,
+            remote_window,
         });
         self.sessions.lock().unwrap().insert(id, session.clone());
 
@@ -332,7 +382,9 @@ impl PtyManager {
         );
         std::thread::spawn(move || {
             let code = pump(id, &session, rx, &on_data).unwrap_or(1);
-            if let Some(client) = &session.tmux_client_session {
+            if let Some((remote, client)) = &session.remote_client {
+                let _ = crate::remote::kill_session(remote, client);
+            } else if let Some(client) = &session.tmux_client_session {
                 let _ = crate::tmux::kill_session(client);
             }
             sessions.lock().unwrap().remove(&id);
@@ -374,7 +426,13 @@ impl PtyManager {
         let Some(s) = self.get(id) else { return };
         s.flow.lock().unwrap().killed = true;
         s.resume.notify_all();
-        if let Some(client) = &s.tmux_client_session {
+        if let Some((remote, client)) = &s.remote_client {
+            // A network round trip must not hold the UI thread that closes a pane.
+            let (remote, client) = (remote.clone(), client.clone());
+            std::thread::spawn(move || {
+                let _ = crate::remote::kill_session(&remote, &client);
+            });
+        } else if let Some(client) = &s.tmux_client_session {
             let _ = crate::tmux::kill_session(client);
         }
         unsafe { libc::killpg(s.pid, libc::SIGHUP) }; // the shell leads its own session and process group
@@ -388,6 +446,9 @@ impl PtyManager {
     // Current working directory of the shell; the session's start folder if it can't be read.
     pub fn cwd(&self, id: u32) -> Option<String> {
         let s = self.get(id)?;
+        if let Some(path) = &s.remote_cwd {
+            return Some(path.clone());
+        }
         if let Some(target) = &s.tmux_target {
             if let Ok(out) = crate::tmux::run_tmux(&[
                 "display-message",
@@ -414,6 +475,9 @@ impl PtyManager {
     // exactly that window after a restart.
     pub fn tmux_window(&self, id: u32) -> Option<String> {
         let s = self.get(id)?;
+        if let Some(window) = &s.remote_window {
+            return Some(window.clone());
+        }
         let (_, window) = s.tmux_target.as_deref()?.rsplit_once(':')?;
         Some(window.to_string())
     }

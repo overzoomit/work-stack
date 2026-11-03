@@ -53,8 +53,10 @@ export async function showRun(project) {
   active = project;
   if (project) {
     ensure(project);
-    refreshTunnel(project).then(() => project === active && render());
-    if (!project.detected) await detect(project);
+    if (!project.remote) {
+      refreshTunnel(project).then(() => project === active && render());
+      if (!project.detected) await detect(project);
+    }
   }
   render();
 }
@@ -313,8 +315,10 @@ function wireRunTab() {
 export function render() {
   renderRunTab();
   const box = $('#run');
-  box.hidden = !active;
-  if (!active) return;
+  // Run configurations execute local commands in the project folder: a remote
+  // project has no local folder, so its terminal is the way to run anything.
+  box.hidden = !active || !!active.remote;
+  if (!active || active.remote) return;
   const cfg = selected();
   const r = cfg && active.runs.get(cfg.id);
   const running = isRunning(r);

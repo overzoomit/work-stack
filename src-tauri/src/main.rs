@@ -13,6 +13,7 @@ mod ngrok;
 mod plane_dogwatch;
 mod plugins;
 mod pty;
+mod remote;
 mod runconfigs;
 mod store;
 mod sysstats;
@@ -31,11 +32,14 @@ struct AppState {
 
 // ── Projects ─────────────────────────────────────────────────
 // The open projects are also what authorizes file access (see fsops).
+// Remote projects have a synthetic ssh:// identity and no local folder: they
+// must not become filesystem roots nor start a local tmux/dogwatch session.
 fn project_paths(state: &Value) -> Vec<String> {
     state["projects"]
         .as_array()
         .into_iter()
         .flatten()
+        .filter(|p| p.get("remote").is_none())
         .filter_map(|p| p["path"].as_str().map(String::from))
         .collect()
 }
@@ -113,7 +117,18 @@ fn main() {
             });
             let file = dir.join("state.json");
             let state = store::load(&file, legacy.as_deref());
-            let active_project = state["active"].as_str().map(String::from);
+            // Telegram/PM tooling drives a local tmux session: a remote project
+            // active at startup must not be adopted as one.
+            let active_project = state["active"]
+                .as_str()
+                .filter(|active| {
+                    state["projects"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|p| p["path"] == *active && p.get("remote").is_none())
+                })
+                .map(String::from);
             allow_projects(app.handle(), &state);
             app.manage(AppState {
                 state: Mutex::new(state),

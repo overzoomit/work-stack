@@ -100,6 +100,9 @@
             </button>
           </div>
           <div class="acc-body">
+            <div class="git-none" id="git-remote" hidden>
+              <p>Remote SSH project: file and Git operations run inside the remote terminal.</p>
+            </div>
             <div class="git-none" id="git-none" hidden>
               <p>This folder is not a git repository.</p>
               <button class="btn" id="git-init">Initialize repository</button>
@@ -269,6 +272,28 @@
         <div class="spacer"></div>
         <button type="button" class="btn" id="modal-cancel">Cancel</button>
         <button type="submit" class="btn btn-accent" id="modal-ok">OK</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal" id="remote-modal" hidden>
+    <form class="modal-card remote-card" id="remote-form">
+      <p>Connect to a remote host</p>
+      <div class="remote-fields">
+        <label>Host<input id="remote-host" autocomplete="off" spellcheck="false" placeholder="server-vps or 10.0.0.5" required></label>
+        <div class="remote-row">
+          <label>User<input id="remote-user" autocomplete="off" spellcheck="false" placeholder="optional"></label>
+          <label>Port<input id="remote-port" inputmode="numeric" autocomplete="off" placeholder="22"></label>
+        </div>
+        <label>Remote path<input id="remote-path" autocomplete="off" spellcheck="false" placeholder="/srv/app" required></label>
+        <label>tmux session<input id="remote-session" autocomplete="off" spellcheck="false" placeholder="optional, derived from the path"></label>
+      </div>
+      <p class="remote-error" id="remote-error" hidden></p>
+      <p class="remote-hint">The host may be an alias from ~/.ssh/config. Sessions stay alive on the server after Work closes.</p>
+      <div class="commit-row">
+        <div class="spacer"></div>
+        <button type="button" class="btn" id="remote-cancel">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="remote-connect">Connect</button>
       </div>
     </form>
   </div>

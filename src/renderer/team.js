@@ -9,6 +9,12 @@ export { TEAM_ROLES } from './teamroles.js';
 
 const { work } = window;
 
+const isRemote = (project) => !!project?.remote;
+const tmuxReady = async (project) =>
+  isRemote(project) || (await work?.tmux?.isAvailable().catch(() => false));
+const tmuxSessionFor = (project) =>
+  work.tmux.sessionForProject(project.path, project.remote || null);
+
 let getProject = () => null;
 
 let pop = null;
@@ -122,8 +128,15 @@ async function probeLive(path) {
 export function showLiveLed() {
   const led = $('#dogwatch-led');
   if (!led) return;
-  const project = getProject()?.path;
-  if (project && !liveByProject.has(project) && !probing.has(project)) probeLive(project);
+  const p = getProject();
+  const project = p?.path;
+  // Remote sessions are not inspected by the local dogwatch process.
+  if (project && isRemote(p)) {
+    liveByProject.set(project, false);
+    waitingByProject.set(project, 0);
+  } else if (project && !liveByProject.has(project) && !probing.has(project)) {
+    probeLive(project);
+  }
   const waiting = waitingByProject.get(project) || 0;
   const state = ledState(liveByProject.get(project) === true, waiting);
   led.dataset.state = state;
@@ -211,6 +224,10 @@ function telegramPanel(status) {
 }
 
 async function connectTelegram(project) {
+  if (isRemote(project)) {
+    toast('Telegram is available for local projects only.', { error: true });
+    return;
+  }
   const token = $('#tg-token').value.trim();
   const chatId = $('#tg-chat').value.trim();
   if (!token || !chatId) {
@@ -327,11 +344,11 @@ export async function openOrFocusRole(project, roleName) {
   const existing = focusOrFindPane(project, roleName);
   if (existing) return existing;
 
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
   if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    const session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       const win = windows.find((w) => w.name === roleName);
       if (win) {
         const roleDef = roleFor(roleName);
@@ -354,14 +371,14 @@ export async function openOrFocusRole(project, roleName) {
 // Terminates a team role window and closes its UI pane
 export async function killTeamRole(project, roleName) {
   if (!project || !roleName) return;
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
   if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    const session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       const win = windows.find((w) => w.name === roleName);
       if (win) {
-        await work.tmux.killWindow(session, win.id).catch(() => {});
+        await work.tmux.killWindow(session, win.id, project.remote || null).catch(() => {});
       }
     }
   }
@@ -377,24 +394,24 @@ export async function createTeamMember(project, roleName, agent) {
   if (!project || !roleName || !agent) return null;
 
   const cmd = commandFor(agent);
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
 
   if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    const session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      await work.tmux.ensureSession(session, project.path).catch(() => {});
-      const windows = await work.tmux.listWindows(session).catch(() => []);
+      await work.tmux.ensureSession(session, project.remote?.remotePath || project.path, project.remote || null).catch(() => {});
+      const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       const existingWin = windows.find((w) => w.name === roleName);
       if (existingWin) {
-        await work.tmux.killWindow(session, existingWin.id).catch(() => {});
+        await work.tmux.killWindow(session, existingWin.id, project.remote || null).catch(() => {});
       }
       const existingPane = terminalsOf(project).find((t) => t.tmuxName === roleName || t.title === roleName);
       if (existingPane) {
         closeTerminal(existingPane.id);
       }
-      const newWinId = await work.tmux.newWindow(session, roleName, project.path, cmd);
+      const newWinId = await work.tmux.newWindow(session, roleName, project.remote?.remotePath || project.path, cmd, project.remote || null);
       const pane = await openTerminal(project, {
-        cwd: project.path,
+        cwd: project.remote?.remotePath || project.path,
         title: roleName,
         tmuxSession: session,
         tmuxWindow: newWinId || roleName,
@@ -414,7 +431,7 @@ export async function createTeamMember(project, roleName, agent) {
     closeTerminal(existingPane.id);
   }
   const pane = await openTerminal(project, {
-    cwd: project.path,
+    cwd: project.remote?.remotePath || project.path,
     title: roleName,
     command: cmd,
     tmuxName: roleName,
@@ -434,20 +451,22 @@ async function getExistingNames(project) {
     if (p.title) names.add(p.title);
   });
 
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
   let session = null;
   let tmuxWindows = [];
   if (isTmux) {
-    session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      tmuxWindows = await work.tmux.listWindows(session).catch(() => []);
+      tmuxWindows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       tmuxWindows.forEach((w) => {
         if (w.name) names.add(w.name);
       });
     }
   }
 
-  const inspection = session ? await work.dogwatch?.inspect(session).catch(() => null) : null;
+  const inspection = session && !isRemote(project)
+    ? await work.dogwatch?.inspect(session).catch(() => null)
+    : null;
   const windows = inspection?.windows ?? [];
   // The PM answers escalations: show its state, but do not count its own
   // prompt as an agent waiting for the PM.
@@ -842,11 +861,11 @@ export async function launchTeamMember(project, role) {
     return existing;
   }
 
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
   if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    const session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       const win = windows.find((w) => w.name === role.name);
       const roleDef = roleFor(role.name);
       const meta = {
@@ -864,11 +883,11 @@ export async function launchTeamMember(project, role) {
           ...meta,
         });
       } else {
-        await work.tmux.newWindow(session, role.name, project.path, role.command);
-        const updated = await work.tmux.listWindows(session).catch(() => []);
+        await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
+        const updated = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
         const newWin = updated.find((w) => w.name === role.name);
         return openTerminal(project, {
-          cwd: project.path,
+          cwd: project.remote?.remotePath || project.path,
           title: role.name,
           tmuxSession: session,
           tmuxWindow: newWin ? newWin.id : null,
@@ -881,7 +900,7 @@ export async function launchTeamMember(project, role) {
 
   // Fallback without tmux
   return openTerminal(project, {
-    cwd: project.path,
+    cwd: project.remote?.remotePath || project.path,
     title: role.name,
     command: role.command,
     tmuxName: role.name,
@@ -893,17 +912,17 @@ export async function launchTeamMember(project, role) {
 // Initializes the entire squad: pm, dev1, dev2, qa
 export async function initializeTeam(project) {
   if (!project) return [];
-  const isTmux = await work?.tmux?.isAvailable().catch(() => false);
+  const isTmux = await tmuxReady(project);
   const panes = [];
 
   if (isTmux) {
-    const session = await work.tmux.sessionForProject(project.path).catch(() => null);
+    const session = await tmuxSessionFor(project).catch(() => null);
     if (session) {
-      const windows = await work.tmux.listWindows(session).catch(() => []);
+      const windows = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
       for (const role of TEAM_ROLES) {
         const exists = windows.some((w) => w.name === role.name);
         if (!exists) {
-          await work.tmux.newWindow(session, role.name, project.path, role.command);
+          await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
         }
       }
       const reattached = await syncProjectTerminals(project);

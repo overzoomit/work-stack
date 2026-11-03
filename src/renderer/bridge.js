@@ -208,14 +208,18 @@
     },
     tmux: {
       isAvailable: call('tmux_is_available'),
-      sessionForProject: call('tmux_session_for_project', 'path'),
-      ensureSession: call('tmux_ensure_session', 'session', 'cwd'),
-      listWindows: call('tmux_list_windows', 'session'),
-      newWindow: call('tmux_new_window', 'session', 'name', 'cwd', 'command'),
-      killWindow: call('tmux_kill_window', 'session', 'windowId'),
-      killSession: call('tmux_kill_session', 'session'),
-      sendKeys: call('tmux_send_keys', 'session', 'target', 'keys'),
-      capturePane: call('tmux_capture_pane', 'session', 'target', 'lines'),
+      sessionForProject: (path, remote = null) => call('tmux_session_for_project', 'path', 'remote')(path, remote),
+      ensureSession: (session, cwd, remote = null) => call('tmux_ensure_session', 'session', 'cwd', 'remote')(session, cwd, remote),
+      listWindows: (session, remote = null) => call('tmux_list_windows', 'session', 'remote')(session, remote),
+      newWindow: (session, name, cwd, command, remote = null) =>
+        call('tmux_new_window', 'session', 'name', 'cwd', 'command', 'remote')(session, name, cwd, command, remote),
+      killWindow: (session, windowId, remote = null) =>
+        call('tmux_kill_window', 'session', 'windowId', 'remote')(session, windowId, remote),
+      killSession: (session, remote = null) => call('tmux_kill_session', 'session', 'remote')(session, remote),
+      sendKeys: (session, target, keys, remote = null) =>
+        call('tmux_send_keys', 'session', 'target', 'keys', 'remote')(session, target, keys, remote),
+      capturePane: (session, target, lines, remote = null) =>
+        call('tmux_capture_pane', 'session', 'target', 'lines', 'remote')(session, target, lines, remote),
     },
   };
 })();

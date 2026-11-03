@@ -193,6 +193,28 @@ mod tests {
     }
 
     #[test]
+    fn keeps_remote_projects_and_their_ssh_settings() {
+        let d = dir();
+        let f = d.path().join("state.json");
+        let remote = json!({
+            "host": "server-vps",
+            "user": "deploy",
+            "port": 2222,
+            "remotePath": "/srv/app",
+            "sessionName": "work-stack",
+        });
+        let state = json!({
+            "projects": [{ "path": "ssh://deploy@server-vps:2222/srv/app", "remote": remote, "terminals": [] }],
+            "active": "ssh://deploy@server-vps:2222/srv/app",
+        });
+        save(&f, &state).unwrap();
+        let mut s = load(&f, None);
+        assert_eq!(s["projects"][0]["remote"], remote);
+        merge(&mut s, json!({ "active": null }));
+        assert_eq!(s["projects"][0]["remote"], remote);
+    }
+
+    #[test]
     fn merge_keeps_keys_not_sent() {
         let mut s = json!({ "projects": [], "active": null, "theme": "x" });
         merge(&mut s, json!({ "active": "/a" }));

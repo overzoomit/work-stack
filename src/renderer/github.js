@@ -289,7 +289,7 @@ function schedule() {
 
 function refresh(opts) {
   const p = activeProject();
-  if (!p) return;
+  if (!p || p.remote) return;
   load(p, opts);
   if (opts?.status !== false && shown()) LOADERS[sectionOf(p)]?.(p);
 }
@@ -584,6 +584,12 @@ export function setGithubVisible(on) {
 // Another project became the active one: its dot needs data even with the section collapsed.
 export function showGithub() {
   const p = activeProject();
+  if (p?.remote) {
+    $('#gh-tab-dot').className = 'dot hidden';
+    setHtml($('#gh-nav'), '');
+    setHtml($('#gh-content'), '<p class="empty">GitHub Actions for remote projects are managed from the SSH terminal.</p>');
+    return;
+  }
   render();
   updateDot();
   if (p && (shown() || !p.gh?.at || Date.now() - p.gh.at > 60_000)) refresh({ status: !p.gh?.status });

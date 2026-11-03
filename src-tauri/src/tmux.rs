@@ -1,4 +1,5 @@
 // Tmux backend: session and window orchestration for projects and agent teams.
+use crate::remote::RemoteProject;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -286,18 +287,34 @@ pub fn tmux_is_available() -> bool {
 }
 
 #[tauri::command]
-pub fn tmux_session_for_project(path: String) -> String {
-    session_for_project(Path::new(&path))
+pub fn tmux_session_for_project(path: String, remote: Option<RemoteProject>) -> String {
+    match remote {
+        Some(remote) => crate::remote::session_name(&remote),
+        None => session_for_project(Path::new(&path)),
+    }
 }
 
 #[tauri::command]
-pub fn tmux_ensure_session(session: String, cwd: String) -> Result<(), String> {
-    ensure_session(&session, Path::new(&cwd))
+pub fn tmux_ensure_session(
+    session: String,
+    cwd: String,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::ensure_session(&remote, &session, &cwd),
+        None => ensure_session(&session, Path::new(&cwd)),
+    }
 }
 
 #[tauri::command]
-pub fn tmux_list_windows(session: String) -> Result<Vec<TmuxWindow>, String> {
-    list_windows(&session)
+pub fn tmux_list_windows(
+    session: String,
+    remote: Option<RemoteProject>,
+) -> Result<Vec<TmuxWindow>, String> {
+    match remote {
+        Some(remote) => crate::remote::list_windows(&remote, &session),
+        None => list_windows(&session),
+    }
 }
 
 #[tauri::command]
@@ -306,28 +323,56 @@ pub fn tmux_new_window(
     name: Option<String>,
     cwd: String,
     command: Option<String>,
+    remote: Option<RemoteProject>,
 ) -> Result<String, String> {
-    new_window(
-        &session,
-        name.as_deref(),
-        Path::new(&cwd),
-        command.as_deref(),
-    )
+    match remote {
+        Some(remote) => crate::remote::new_window(
+            &remote,
+            &session,
+            name.as_deref(),
+            &cwd,
+            command.as_deref(),
+        ),
+        None => new_window(
+            &session,
+            name.as_deref(),
+            Path::new(&cwd),
+            command.as_deref(),
+        ),
+    }
 }
 
 #[tauri::command]
-pub fn tmux_kill_window(session: String, window_id: String) -> Result<(), String> {
-    kill_window(&session, &window_id)
+pub fn tmux_kill_window(
+    session: String,
+    window_id: String,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::kill_window(&remote, &session, &window_id),
+        None => kill_window(&session, &window_id),
+    }
 }
 
 #[tauri::command]
-pub fn tmux_kill_session(session: String) -> Result<(), String> {
-    kill_session(&session)
+pub fn tmux_kill_session(session: String, remote: Option<RemoteProject>) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::kill_session(&remote, &session),
+        None => kill_session(&session),
+    }
 }
 
 #[tauri::command]
-pub fn tmux_send_keys(session: String, target: String, keys: String) -> Result<(), String> {
-    send_keys(&session, &target, &keys)
+pub fn tmux_send_keys(
+    session: String,
+    target: String,
+    keys: String,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::send_keys(&remote, &session, &target, &keys),
+        None => send_keys(&session, &target, &keys),
+    }
 }
 
 #[tauri::command]
@@ -335,8 +380,12 @@ pub fn tmux_capture_pane(
     session: String,
     target: String,
     lines: Option<u32>,
+    remote: Option<RemoteProject>,
 ) -> Result<String, String> {
-    capture_pane(&session, &target, lines)
+    match remote {
+        Some(remote) => crate::remote::capture_pane(&remote, &session, &target, lines),
+        None => capture_pane(&session, &target, lines),
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────
