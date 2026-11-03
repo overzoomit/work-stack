@@ -172,6 +172,7 @@
     },
     dogwatch: {
       inspect: call('dogwatch_inspect', 'session'),
+      explain: call('dogwatch_explain', 'session', 'window'),
       answer: call('dogwatch_answer', 'session', 'window', 'answer'),
       onUpdate: listen('dogwatch:update'),
     },

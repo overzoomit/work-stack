@@ -6006,6 +6006,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "portable-pty",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -6020,6 +6021,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
+ "toml 0.8.2",
  "trash",
  "url",
 ]

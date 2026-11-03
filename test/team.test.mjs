@@ -300,6 +300,22 @@ test('statusBadge shows Waiting with the question for a window that waits, Activ
   assert.match(Team.statusBadge(prompts, 'qa'), /active.*Active/);
 });
 
+test('statusBadge renders working, blocked and idle states from the dogwatch manifests', () => {
+  const states = new Map([
+    ['dev1', { state: 'working', rule: 'claude-spinner' }],
+    ['qa1', { state: 'blocked', rule: 'claude-permission', prompt: { question: 'Proceed?' } }],
+    ['agent1', { state: 'idle' }],
+  ]);
+  const working = Team.statusBadge(states, 'dev1');
+  assert.match(working, /working.*Working/);
+  assert.match(working, /tp-spinner/, 'a spinner shows the agent is active');
+  const blocked = Team.statusBadge(states, 'qa1');
+  assert.match(blocked, /waiting.*Waiting for answer/);
+  assert.match(blocked, /title="Proceed\?"/);
+  assert.match(Team.statusBadge(states, 'agent1'), /idle.*Idle/);
+  assert.match(Team.statusBadge(states, 'unknown'), /active.*Active/);
+});
+
 test('the BotFather guide explains that only the PM talks to Telegram', () => {
   const guide = Team.telegramGuide();
   assert.match(guide, /@BotFather/);
@@ -366,7 +382,7 @@ test('a dogwatch update refreshes the open popover: badge and count, without pro
   env.tmuxAvailable = true;
   env.tmuxSession = 'work_live_test';
   env.tmuxWindows = [{ id: '@1', name: 'dev1', active: false, path: '/home/u/live-proj' }];
-  let inspection = { session: 'work_live_test', windows: [{ id: '@1', name: 'dev1', prompt: null }] };
+  let inspection = { session: 'work_live_test', windows: [{ id: '@1', name: 'dev1', prompt: null, state: 'working', rule: 'claude-spinner' }] };
   let onUpdate;
   let probes = 0;
   window.work.dogwatch = { onUpdate: (cb) => { onUpdate = cb; }, inspect: async () => inspection };
@@ -379,23 +395,25 @@ test('a dogwatch update refreshes the open popover: badge and count, without pro
   const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
   await tick();
   assert.doesNotMatch(pop.innerHTML, /Waiting for answer/);
+  assert.match(pop.innerHTML, /Working/, 'the row follows the working state');
   assert.equal(probes, 1);
 
   const waiting = { prompt_type: 'permission', question: 'Do you want to proceed?', options: [] };
-  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting }] };
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting, state: 'blocked', rule: 'claude-permission' }] };
   onUpdate(project.path, 'work_live_test', [{ target: 'dev1', ...waiting }]);
   await tick();
   assert.match(pop.innerHTML, /Waiting for answer/, 'the badge follows');
   assert.match(pop.innerHTML, /1 waiting for an answer/, 'and the count');
   assert.equal(probes, 1, 'the MCP result is kept');
 
-  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: null }] };
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: null, state: 'idle' }] };
   onUpdate(project.path, 'work_live_test', []);
   await tick();
   assert.doesNotMatch(pop.innerHTML, /Waiting for answer/, 'it clears when answered');
+  assert.match(pop.innerHTML, /Idle/, 'and the row goes back to idle');
 
   const before = pop.innerHTML;
-  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting }] };
+  inspection = { ...inspection, windows: [{ id: '@1', name: 'dev1', prompt: waiting, state: 'blocked' }] };
   onUpdate('/another/project', 'other', [{ target: 'dev1', ...waiting }]);
   await tick();
   assert.equal(pop.innerHTML, before, 'another project leaves this popover alone');

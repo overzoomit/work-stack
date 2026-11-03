@@ -1,0 +1,3 @@
+Running the test suite
+
+Press enter to confirm

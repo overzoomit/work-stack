@@ -1112,6 +1112,8 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .tp-status-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .tp-status-dot.waiting { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+.tp-status-dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); animation: tp-working 1.2s ease-in-out infinite; }
+.tp-status-dot.idle { background: var(--muted); }
 .tp-role-badge { font: 700 11px var(--mono); padding: 2px 7px; border-radius: 5px; flex: none; }
 .tp-role-pm { background: rgba(168, 85, 247, .2); color: #c084fc; border: 1px solid rgba(168, 85, 247, .4); }
 .tp-role-dev1, .tp-role-dev2, .tp-role-dev { background: rgba(14, 165, 233, .2); color: #38bdf8; border: 1px solid rgba(14, 165, 233, .4); }
@@ -1123,8 +1125,16 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-ticket { margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tp-cmd { font: 10px var(--mono); color: var(--muted); margin-top: 1px; }
 .tp-badge-status { font-size: 11px; color: var(--text-2); font-weight: 500; }
-.tp-badge-status.active { color: var(--green); }
+.tp-badge-status.active, .tp-badge-status.working { color: var(--green); }
 .tp-badge-status.waiting, .tp-waiting { color: var(--orange); }
+.tp-badge-status.idle { color: var(--text-2); }
+.tp-spinner {
+  display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: -1px;
+  border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: tp-spin .8s linear infinite;
+}
+@keyframes tp-working { 50% { opacity: .45; } }
+@keyframes tp-spin { to { transform: rotate(360deg); } }
 .tp-mcp-row { padding: 6px 10px; }
 .tp-mcp-env { padding: 4px 10px; font-size: 10.5px; }
 .tp-add-btn.mcp-start { width: auto; margin: 0; padding: 2px 10px; }

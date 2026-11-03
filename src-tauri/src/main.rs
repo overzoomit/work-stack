@@ -246,6 +246,7 @@ fn main() {
             agents::agents_stop,
             agents::agents_available,
             dogwatch::dogwatch_inspect,
+            dogwatch::dogwatch_explain,
             dogwatch::dogwatch_answer,
             plane_dogwatch::plane_dogwatch_status,
             plane_dogwatch::plane_dogwatch_sync_now,

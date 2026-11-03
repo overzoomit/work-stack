@@ -2,9 +2,11 @@
 // input and relays the PM's answers. The same job as scripts/tmux-dogwatch.py,
 // built into Work: a watcher thread, two IPC commands and an event.
 use crate::{store, tmux};
-use serde::Serialize;
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const POLL: Duration = Duration::from_secs(3);
@@ -12,13 +14,21 @@ const SCAN_LINES: &str = "-30";
 const TAIL_LINES: usize = 12;
 const ESCALATION_FILE: &str = ".claude/escalation_to_pm.json";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PromptType {
     Permission,
     Confirmation,
     Selection,
     Question,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentState {
+    Working,
+    Blocked,
+    Idle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -33,6 +43,10 @@ pub struct WindowState {
     pub id: String,
     pub name: String,
     pub prompt: Option<Prompt>,
+    pub agent: Option<String>,
+    pub state: AgentState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -52,6 +66,9 @@ impl Inspection {
     pub fn pending(&self) -> Vec<Pending> {
         self.windows
             .iter()
+            // The PM is the one who answers escalations: its prompts are shown
+            // in the team panel but never written back to the escalation file.
+            .filter(|w| !w.name.eq_ignore_ascii_case("pm"))
             .filter_map(|w| {
                 Some(Pending {
                     target: w.name.clone(),
@@ -62,13 +79,394 @@ impl Inspection {
     }
 }
 
+// ── Declarative agent manifests ──────────────────────────────
+//
+// Status detection is data, not code: each supported CLI has a TOML manifest
+// under detect/manifests/. Rules are evaluated from the highest priority down
+// and the first match wins, so a permission prompt always beats a spinner.
+
+#[derive(Debug, Deserialize)]
+struct ManifestSource {
+    id: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+    version: u32,
+    #[serde(default)]
+    rules: Vec<RuleSource>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuleSource {
+    id: String,
+    state: AgentState,
+    priority: i32,
+    region: String,
+    #[serde(default)]
+    prompt_type: Option<PromptType>,
+    #[serde(default)]
+    predicates: PredicatesSource,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PredicatesSource {
+    #[serde(default)]
+    contains: Vec<String>,
+    #[serde(default)]
+    regex: Vec<String>,
+    #[serde(default)]
+    line_regex: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Region {
+    WholeRecent,
+    BottomNonEmptyLines(usize),
+    LastNonEmptyLine,
+    PromptBlock,
+}
+
+#[derive(Debug)]
+struct Rule {
+    id: String,
+    state: AgentState,
+    priority: i32,
+    region: Region,
+    prompt_type: Option<PromptType>,
+    contains: Vec<String>,
+    regexes: Vec<Regex>,
+    line_regexes: Vec<Regex>,
+}
+
+#[derive(Debug)]
+pub struct AgentManifest {
+    pub id: String,
+    pub version: u32,
+    aliases: Vec<String>,
+    rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Classification {
+    pub agent: Option<String>,
+    pub state: AgentState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip)]
+    prompt_type: Option<PromptType>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Explanation {
+    pub session: String,
+    pub window: String,
+    pub agent: Option<String>,
+    pub version: Option<u32>,
+    pub state: AgentState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+fn parse_region(raw: &str) -> Region {
+    let raw = raw.trim();
+    if raw == "prompt_block" {
+        return Region::PromptBlock;
+    }
+    if raw == "last_non_empty_line" {
+        return Region::LastNonEmptyLine;
+    }
+    if let Some(n) = raw
+        .strip_prefix("bottom_non_empty_lines(")
+        .and_then(|r| r.strip_suffix(')'))
+        .and_then(|n| n.trim().parse::<usize>().ok())
+    {
+        return Region::BottomNonEmptyLines(n.clamp(1, 200));
+    }
+    Region::WholeRecent
+}
+
+fn compile_regex(pattern: &str) -> Result<Regex, String> {
+    RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .map_err(|e| format!("regex {pattern:?}: {e}"))
+}
+
+impl AgentManifest {
+    fn parse(source: &str) -> Result<Self, String> {
+        let manifest: ManifestSource =
+            toml::from_str(source).map_err(|e| format!("TOML: {e}"))?;
+        if manifest.id.trim().is_empty() {
+            return Err("manifest id is empty".into());
+        }
+        let mut rules = Vec::with_capacity(manifest.rules.len());
+        for rule in manifest.rules {
+            if rule.id.trim().is_empty() {
+                return Err(format!("{}: rule id is empty", manifest.id));
+            }
+            if rule.predicates.contains.is_empty()
+                && rule.predicates.regex.is_empty()
+                && rule.predicates.line_regex.is_empty()
+            {
+                return Err(format!("{}: rule {} has no predicates", manifest.id, rule.id));
+            }
+            let regexes = rule
+                .predicates
+                .regex
+                .iter()
+                .map(|p| compile_regex(p))
+                .collect::<Result<Vec<_>, _>>()?;
+            let line_regexes = rule
+                .predicates
+                .line_regex
+                .iter()
+                .map(|p| compile_regex(p))
+                .collect::<Result<Vec<_>, _>>()?;
+            rules.push(Rule {
+                id: rule.id,
+                state: rule.state,
+                priority: rule.priority,
+                region: parse_region(&rule.region),
+                prompt_type: rule.prompt_type,
+                contains: rule
+                    .predicates
+                    .contains
+                    .into_iter()
+                    .map(|s| s.to_lowercase())
+                    .collect(),
+                regexes,
+                line_regexes,
+            });
+        }
+        Ok(Self {
+            id: manifest.id,
+            version: manifest.version,
+            aliases: manifest
+                .aliases
+                .into_iter()
+                .map(|a| a.to_lowercase())
+                .collect(),
+            rules,
+        })
+    }
+}
+
+pub struct ManifestEngine {
+    manifests: Vec<AgentManifest>,
+}
+
+const MANIFEST_SOURCES: &[&str] = &[
+    include_str!("../detect/manifests/antigravity.toml"),
+    include_str!("../detect/manifests/claude.toml"),
+    include_str!("../detect/manifests/opencode.toml"),
+    include_str!("../detect/manifests/codex.toml"),
+    include_str!("../detect/manifests/gemini.toml"),
+    include_str!("../detect/manifests/generic.toml"),
+];
+
+impl ManifestEngine {
+    pub fn builtin() -> Self {
+        Self::from_sources(MANIFEST_SOURCES).expect("built-in agent manifests are valid")
+    }
+
+    fn from_sources(sources: &[&str]) -> Result<Self, String> {
+        let manifests = sources
+            .iter()
+            .map(|s| AgentManifest::parse(s))
+            .collect::<Result<Vec<_>, _>>()?;
+        if manifests.is_empty() {
+            return Err("no agent manifests".into());
+        }
+        Ok(Self { manifests })
+    }
+
+    pub fn manifest(&self, id: &str) -> Option<&AgentManifest> {
+        self.manifests.iter().find(|m| m.id == id)
+    }
+
+    fn generic(&self) -> &AgentManifest {
+        self.manifest("generic")
+            .unwrap_or_else(|| self.manifests.last().expect("at least one manifest"))
+    }
+
+    // The window's command is the strongest hint; the tmux window name (the
+    // team role: pm, dev1, qa1…) is the fallback when no command is visible.
+    pub fn detect_agent(&self, name: &str, command: &str) -> &AgentManifest {
+        let command = command.to_lowercase();
+        let role = name.to_lowercase();
+        let specific = self.manifests.iter().filter(|m| m.id != "generic");
+        for manifest in specific.clone() {
+            if manifest
+                .aliases
+                .iter()
+                .any(|alias| command_has_alias(&command, alias))
+            {
+                return manifest;
+            }
+        }
+        for manifest in specific {
+            if manifest
+                .aliases
+                .iter()
+                .any(|alias| alias_matches_role(alias, &role))
+            {
+                return manifest;
+            }
+        }
+        self.generic()
+    }
+
+    fn manifest_for_hint(&self, hint: Option<&str>) -> &AgentManifest {
+        let Some(hint) = hint else { return self.generic() };
+        let hint = hint.to_lowercase();
+        self.manifests
+            .iter()
+            .find(|m| m.id == hint || m.aliases.contains(&hint))
+            .unwrap_or_else(|| self.generic())
+    }
+
+    pub fn classify(&self, manifest: &AgentManifest, capture: &str) -> Classification {
+        let mut rules: Vec<&Rule> = manifest.rules.iter().collect();
+        rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
+        for rule in rules {
+            if let Some(reason) = rule.matches(capture) {
+                return Classification {
+                    agent: Some(manifest.id.clone()),
+                    state: rule.state,
+                    rule: Some(rule.id.clone()),
+                    reason: Some(reason),
+                    prompt_type: rule.prompt_type,
+                };
+            }
+        }
+        Classification {
+            agent: Some(manifest.id.clone()),
+            state: AgentState::Idle,
+            rule: None,
+            reason: None,
+            prompt_type: None,
+        }
+    }
+
+    fn classify_hint(&self, hint: Option<&str>, capture: &str) -> Classification {
+        self.classify(self.manifest_for_hint(hint), capture)
+    }
+}
+
+fn command_has_alias(command: &str, alias: &str) -> bool {
+    command
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'))
+        .any(|token| token == alias)
+}
+
+fn alias_matches_role(alias: &str, role: &str) -> bool {
+    role == alias
+        || role
+            .strip_prefix(alias)
+            .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+}
+
+impl Rule {
+    fn matches(&self, capture: &str) -> Option<String> {
+        let text = take_region(&self.region, capture);
+        if text.trim().is_empty() {
+            return None;
+        }
+        let lower = text.to_lowercase();
+        for needle in &self.contains {
+            if lower.contains(needle) {
+                return Some(format!("contains {needle:?}"));
+            }
+        }
+        for regex in &self.regexes {
+            if let Some(m) = regex.find(&text) {
+                return Some(format!("regex {:?} matched {:?}", regex.as_str(), m.as_str()));
+            }
+        }
+        for regex in &self.line_regexes {
+            for line in text.lines() {
+                if let Some(m) = regex.find(line) {
+                    return Some(format!(
+                        "line_regex {:?} matched {:?}",
+                        regex.as_str(),
+                        m.as_str()
+                    ));
+                }
+            }
+        }
+        None
+    }
+}
+
+fn take_region(region: &Region, capture: &str) -> String {
+    match region {
+        // capture-pane already reads a bounded recent window (-30 lines).
+        Region::WholeRecent => capture.to_string(),
+        Region::BottomNonEmptyLines(n) => {
+            let lines: Vec<&str> = capture
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .collect();
+            lines[lines.len().saturating_sub(*n)..].join("\n")
+        }
+        Region::LastNonEmptyLine => capture
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .to_string(),
+        Region::PromptBlock => prompt_block(capture),
+    }
+}
+
+// The question plus only its own options and hints: any later content means
+// the prompt was answered and is now history.
+fn prompt_block(capture: &str) -> String {
+    let lines: Vec<&str> = capture
+        .lines()
+        .map(trim_box)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let Some(_) = lines.last() else { return String::new() };
+    let tail = &lines[lines.len().saturating_sub(TAIL_LINES)..];
+    let from = tail.iter().rposition(|line| !is_chrome(line)).unwrap_or(0);
+    tail[from..].join("\n")
+}
+
+fn prompt_from(classification: &Classification, capture: &str) -> Option<Prompt> {
+    if classification.state != AgentState::Blocked {
+        return None;
+    }
+    let prompt_type = classification.prompt_type?;
+    let block_text = prompt_block(capture);
+    let block: Vec<&str> = block_text.lines().collect();
+    if block.is_empty() {
+        return None;
+    }
+    Some(Prompt {
+        prompt_type,
+        question: question_of(&block),
+        options: options_of(&block),
+    })
+}
+
+fn engine() -> &'static ManifestEngine {
+    static ENGINE: OnceLock<ManifestEngine> = OnceLock::new();
+    ENGINE.get_or_init(ManifestEngine::builtin)
+}
+
 // ── Prompt parser ────────────────────────────────────────────
 
-// dev1, qa, qa2, agent3, generico: the windows of the team.
+// dev1, qa, qa2, agent3, generico: the windows of the team. The PM is watched
+// for its status too, but pending() keeps its prompts out of the escalation.
 pub fn is_agent_window(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let digits = |rest: &str| rest.chars().all(|c| c.is_ascii_digit());
-    name == "generico"
+    name == "pm"
+        || name == "generico"
         || name.strip_prefix("qa").is_some_and(digits)
         || name
             .strip_prefix("dev")
@@ -125,35 +523,6 @@ fn has_yes_no(lower: &str) -> bool {
         .any(|p| lower.contains(p))
 }
 
-fn classify(block: &[&str]) -> Option<PromptType> {
-    let lower = block.join("\n").to_lowercase();
-    let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
-    if has(&[
-        "do you want to proceed",
-        "allow this",
-        "allow the",
-        "approve this",
-        "approve the",
-        "permission request",
-        "permission required",
-        "permission to",
-        "trust the files",
-    ]) {
-        Some(PromptType::Permission)
-    } else if has_yes_no(&lower)
-        || has(&["enter to confirm", "press enter to continue", "continue?"])
-    {
-        Some(PromptType::Confirmation)
-    } else if block
-        .iter()
-        .any(|l| numbered_option(l).is_some_and(|(_, cursor)| cursor))
-    {
-        Some(PromptType::Selection)
-    } else {
-        None
-    }
-}
-
 fn options_of(block: &[&str]) -> Vec<String> {
     let mut options: Vec<String> = Vec::new();
     for (text, _) in block.iter().filter_map(|l| numbered_option(l)) {
@@ -181,30 +550,14 @@ fn question_of(block: &[&str]) -> String {
 // A prompt counts only while nothing but its own options and key hints
 // follows it: any other later line means the agent went on, and the old
 // question is just history (commit logs quote "Do you want to proceed?").
-pub fn parse_prompt(capture: &str) -> Option<Prompt> {
-    let lines: Vec<&str> = capture
-        .lines()
-        .map(trim_box)
-        .filter(|l| !l.is_empty())
-        .collect();
-    let tail = &lines[lines.len().saturating_sub(TAIL_LINES)..];
-    let last = *tail.last()?;
+// The patterns themselves come from the agent's TOML manifest.
+fn parse_prompt_for(agent: Option<&str>, capture: &str) -> Option<Prompt> {
+    let classification = engine().classify_hint(agent, capture);
+    prompt_from(&classification, capture)
+}
 
-    let from = tail.iter().rposition(|l| !is_chrome(l)).unwrap_or(0);
-    let mut block = &tail[from..];
-    let prompt_type = match classify(block) {
-        Some(t) => t,
-        None if last.ends_with('?') || last.to_lowercase().contains("please confirm") => {
-            block = &tail[tail.len() - 1..];
-            PromptType::Question
-        }
-        None => return None,
-    };
-    Some(Prompt {
-        prompt_type,
-        question: question_of(block),
-        options: options_of(block),
-    })
+pub fn parse_prompt(capture: &str) -> Option<Prompt> {
+    parse_prompt_for(None, capture)
 }
 
 // ── Inspection and answers ───────────────────────────────────
@@ -215,14 +568,49 @@ fn capture(session: &str, window_id: &str) -> Option<String> {
     tmux::run_tmux(&["capture-pane", "-p", "-J", "-t", &target, "-S", SCAN_LINES]).ok()
 }
 
+// What the pane runs (the start command for team windows, the foreground
+// process for an agent started by hand) plus its title: the manifest hint.
+fn window_command(session: &str, window_id: &str) -> String {
+    let target = format!("{session}:{window_id}");
+    tmux::run_tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &target,
+        "#{pane_start_command}\t#{pane_current_command}\t#{pane_title}",
+    ])
+    .unwrap_or_default()
+}
+
 pub fn inspect(session: &str) -> Result<Inspection, String> {
+    let engine = engine();
     let windows = tmux::list_windows(session)?
         .into_iter()
         .filter(|w| is_agent_window(&w.name))
-        .map(|w| WindowState {
-            prompt: capture(session, &w.id).and_then(|c| parse_prompt(&c)),
-            id: w.id,
-            name: w.name,
+        .map(|w| {
+            let manifest = engine.detect_agent(&w.name, &window_command(session, &w.id));
+            let captured = capture(session, &w.id);
+            let classification = match captured.as_deref() {
+                Some(text) => engine.classify(manifest, text),
+                None => Classification {
+                    agent: Some(manifest.id.clone()),
+                    state: AgentState::Idle,
+                    rule: None,
+                    reason: None,
+                    prompt_type: None,
+                },
+            };
+            let prompt = captured
+                .as_deref()
+                .and_then(|text| prompt_from(&classification, text));
+            WindowState {
+                prompt,
+                id: w.id,
+                name: w.name,
+                agent: Some(manifest.id.clone()),
+                state: classification.state,
+                rule: classification.rule,
+            }
         })
         .collect();
     Ok(Inspection {
@@ -280,14 +668,42 @@ fn write_escalation(root: &Path, pending: &[Pending]) -> std::io::Result<()> {
 
 // ── Watcher ──────────────────────────────────────────────────
 
-type Seen = HashMap<String, (bool, Vec<Pending>)>;
+type Seen = HashMap<String, (bool, Vec<Pending>, String)>;
 
-// True when this project's session state (live or not) or pending list
-// differs from the one last seen. The first look at a project always counts,
-// even if empty: a stale escalation file from a previous run must be cleared then.
-fn changed(seen: &mut Seen, project: &str, live: bool, now: Vec<Pending>) -> bool {
-    let state = (live, now);
+fn state_signature(windows: &[WindowState]) -> String {
+    windows
+        .iter()
+        .map(|w| {
+            format!(
+                "{}:{}:{}",
+                w.name,
+                serde_json::to_string(&w.state).unwrap_or_default(),
+                w.rule.as_deref().unwrap_or("")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+// True when this project's session state (live or not), pending list or the
+// agent states differ from the last look. The first look at a project always
+// counts, even if empty: a stale escalation file must be cleared then.
+fn changed_full(
+    seen: &mut Seen,
+    project: &str,
+    live: bool,
+    now: Vec<Pending>,
+    states: String,
+) -> bool {
+    let state = (live, now, states);
     seen.insert(project.to_string(), state.clone()).as_ref() != Some(&state)
+}
+
+// Pending-only wrapper kept for the watcher tests and for callers that do not
+// care about working/idle transitions.
+#[cfg(test)]
+fn changed(seen: &mut Seen, project: &str, live: bool, now: Vec<Pending>) -> bool {
+    changed_full(seen, project, live, now, String::new())
 }
 
 // Writes the file when there is something to say, or an old one to clear.
@@ -316,8 +732,10 @@ pub fn spawn(
                 let session = tmux::session_for_project(root);
                 let inspection = inspect(&session).ok();
                 let live = inspection.is_some();
-                let now = inspection.map(|i| i.pending()).unwrap_or_default();
-                if !changed(&mut seen, &project, live, now.clone()) {
+                let (now, states) = inspection
+                    .map(|i| (i.pending(), state_signature(&i.windows)))
+                    .unwrap_or_default();
+                if !changed_full(&mut seen, &project, live, now.clone(), states) {
                     continue;
                 }
                 refresh_escalation(root, &now);
@@ -335,6 +753,34 @@ pub fn dogwatch_inspect(session: String) -> Result<Inspection, String> {
     inspect(&session)
 }
 
+// Diagnostics: why is this window blocked/working/idle, and which manifest
+// rule decided it? The renderer uses it from the agent team panel and tests.
+pub fn explain(session: &str, window: &str) -> Result<Explanation, String> {
+    let engine = engine();
+    let found = tmux::list_windows(session)?
+        .into_iter()
+        .find(|w| w.id == window || w.name == window)
+        .ok_or_else(|| format!("finestra {window} non trovata in {session}"))?;
+    let manifest = engine.detect_agent(&found.name, &window_command(session, &found.id));
+    let text = capture(session, &found.id)
+        .ok_or_else(|| format!("impossibile catturare la finestra {}", found.name))?;
+    let classification = engine.classify(manifest, &text);
+    Ok(Explanation {
+        session: session.to_string(),
+        window: found.name,
+        agent: classification.agent,
+        version: Some(manifest.version),
+        state: classification.state,
+        rule: classification.rule,
+        reason: classification.reason,
+    })
+}
+
+#[tauri::command]
+pub fn dogwatch_explain(session: String, window: String) -> Result<Explanation, String> {
+    explain(&session, &window)
+}
+
 #[tauri::command]
 pub fn dogwatch_answer(session: String, window: String, answer: String) -> Result<(), String> {
     self::answer(&session, &window, &answer)
@@ -347,6 +793,108 @@ mod tests {
 
     fn prompt(capture: &str) -> Prompt {
         parse_prompt(capture).expect("a pending prompt")
+    }
+
+    fn classified(agent: &str, capture: &str) -> Classification {
+        let engine = ManifestEngine::builtin();
+        let manifest = engine.manifest(agent).expect(agent);
+        engine.classify(manifest, capture)
+    }
+
+    #[test]
+    fn every_builtin_manifest_parses_and_is_versioned() {
+        let engine = ManifestEngine::builtin();
+        for id in ["antigravity", "claude", "opencode", "codex", "gemini", "generic"] {
+            let manifest = engine.manifest(id).expect(id);
+            assert_eq!(manifest.version, 1, "{id}");
+        }
+    }
+
+    #[test]
+    fn windows_are_matched_to_agents_by_command_then_by_role() {
+        let engine = ManifestEngine::builtin();
+        assert_eq!(
+            engine.detect_agent("dev1", "ollama launch opencode --model deepseek").id,
+            "opencode"
+        );
+        assert_eq!(
+            engine.detect_agent("pm", "agy --dangerously-skip-permissions").id,
+            "antigravity"
+        );
+        assert_eq!(engine.detect_agent("qa1", "codex --yolo").id, "codex");
+        // No visible command: the team role name decides.
+        assert_eq!(engine.detect_agent("dev2", "bash").id, "opencode");
+        assert_eq!(engine.detect_agent("qa2", "bash").id, "codex");
+        assert_eq!(engine.detect_agent("agent1", "bash").id, "generic");
+    }
+
+    #[test]
+    fn manifest_snapshots_classify_real_claude_antigravity_and_opencode_buffers() {
+        let claude_blocked = classified(
+            "claude",
+            include_str!("../detect/fixtures/claude_blocked.txt"),
+        );
+        assert_eq!(claude_blocked.state, AgentState::Blocked);
+        assert_eq!(claude_blocked.rule.as_deref(), Some("claude-permission"));
+
+        let claude_working = classified(
+            "claude",
+            include_str!("../detect/fixtures/claude_working.txt"),
+        );
+        assert_eq!(claude_working.state, AgentState::Working);
+        assert_eq!(
+            claude_working.rule.as_deref(),
+            Some("claude-interrupt-hint")
+        );
+
+        let antigravity = classified(
+            "antigravity",
+            include_str!("../detect/fixtures/antigravity_working.txt"),
+        );
+        assert_eq!(antigravity.state, AgentState::Working);
+        assert_eq!(
+            antigravity.rule.as_deref(),
+            Some("antigravity-spinner")
+        );
+
+        let opencode = classified(
+            "opencode",
+            include_str!("../detect/fixtures/opencode_blocked.txt"),
+        );
+        assert_eq!(opencode.state, AgentState::Blocked);
+        assert_eq!(opencode.rule.as_deref(), Some("opencode-permission"));
+
+        let codex = classified("codex", include_str!("../detect/fixtures/codex_blocked.txt"));
+        assert_eq!(codex.state, AgentState::Blocked);
+        assert_eq!(codex.rule.as_deref(), Some("codex-confirmation"));
+
+        let idle = classified("gemini", include_str!("../detect/fixtures/gemini_idle.txt"));
+        assert_eq!(idle.state, AgentState::Idle);
+        assert!(idle.rule.is_none());
+    }
+
+    #[test]
+    fn a_prompt_beats_a_spinner_and_history_does_not_look_blocked() {
+        let mixed = "⠋ Working…\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n";
+        assert_eq!(classified("claude", mixed).state, AgentState::Blocked);
+
+        let history = "commit abc\n    docs: ask 'Do you want to proceed?'\nnpm test\nall passed\n";
+        assert_eq!(classified("claude", history).state, AgentState::Idle);
+    }
+
+    #[test]
+    fn manifest_prompt_types_still_drive_the_escalation_parser() {
+        let p = parse_prompt_for(
+            Some("claude"),
+            "Do you want to proceed?\n❯ 1. Yes\n  2. No\n",
+        )
+        .expect("permission");
+        assert_eq!(p.prompt_type, PromptType::Permission);
+        assert_eq!(p.options, ["Yes", "No"]);
+
+        let q = parse_prompt_for(Some("generic"), "Could you clarify which file?\n")
+            .expect("question");
+        assert_eq!(q.prompt_type, PromptType::Question);
     }
 
     #[test]
@@ -408,12 +956,47 @@ mod tests {
 
     #[test]
     fn only_team_windows_are_watched() {
-        for name in ["dev1", "DEV12", "qa", "qa2", "agent3", "generico"] {
+        for name in ["pm", "dev1", "DEV12", "qa", "qa2", "agent3", "generico"] {
             assert!(is_agent_window(name), "{name}");
         }
-        for name in ["pm", "shell", "dev", "agent", "qatest", "dev1x", ""] {
+        for name in ["shell", "dev", "agent", "qatest", "dev1x", ""] {
             assert!(!is_agent_window(name), "{name}");
         }
+    }
+
+    #[test]
+    fn a_pm_prompt_is_shown_but_never_escalated() {
+        let prompt = prompt("Continue? [y/N]\n");
+        let inspection = Inspection {
+            session: "s".into(),
+            windows: vec![
+                WindowState {
+                    id: "@0".into(),
+                    name: "pm".into(),
+                    prompt: Some(prompt.clone()),
+                    agent: Some("antigravity".into()),
+                    state: AgentState::Blocked,
+                    rule: Some("antigravity-confirmation".into()),
+                },
+                WindowState {
+                    id: "@1".into(),
+                    name: "dev1".into(),
+                    prompt: Some(prompt),
+                    agent: Some("opencode".into()),
+                    state: AgentState::Blocked,
+                    rule: Some("opencode-confirmation".into()),
+                },
+            ],
+        };
+        assert_eq!(
+            inspection
+                .pending()
+                .into_iter()
+                .map(|p| p.target)
+                .collect::<Vec<_>>(),
+            ["dev1"],
+            "the PM answers, it is not an escalation target"
+        );
     }
 
     #[test]
@@ -552,6 +1135,13 @@ mod tests {
         wait_for("the prompt", || pending_names() == ["dev1"]);
         let windows = inspect(&session).unwrap().windows;
         assert_eq!(windows.len(), 1, "the shell window is not watched");
+        assert_eq!(windows[0].state, AgentState::Blocked);
+        assert_eq!(windows[0].agent.as_deref(), Some("opencode"));
+
+        let explanation = explain(&session, "dev1").unwrap();
+        assert_eq!(explanation.state, AgentState::Blocked);
+        assert_eq!(explanation.rule.as_deref(), Some("opencode-permission"));
+        assert!(explanation.reason.as_deref().unwrap_or("").contains("contains"));
 
         answer(&session, "dev1", "n").unwrap();
         wait_for("the prompt to clear", || pending_names().is_empty());

@@ -1,0 +1,71 @@
+id = "codex"
+aliases = ["codex", "qa"]
+version = 1
+
+[[rules]]
+id = "codex-permission"
+state = "blocked"
+priority = 100
+region = "prompt_block"
+prompt_type = "permission"
+predicates.contains = [
+  "do you want to proceed",
+  "do you want to run",
+  "would you like to run",
+  "allow this",
+  "allow the",
+  "allow command",
+  "approve this",
+  "approve the",
+  "approve command",
+  "permission request",
+  "permission required",
+  "permission to",
+  "trust the files",
+]
+
+[[rules]]
+id = "codex-confirmation"
+state = "blocked"
+priority = 100
+region = "prompt_block"
+prompt_type = "confirmation"
+predicates.contains = ["enter to confirm", "press enter to confirm", "press enter to continue", "continue?"]
+predicates.regex = ['\[y/n\]', '\(y/n\)', '\byes\s*/\s*no\b']
+
+[[rules]]
+id = "codex-selection"
+state = "blocked"
+priority = 100
+region = "prompt_block"
+prompt_type = "selection"
+predicates.line_regex = ['^\s*[❯>]\s*\d+[.)]\s+\S']
+
+[[rules]]
+id = "codex-question"
+state = "blocked"
+priority = 90
+region = "last_non_empty_line"
+prompt_type = "question"
+predicates.line_regex = ['\?\s*$']
+
+[[rules]]
+id = "codex-spinner"
+state = "working"
+priority = 50
+region = "last_non_empty_line"
+predicates.regex = ['[\u{2800}-\u{28FF}]']
+
+[[rules]]
+id = "codex-interrupt-hint"
+state = "working"
+priority = 50
+region = "bottom_non_empty_lines(3)"
+predicates.contains = ["esc to interrupt", "esc to stop", "esc to cancel"]
+
+[[rules]]
+id = "codex-thinking"
+state = "working"
+priority = 40
+region = "last_non_empty_line"
+predicates.regex = ['\b(thinking|working|analyzing|running|executing)\b\s*(…|\.\.\.)']

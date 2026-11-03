@@ -74,15 +74,18 @@ test('work.tmux exposes tmux IPC commands', async () => {
   assert.deepEqual(calls, ['tmux_is_available', 'tmux_session_for_project', 'tmux_list_windows']);
 });
 
-test('work.dogwatch inspects a session and relays the PM answer with named arguments', async () => {
+test('work.dogwatch inspects a session, explains a window and relays the PM answer', async () => {
   const calls = [];
   const { work } = load((cmd, ...rest) => {
     calls.push(cmd);
-    return cmd === 'dogwatch_inspect' ? { session: 's', windows: [] } : null;
+    if (cmd === 'dogwatch_inspect') return { session: 's', windows: [] };
+    if (cmd === 'dogwatch_explain') return { session: 's', window: 'dev1', state: 'blocked', rule: 'claude-permission' };
+    return null;
   });
   assert.deepEqual(await work.dogwatch.inspect('s'), { session: 's', windows: [] });
+  assert.deepEqual(await work.dogwatch.explain('s', 'dev1'), { session: 's', window: 'dev1', state: 'blocked', rule: 'claude-permission' });
   await work.dogwatch.answer('s', 'dev1', 'yes');
-  assert.deepEqual(calls, ['dogwatch_inspect', 'dogwatch_answer']);
+  assert.deepEqual(calls, ['dogwatch_inspect', 'dogwatch_explain', 'dogwatch_answer']);
   assert.equal(typeof work.dogwatch.onUpdate, 'function');
 });
 

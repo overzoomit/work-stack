@@ -131,13 +131,30 @@ export function showLiveLed() {
   led.querySelector('.led-label').textContent = state === 'off' ? 'Off' : 'Live';
 }
 
-export function statusBadge(prompts, name) {
-  const prompt = prompts.get(name);
-  if (!prompt) return '<span class="tp-badge-status active">Active</span>';
-  return `<span class="tp-badge-status waiting" title="${esc(prompt.question)}">Waiting for answer</span>`;
+export function statusBadge(states, name) {
+  const entry = stateEntry(states.get(name));
+  if (!entry) return '<span class="tp-badge-status active">Active</span>';
+  if (entry.state === 'blocked') {
+    const question = entry.prompt?.question || entry.rule || 'Waiting for answer';
+    return `<span class="tp-badge-status waiting" title="${esc(question)}">Waiting for answer</span>`;
+  }
+  if (entry.state === 'working') {
+    return '<span class="tp-badge-status working" title="Agent is working"><span class="tp-spinner" aria-hidden="true"></span>Working</span>';
+  }
+  return '<span class="tp-badge-status idle" title="Agent is idle">Idle</span>';
 }
 
-const dotClass = (prompts, name) => (prompts.has(name) ? 'waiting' : 'active');
+// Accept both the new { state, prompt } records and a bare prompt object.
+function stateEntry(entry) {
+  if (!entry) return null;
+  if (entry.state) return entry;
+  return entry.prompt_type ? { state: 'blocked', prompt: entry } : null;
+}
+
+const dotClass = (states, name) => {
+  const state = stateEntry(states.get(name))?.state;
+  return state === 'blocked' ? 'waiting' : state === 'working' ? 'working' : 'idle';
+};
 
 // The Plane ticket a window is working on, as the plane dogwatch delegated it.
 export function ticketLine(assignments, name) {
@@ -431,9 +448,13 @@ async function getExistingNames(project) {
   }
 
   const inspection = session ? await work.dogwatch?.inspect(session).catch(() => null) : null;
-  const prompts = new Map((inspection?.windows ?? []).filter((w) => w.prompt).map((w) => [w.name, w.prompt]));
+  const windows = inspection?.windows ?? [];
+  // The PM answers escalations: show its state, but do not count its own
+  // prompt as an agent waiting for the PM.
+  const prompts = new Map(windows.filter((w) => w.prompt && w.name !== 'pm').map((w) => [w.name, w.prompt]));
+  const states = new Map(windows.map((w) => [w.name, w]));
 
-  return { isTmux, session, tmuxWindows, openPanes, prompts, names: [...names] };
+  return { isTmux, session, tmuxWindows, openPanes, prompts, states, names: [...names] };
 }
 
 // Renders the popover content based on current viewState. `probeMcp: false`
@@ -479,7 +500,7 @@ async function renderPopContent(probeMcp = true) {
   }
 
   // Main squad view
-  const { isTmux, session, tmuxWindows, prompts, names } = await getExistingNames(p);
+  const { isTmux, session, tmuxWindows, prompts, states, names } = await getExistingNames(p);
 
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
@@ -513,12 +534,12 @@ async function renderPopContent(probeMcp = true) {
         </div>
         ${pmActive ? `
           <div class="tp-row" data-focus-role="pm" title="Click to open the PM terminal">
-            <span class="tp-status-dot active"></span>
+            <span class="tp-status-dot ${dotClass(states, 'pm')}"></span>
             <span class="tp-role-badge tp-role-pm">[PM]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>pm</span>
-                <span class="tp-badge-status active">Active</span>
+                ${statusBadge(states, 'pm')}
               </div>
               <div class="tp-desc">Senior PM &amp; Architect · Click to view</div>
             </div>
@@ -542,12 +563,12 @@ async function renderPopContent(probeMcp = true) {
         </div>
         ${devList.map((devName) => `
           <div class="tp-row" data-focus-role="${esc(devName)}" title="Click to open the ${esc(devName)} terminal">
-            <span class="tp-status-dot ${dotClass(prompts, devName)}"></span>
+            <span class="tp-status-dot ${dotClass(states, devName)}"></span>
             <span class="tp-role-badge tp-role-dev">[${esc(devName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(devName)}</span>
-                ${statusBadge(prompts, devName)}
+                ${statusBadge(states, devName)}
               </div>
               <div class="tp-desc">Developer · Click to view</div>
               ${ticketLine(assignments, devName)}
@@ -569,12 +590,12 @@ async function renderPopContent(probeMcp = true) {
         </div>
         ${qaList.map((qaName) => `
           <div class="tp-row" data-focus-role="${esc(qaName)}" title="Click to open the ${esc(qaName)} terminal">
-            <span class="tp-status-dot ${dotClass(prompts, qaName)}"></span>
+            <span class="tp-status-dot ${dotClass(states, qaName)}"></span>
             <span class="tp-role-badge tp-role-qa">[${esc(qaName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(qaName)}</span>
-                ${statusBadge(prompts, qaName)}
+                ${statusBadge(states, qaName)}
               </div>
               <div class="tp-desc">QA Engineer · Click to view</div>
               ${ticketLine(assignments, qaName)}
@@ -596,12 +617,12 @@ async function renderPopContent(probeMcp = true) {
         </div>
         ${agentList.map((agentName) => `
           <div class="tp-row" data-focus-role="${esc(agentName)}" title="Click to open the ${esc(agentName)} terminal">
-            <span class="tp-status-dot ${dotClass(prompts, agentName)}"></span>
+            <span class="tp-status-dot ${dotClass(states, agentName)}"></span>
             <span class="tp-role-badge tp-role-generic">[${esc(agentName.toUpperCase())}]</span>
             <div class="tp-info">
               <div class="tp-name">
                 <span>${esc(agentName)}</span>
-                ${statusBadge(prompts, agentName)}
+                ${statusBadge(states, agentName)}
               </div>
               <div class="tp-desc">Generic agent · Click to view</div>
               ${ticketLine(assignments, agentName)}

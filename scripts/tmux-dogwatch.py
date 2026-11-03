@@ -26,23 +26,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
 # Team windows the watchdog must watch: dev1, dev2..., qa, qa1..., agent1...
 AGENT_WINDOW = re.compile(r"^(?:dev\d+|qa\d*|agent\d+|generico)$", re.IGNORECASE)
 
-# Confirmation / permission prompts that block an agent until answered.
-CONFIRMATION_PATTERNS = (
-    ("permission", re.compile(
-        r"do you want to proceed|allow (?:this|the)|approve (?:this|the)|permission (?:request|required|to)|trust the files",
-        re.IGNORECASE,
-    )),
-    ("confirmation", re.compile(
-        r"\[y/n\]|\(y/n\)|\byes\s*/\s*no\b|enter to confirm|press enter to continue|continue\?",
-        re.IGNORECASE,
-    )),
-    ("selection", re.compile(r"^\s*[❯>]\s*\d+[.)]\s+\S", re.MULTILINE)),
-)
-
-OPEN_QUESTION = re.compile(r"\bplease (?:clarify|confirm|choose|provide|tell)\b", re.IGNORECASE)
+# Declarative manifests shared with the Rust dogwatch (src-tauri/detect/manifests).
+MANIFEST_DIR = Path(__file__).resolve().parent.parent / "src-tauri" / "detect" / "manifests"
 
 NUMBERED_OPTION = re.compile(r"^\s*(?:[❯>]\s*)?\d+[.)]\s+(.+?)\s*$")
 BARE_FLAG = re.compile(r"^\s*(?:\[[^\]]+\]|\([^)]*\))\s*$")
@@ -169,30 +162,136 @@ def is_prompt_chrome(line: str) -> bool:
     return bool(NUMBERED_OPTION.match(line) or BARE_FLAG.match(line) or PROMPT_CHROME.search(line))
 
 
-def detect_prompt(text: str) -> dict[str, object] | None:
+# ── Declarative manifests (same files as src-tauri/detect/manifests) ──
+
+_MANIFESTS: list[dict[str, object]] | None = None
+
+
+def _python_regex(pattern: str) -> re.Pattern[str] | None:
+    # The Rust regex syntax accepts \u{2800}; Python wants the literal char.
+    pattern = re.sub(
+        r"\\u\{([0-9a-fA-F]+)\}",
+        lambda m: chr(int(m.group(1), 16)),
+        pattern,
+    )
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return None
+
+
+def load_manifests() -> list[dict[str, object]]:
+    """Read the TOML manifests once; invalid rules are skipped, not fatal."""
+    global _MANIFESTS
+    if _MANIFESTS is not None:
+        return _MANIFESTS
+    manifests: list[dict[str, object]] = []
+    if tomllib and MANIFEST_DIR.is_dir():
+        paths = sorted(MANIFEST_DIR.glob("*.toml"), key=lambda p: (p.name == "generic.toml", p.name))
+        for path in paths:
+            try:
+                raw = tomllib.loads(path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+            rules = []
+            for rule in raw.get("rules", []):
+                predicates = rule.get("predicates", {})
+                rules.append({
+                    "id": rule.get("id", ""),
+                    "state": rule.get("state", "idle"),
+                    "priority": int(rule.get("priority", 0)),
+                    "region": rule.get("region", "whole_recent"),
+                    "prompt_type": rule.get("prompt_type"),
+                    "contains": [s.lower() for s in predicates.get("contains", [])],
+                    "regex": [rx for p in predicates.get("regex", []) if (rx := _python_regex(p))],
+                    "line_regex": [rx for p in predicates.get("line_regex", []) if (rx := _python_regex(p))],
+                })
+            manifests.append({
+                "id": raw.get("id", path.stem),
+                "aliases": [a.lower() for a in raw.get("aliases", [])],
+                "version": raw.get("version", 0),
+                "rules": sorted(rules, key=lambda r: -r["priority"]),
+            })
+    _MANIFESTS = manifests
+    return manifests
+
+
+def _role_matches(alias: str, role: str) -> bool:
+    return role == alias or (role.startswith(alias) and role[len(alias):].isdigit())
+
+
+def manifest_for_window(name: str) -> dict[str, object] | None:
+    role = name.lower()
+    manifests = load_manifests()
+    for manifest in manifests:
+        if manifest["id"] == "generic":
+            continue
+        if any(_role_matches(alias, role) for alias in manifest["aliases"]):
+            return manifest
+    return next((m for m in manifests if m["id"] == "generic"), manifests[-1] if manifests else None)
+
+
+def prompt_block_lines(text: str) -> list[str]:
+    lines = [BOX_EDGE.sub("", line) for line in text.splitlines()]
+    tail = [line for line in lines if line.strip()][-12:]
+    if not tail:
+        return []
+    start = len(tail)
+    while start > 0 and is_prompt_chrome(tail[start - 1]):
+        start -= 1
+    return tail[max(0, start - 1):]
+
+
+def _region_text(region: str, text: str) -> str:
+    if region == "prompt_block":
+        return "\n".join(prompt_block_lines(text))
+    if region == "last_non_empty_line":
+        for line in reversed(text.splitlines()):
+            if line.strip():
+                return line
+        return ""
+    match = re.fullmatch(r"bottom_non_empty_lines\((\d+)\)", region)
+    if match:
+        lines = [line for line in text.splitlines() if line.strip()]
+        return "\n".join(lines[-max(1, int(match.group(1))):])
+    return text
+
+
+def _rule_matches(rule: dict[str, object], text: str) -> bool:
+    region = _region_text(str(rule["region"]), text)
+    if not region.strip():
+        return False
+    lower = region.lower()
+    if any(needle in lower for needle in rule["contains"]):
+        return True
+    if any(rx.search(region) for rx in rule["regex"]):
+        return True
+    return any(rx.search(line) for rx in rule["line_regex"] for line in region.splitlines())
+
+
+def classify(text: str, window_name: str = "generic") -> tuple[str, str | None, str | None]:
+    """(state, rule id, prompt type) from the window's agent manifest."""
+    manifest = manifest_for_window(window_name)
+    if not manifest:
+        return "idle", None, None
+    for rule in manifest["rules"]:
+        if _rule_matches(rule, text):
+            return str(rule["state"]), str(rule["id"]), rule["prompt_type"]
+    return "idle", None, None
+
+
+def detect_prompt(text: str, window_name: str = "generic") -> dict[str, object] | None:
     """Return {prompt_type, question, options} for a prompt still waiting for input, else None.
 
     A prompt is pending only when nothing but its own options and key hints
     follows it: any other later line means the process went on.
     """
-    lines = [BOX_EDGE.sub("", line) for line in text.splitlines()]
-    tail = [line for line in lines if line.strip()][-12:]
-    if not tail:
+    state, _rule, prompt_type = classify(text, window_name)
+    if state != "blocked" or not prompt_type:
         return None
-
-    start = len(tail)
-    while start > 0 and is_prompt_chrome(tail[start - 1]):
-        start -= 1
-    block = tail[max(0, start - 1):]
-    joined = "\n".join(block)
-    prompt_type = next((kind for kind, rx in CONFIRMATION_PATTERNS if rx.search(joined)), None)
-    if prompt_type is None:
-        last = tail[-1].strip()
-        if not last.endswith("?") and not OPEN_QUESTION.search(last):
-            return None
-        prompt_type = "question"
-        block = [tail[-1]]
-
+    block = prompt_block_lines(text)
+    if not block:
+        return None
     return {"prompt_type": prompt_type, "question": extract_question(block), "options": extract_options(block)}
 
 
@@ -208,7 +307,7 @@ def scan_once(
     pending = []
     for window in agent_windows(session, binary):
         name = str(window["name"])
-        found = detect_prompt(capture_pane(session, name, lines, binary))
+        found = detect_prompt(capture_pane(session, name, lines, binary), name)
         if found:
             pending.append({"target": name, "timestamp": stamp, **found})
     return pending

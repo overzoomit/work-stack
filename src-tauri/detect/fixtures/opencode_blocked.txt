@@ -1,0 +1,6 @@
+Build the feature
+
+Do you want to allow this command?
+❯ 1. Allow once
+  2. Allow always
+  3. Deny
