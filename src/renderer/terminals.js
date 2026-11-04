@@ -3,6 +3,7 @@
 import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { WebLinksAddon } from './vendor/addon-web-links.mjs';
+import { createTerminalSearch } from './terminalsearch.js';
 import { $, esc, setHtml, afterExit } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';
@@ -124,7 +125,13 @@ const panesOf = (project) => [...$('#terminals').children].filter((el) => el._t?
 
 export function showProject(project) {
   active = project;
-  for (const t of [...all.values(), ...pending]) t.el.classList.toggle('off', t.project !== project);
+  for (const t of [...all.values(), ...pending]) {
+    const visible = t.project === project;
+    t.el.classList.toggle('off', !visible);
+    // The search bar follows its pane: hidden with it, restored with it.
+    if (visible) t.search?.resume();
+    else t.search?.suspend();
+  }
   relayout();
   const f = focused();
   if (f) requestAnimationFrame(() => f.term.focus());
@@ -247,6 +254,8 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   };
   el._t = t;
   t.console = !!container;
+  t.search = createTerminalSearch({ term, pane: el, host: el });
+  if (project !== active) t.search.suspend();
   if (effectiveAgent) paintAgentBadge(t, effectiveAgent);
   pending.add(t);
   styleFor(t);
@@ -419,6 +428,7 @@ export function closeTerminal(id) {
   closedIds.add(id);
   const p = t.project;
   if (p.maximizedId === id) p.maximizedId = null;
+  t.search?.dispose();
   t.el.classList.add('closing');
   afterExit(t.el, () => {
     t.term.dispose();

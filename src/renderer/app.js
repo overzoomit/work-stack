@@ -23,7 +23,7 @@ import { openPluginsDialog } from './plugins.js';
 import { openSettingsDialog } from './settings.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
-import { isRefreshKey, isCloseTerminalKey, isSettingsKey } from './keys.js';
+import { isRefreshKey, isCloseTerminalKey, isSettingsKey, isTerminalSearchKey, inTerminal } from './keys.js';
 import { initAccordion, revealSection } from './accordion.js';
 import { remotePathFor, remoteLabel, remoteHostBadge } from './remoteproject.js';
 import { openRemoteProjectDialog } from './remotedialog.js';
@@ -616,6 +616,8 @@ $('#tree-collapse').onclick = () => {
 };
 
 addEventListener('keydown', (e) => {
+  // The in-terminal search bar owns the keys typed in its field.
+  if (e.target?.closest?.('.term-search')) return;
   // ⌘, on macOS, Ctrl+, elsewhere: the same item as in the ⋯ menu.
   if (isSettingsKey(e)) {
     e.preventDefault();
@@ -643,6 +645,8 @@ addEventListener('keydown', (e) => {
   }
   const mod = (e.ctrlKey || e.metaKey) && e.shiftKey;
   if (!mod) return;
+  // Ctrl/⌘+Shift+F in a pane finds in that terminal's buffer, not in the project.
+  if (isTerminalSearchKey(e) && inTerminal(e)) return;
   const t = focused();
   if (t && (e.key === 'C' || e.key === 'c') && document.activeElement?.closest('.pane')) {
     e.preventDefault();
@@ -687,6 +691,7 @@ const SHORTCUTS = [
   ['Open project', 'Ctrl+Shift+O'],
   ['Close terminal', 'Ctrl+Shift+W'],
   ['Maximize terminal', 'Ctrl+Shift+M'],
+  ['Find in terminal', 'Ctrl+F'],
   ['Left panel', 'Ctrl+Shift+B'],
   ['Run / stop', 'Shift+F10', 'Ctrl+F2'],
   ['Refresh', 'F5'],

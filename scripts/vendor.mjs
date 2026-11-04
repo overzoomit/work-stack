@@ -10,6 +10,7 @@ const files = {
   'xterm.mjs': '@xterm/xterm/lib/xterm.mjs',
   'xterm.css': '@xterm/xterm/css/xterm.css',
   'addon-fit.mjs': '@xterm/addon-fit/lib/addon-fit.mjs',
+  'addon-search.mjs': '@xterm/addon-search/lib/addon-search.mjs',
   'addon-web-links.mjs': '@xterm/addon-web-links/lib/addon-web-links.mjs',
   'marked.esm.js': 'marked/lib/marked.esm.js',
   'purify.es.mjs': 'dompurify/dist/purify.es.mjs',

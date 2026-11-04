@@ -4,6 +4,10 @@ export const inTerminal = (e) => !!e.target?.closest?.('.pane');
 
 export const isRefreshKey = (e) => e.key === 'F5' && !e.ctrlKey && !e.metaKey && !inTerminal(e);
 
+// Find in the focused terminal's buffer: Ctrl/⌘+F, or Ctrl/⌘+Shift+F when the
+// focus is in a pane (elsewhere the latter is the project text search).
+export const isTerminalSearchKey = (e) => !e.altKey && e.key.toLowerCase() === 'f' && (e.ctrlKey || e.metaKey);
+
 // Settings…: Ctrl+, everywhere and ⌘, on macOS, as in the app menu.
 export const isSettingsKey = (e) => e.key === ',' && !e.altKey && !e.shiftKey && (e.ctrlKey || e.metaKey);
 
