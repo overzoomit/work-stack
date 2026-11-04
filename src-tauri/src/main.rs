@@ -66,6 +66,8 @@ fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Resu
     store::merge(&mut state, next);
     allow_projects(&app, &state);
     let res = store::save(&s.file, &state).map_err(|e| e.to_string());
+    // The Telegram project resolver locks the same state: emitting while holding it deadlocks.
+    drop(state);
     if let Some(tg) = app.try_state::<Arc<telegram::TelegramState>>() {
         telegram::emit_status(&app, &tg);
     }
