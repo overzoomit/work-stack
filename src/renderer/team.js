@@ -446,6 +446,13 @@ export function telegramGuide() {
     '4. Open a chat with your new bot and press Start.',
     '5. Get your numeric Chat ID (for example from @userinfobot) and paste it here.',
     '',
+    'Multi-project controls from your single Telegram chat:',
+    '• Reply to any message: routes directly to the PM of that project.',
+    '• @project <message>: sends directly to that project\'s PM.',
+    '• /projects: lists all open projects in Work.',
+    '• /use <project>: locks the channel to a project (/use auto to follow Work\'s UI).',
+    '• /status: checks current bot mode and target session.',
+    '',
     'The bot forwards only this chat to the PM window (0:pm). Dev and QA agents do not talk to Telegram: their questions go through dogwatch and the PM decides what to escalate.',
   ].join('\n');
 }
@@ -458,6 +465,10 @@ export function telegramLabel(status) {
 
 function telegramPanel(status) {
   const connected = !!status?.connected;
+  const targetLabel = status?.targetProject || status?.activeProject || status?.project || 'active project';
+  const modeInfo = status?.isPinned
+    ? `Target: <b>${esc(targetLabel)}</b> (pinned)`
+    : `Target: <b>${esc(targetLabel)}</b> (auto)`;
   return `
     <div class="tp-telegram">
       <div class="tp-telegram-head">
@@ -467,7 +478,7 @@ function telegramPanel(status) {
         <button class="icon-btn tp-act-btn" data-act="telegram-info" title="Guide: create the bot with @BotFather">Info</button>
       </div>
       ${connected ? `
-        <div class="tp-telegram-meta">Chat <b>${esc(status.chatId)}</b> · messages go to the PM window (0:pm)</div>
+        <div class="tp-telegram-meta">Chat <b>${esc(status.chatId)}</b> · ${modeInfo}</div>
         ${status.lastError ? `<div class="tp-error">${esc(status.lastError)}</div>` : ''}
         <button class="tp-add-btn telegram" data-act="telegram-disconnect">Disconnect</button>
       ` : `

@@ -65,7 +65,11 @@ fn projects_save(app: tauri::AppHandle, s: State<AppState>, next: Value) -> Resu
     let mut state = s.state.lock().unwrap();
     store::merge(&mut state, next);
     allow_projects(&app, &state);
-    store::save(&s.file, &state).map_err(|e| e.to_string())
+    let res = store::save(&s.file, &state).map_err(|e| e.to_string());
+    if let Some(tg) = app.try_state::<Arc<telegram::TelegramState>>() {
+        telegram::emit_status(&app, &tg);
+    }
+    res
 }
 
 fn main() {
@@ -143,6 +147,33 @@ fn main() {
                 let _ = handle.emit("ngrok:update", [project]);
             })));
             let telegram = Arc::new(telegram::TelegramState::new());
+            let handle_for_tg = app.handle().clone();
+            telegram.set_projects_resolver(move || {
+                let s = handle_for_tg.state::<AppState>();
+                let state = s.state.lock().unwrap();
+                let active = state["active"].as_str().map(String::from);
+                let projects: Vec<telegram::TargetProject> = state["projects"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|p| p.get("remote").is_none())
+                    .filter_map(|p| {
+                        let path = p["path"].as_str()?.to_string();
+                        let name = std::path::Path::new(&path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&path)
+                            .to_string();
+                        let session = crate::tmux::session_for_project(std::path::Path::new(&path));
+                        Some(telegram::TargetProject {
+                            name,
+                            path,
+                            session,
+                        })
+                    })
+                    .collect();
+                (active, projects)
+            });
             app.manage(Arc::clone(&telegram));
             let notifier = Arc::clone(&telegram);
             // Restore the connection saved before the restart, off the UI
@@ -190,7 +221,7 @@ fn main() {
             app.manage(plane_dogwatch::spawn(
                 move || project_paths(&handle.state::<AppState>().state.lock().unwrap()),
                 move |text| match telegram::notify(&notifier, text) {
-                    Ok(()) => "sent".into(),
+                    Ok(_) => "sent".into(),
                     Err(e) => format!("not sent: {e}"),
                 },
                 move |report| {

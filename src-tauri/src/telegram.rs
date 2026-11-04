@@ -6,6 +6,7 @@
 use crate::dogwatch;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,6 +19,15 @@ const API: &str = "https://api.telegram.org";
 const POLL_TIMEOUT_SECS: u64 = 25;
 const HTTP_TIMEOUT_SECS: u64 = 40;
 const MAX_TEXT: usize = 4000;
+const MAX_RECENT_MESSAGES: usize = 200;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetProject {
+    pub name: String,
+    pub path: String,
+    pub session: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +38,11 @@ pub struct Status {
     pub project: Option<String>,
     pub session: Option<String>,
     pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_project: Option<String>,
+    pub is_pinned: bool,
 }
 
 #[derive(Clone)]
@@ -39,12 +54,17 @@ struct Config {
     session: String,
 }
 
+pub type ProjectsResolver = Box<dyn Fn() -> (Option<String>, Vec<TargetProject>) + Send + Sync>;
+
 pub struct TelegramState {
     config: Mutex<Option<Config>>,
     last_error: Mutex<Option<String>>,
     // Bumped on connect/disconnect: an old polling thread sees a different
     // generation and stops after the request it is waiting on.
     generation: AtomicU64,
+    projects_resolver: Mutex<Option<ProjectsResolver>>,
+    pinned_target: Mutex<Option<String>>,
+    recent_messages: Mutex<HashMap<i64, TargetProject>>,
 }
 
 impl TelegramState {
@@ -53,21 +73,78 @@ impl TelegramState {
             config: Mutex::new(None),
             last_error: Mutex::new(None),
             generation: AtomicU64::new(0),
+            projects_resolver: Mutex::new(None),
+            pinned_target: Mutex::new(None),
+            recent_messages: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn set_projects_resolver<F>(&self, resolver: F)
+    where
+        F: Fn() -> (Option<String>, Vec<TargetProject>) + Send + Sync + 'static,
+    {
+        *self.projects_resolver.lock().unwrap() = Some(Box::new(resolver));
+    }
+
+    pub fn set_pinned_target(&self, target: Option<String>) {
+        *self.pinned_target.lock().unwrap() = target;
+    }
+
+    pub fn record_message(&self, message_id: i64, target: TargetProject) {
+        let mut map = self.recent_messages.lock().unwrap();
+        if map.len() >= MAX_RECENT_MESSAGES {
+            if let Some(&oldest) = map.keys().min() {
+                map.remove(&oldest);
+            }
+        }
+        map.insert(message_id, target);
+    }
+
+    fn resolve_projects(&self, config: &Config) -> (Option<String>, Vec<TargetProject>) {
+        if let Some(ref resolver) = *self.projects_resolver.lock().unwrap() {
+            let (active, list) = resolver();
+            if !list.is_empty() {
+                return (active, list);
+            }
+        }
+        let name = project_name_from_path(&config.project);
+        let target = TargetProject {
+            name,
+            path: config.project.clone(),
+            session: config.session.clone(),
+        };
+        (Some(config.project.clone()), vec![target])
     }
 
     fn status(&self) -> Status {
         let config = self.config.lock().unwrap().clone();
         let last_error = self.last_error.lock().unwrap().clone();
         match config {
-            Some(c) => Status {
-                connected: true,
-                bot: Some(c.bot),
-                chat_id: Some(c.chat_id),
-                project: Some(c.project),
-                session: Some(c.session),
-                last_error,
-            },
+            Some(c) => {
+                let (active_opt, projects) = self.resolve_projects(&c);
+                let pinned_opt = self.pinned_target.lock().unwrap().clone();
+                let current_target =
+                    resolve_target(active_opt.as_deref(), pinned_opt.as_deref(), &projects);
+                let is_pinned = pinned_opt.is_some();
+                let target_name = current_target.as_ref().map(|t| t.name.clone());
+                let target_session = current_target
+                    .as_ref()
+                    .map(|t| t.session.clone())
+                    .or_else(|| Some(c.session.clone()));
+                let active_name = active_opt.as_deref().map(project_name_from_path);
+
+                Status {
+                    connected: true,
+                    bot: Some(c.bot),
+                    chat_id: Some(c.chat_id),
+                    project: Some(c.project),
+                    session: target_session,
+                    last_error,
+                    active_project: active_name,
+                    target_project: target_name,
+                    is_pinned,
+                }
+            }
             None => Status {
                 connected: false,
                 bot: None,
@@ -75,6 +152,9 @@ impl TelegramState {
                 project: None,
                 session: None,
                 last_error,
+                active_project: None,
+                target_project: None,
+                is_pinned: false,
             },
         }
     }
@@ -274,15 +354,43 @@ fn api_url(token: &str, method: &str) -> String {
     format!("{API}/bot{token}/{method}")
 }
 
-// Only messages from the configured chat reach the PM. Anything else is
-// ignored: this is what keeps the bot a PM-only channel.
-pub fn inbound(update: &Value, chat_id: &str) -> Option<String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboundMessage {
+    pub text: String,
+    pub reply_to_id: Option<i64>,
+    pub reply_to_text: Option<String>,
+}
+
+pub fn parse_inbound(update: &Value, chat_id: &str) -> Option<InboundMessage> {
     let message = &update["message"];
     if message["chat"]["id"].as_i64()?.to_string() != chat_id {
         return None;
     }
     let text = message["text"].as_str()?.trim();
-    (!text.is_empty()).then(|| text.to_string())
+    if text.is_empty() {
+        return None;
+    }
+    let reply_to = message.get("reply_to_message");
+    let reply_to_id = reply_to
+        .and_then(|r| r.get("message_id"))
+        .and_then(|id| id.as_i64());
+    let reply_to_text = reply_to
+        .and_then(|r| r.get("text"))
+        .and_then(|t| t.as_str())
+        .map(String::from);
+
+    Some(InboundMessage {
+        text: text.to_string(),
+        reply_to_id,
+        reply_to_text,
+    })
+}
+
+// Only messages from the configured chat reach the PM. Anything else is
+// ignored: this is what keeps the bot a PM-only channel.
+#[allow(dead_code)]
+pub fn inbound(update: &Value, chat_id: &str) -> Option<String> {
+    parse_inbound(update, chat_id).map(|m| m.text)
 }
 
 // The only message a connection sends on its own: no dev/QA prompt is ever
@@ -502,12 +610,291 @@ fn call(
     Ok(value)
 }
 
+pub fn project_name_from_path(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+pub fn resolve_target(
+    active_path: Option<&str>,
+    pinned_name: Option<&str>,
+    projects: &[TargetProject],
+) -> Option<TargetProject> {
+    if let Some(pin) = pinned_name {
+        if let Some(found) = projects
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(pin) || p.session.eq_ignore_ascii_case(pin))
+        {
+            return Some(found.clone());
+        }
+    }
+    if let Some(active) = active_path {
+        if let Some(found) = projects.iter().find(|p| {
+            p.path == active
+                || p.name.eq_ignore_ascii_case(active)
+                || p.session.eq_ignore_ascii_case(active)
+        }) {
+            return Some(found.clone());
+        }
+    }
+    projects.first().cloned()
+}
+
+pub fn extract_project_from_text(text: &str, projects: &[TargetProject]) -> Option<TargetProject> {
+    let trimmed = text.trim();
+    if let Some(start) = trimmed.find('[') {
+        if let Some(end) = trimmed[start + 1..].find(']') {
+            let tag = trimmed[start + 1..start + 1 + end].trim();
+            if let Some(found) = projects
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(tag) || p.session.eq_ignore_ascii_case(tag))
+            {
+                return Some(found.clone());
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouteResult {
+    CommandReply(String),
+    ForwardToPm { target: TargetProject, text: String },
+}
+
+pub fn route_inbound(
+    inbound: &InboundMessage,
+    active_path: Option<&str>,
+    pinned_name: Option<&str>,
+    projects: &[TargetProject],
+    recent: &HashMap<i64, TargetProject>,
+) -> (RouteResult, Option<Option<String>>) {
+    let raw = inbound.text.trim();
+
+    // 1. Comandi bot
+    if raw.eq_ignore_ascii_case("/projects")
+        || raw.eq_ignore_ascii_case("/progetti")
+        || raw.eq_ignore_ascii_case("/list")
+    {
+        if projects.is_empty() {
+            return (
+                RouteResult::CommandReply("📂 Nessun progetto aperto in Work.".into()),
+                None,
+            );
+        }
+        let mut reply = String::from("📂 Progetti aperti in Work:\n");
+        for (i, p) in projects.iter().enumerate() {
+            let is_active = active_path.is_some_and(|a| a == p.path || a == p.name);
+            let is_pinned = pinned_name.is_some_and(|pin| pin.eq_ignore_ascii_case(&p.name));
+            let mut tags = Vec::new();
+            if is_active {
+                tags.push("ATTIVO");
+            }
+            if is_pinned {
+                tags.push("PINNED");
+            }
+            let tag_str = if tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", tags.join(", "))
+            };
+            reply.push_str(&format!(
+                "{}. {} (sessione: {}){}\n",
+                i + 1,
+                p.name,
+                p.session,
+                tag_str
+            ));
+        }
+        reply.push_str("\nComandi:\n• /use <nome o numero> per fissare il canale su un progetto\n• /use auto per seguire il progetto attivo in Work\n• @<nome> <messaggio> per inviare a un PM specifico");
+        return (RouteResult::CommandReply(reply), None);
+    }
+
+    if let Some(arg) = raw
+        .strip_prefix("/use")
+        .or_else(|| raw.strip_prefix("/switch"))
+    {
+        let arg = arg.trim();
+        if arg.is_empty() {
+            return (
+                RouteResult::CommandReply(
+                    "Uso: /use <nome_progetto o numero> oppure /use auto".into(),
+                ),
+                None,
+            );
+        }
+        if arg.eq_ignore_ascii_case("auto") || arg.eq_ignore_ascii_case("reset") {
+            return (
+                RouteResult::CommandReply(
+                    "🔄 Target reimpostato su AUTO: il canale Telegram segue il progetto attivo in Work."
+                        .into(),
+                ),
+                Some(None),
+            );
+        }
+        // Tentativo indice 1..=projects.len()
+        if let Ok(idx) = arg.parse::<usize>() {
+            if idx >= 1 && idx <= projects.len() {
+                let target = &projects[idx - 1];
+                return (
+                    RouteResult::CommandReply(format!(
+                        "🎯 Target fissato su \"{}\" (sessione: {}). I prossimi messaggi andranno al suo PM.",
+                        target.name, target.session
+                    )),
+                    Some(Some(target.name.clone())),
+                );
+            }
+        }
+        // Match per nome o sessione
+        if let Some(target) = projects.iter().find(|p| {
+            p.name.eq_ignore_ascii_case(arg)
+                || p.session.eq_ignore_ascii_case(arg)
+                || p.path.ends_with(arg)
+        }) {
+            return (
+                RouteResult::CommandReply(format!(
+                    "🎯 Target fissato su \"{}\" (sessione: {}). I prossimi messaggi andranno al suo PM.",
+                    target.name, target.session
+                )),
+                Some(Some(target.name.clone())),
+            );
+        }
+        return (
+            RouteResult::CommandReply(format!(
+                "❌ Progetto \"{}\" non trovato tra i progetti aperti. Digita /projects per vedere l'elenco.",
+                arg
+            )),
+            None,
+        );
+    }
+
+    if raw.eq_ignore_ascii_case("/status") {
+        let current_target = resolve_target(active_path, pinned_name, projects);
+        let mode_str = if pinned_name.is_some() {
+            "FISSO (pinned)"
+        } else {
+            "AUTO (segue UI)"
+        };
+        let target_desc = match current_target {
+            Some(t) => format!("{} (sessione: {}:pm)", t.name, t.session),
+            None => "Nessun target disponibile".into(),
+        };
+        let msg = format!(
+            "🤖 Stato Telegram Work:\n• Modalità: {}\n• Target corrente: {}\n• Progetti aperti: {}",
+            mode_str,
+            target_desc,
+            projects.len()
+        );
+        return (RouteResult::CommandReply(msg), None);
+    }
+
+    if raw.eq_ignore_ascii_case("/help") || raw.eq_ignore_ascii_case("/start") {
+        let msg = "🤖 Bot Telegram Work Stack (Multi-PM):\n\n\
+            • Rispondi a un messaggio (Reply) per parlare direttamente con il PM di quel progetto.\n\
+            • Anteponi @<progetto> al messaggio per parlare con un PM specifico (es. @work-stack status).\n\
+            • /projects - Elenca i progetti aperti in Work.\n\
+            • /use <progetto> - Fissa i messaggi su un progetto specifico.\n\
+            • /use auto - Segue il progetto attivo nella finestra di Work.\n\
+            • /status - Mostra lo stato e il target corrente.";
+        return (RouteResult::CommandReply(msg.into()), None);
+    }
+
+    // 2. Controllo Reply-to
+    if let Some(reply_id) = inbound.reply_to_id {
+        if let Some(target) = recent.get(&reply_id) {
+            return (
+                RouteResult::ForwardToPm {
+                    target: target.clone(),
+                    text: raw.to_string(),
+                },
+                None,
+            );
+        }
+    }
+    if let Some(ref reply_text) = inbound.reply_to_text {
+        if let Some(target) = extract_project_from_text(reply_text, projects) {
+            return (
+                RouteResult::ForwardToPm {
+                    target,
+                    text: raw.to_string(),
+                },
+                None,
+            );
+        }
+    }
+
+    // 3. Controllo Prefisso One-shot (@progetto o [progetto])
+    if let Some(after_at) = raw.strip_prefix('@') {
+        let (prefix, rest) = match after_at.find(|c: char| c.is_whitespace() || c == ':') {
+            Some(idx) => (
+                &after_at[..idx],
+                after_at[idx..]
+                    .trim_start_matches(|c: char| c.is_whitespace() || c == ':')
+                    .trim(),
+            ),
+            None => (after_at, ""),
+        };
+        if let Some(target) = projects
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(prefix) || p.session.eq_ignore_ascii_case(prefix))
+        {
+            let text_to_send = if rest.is_empty() { raw } else { rest };
+            return (
+                RouteResult::ForwardToPm {
+                    target: target.clone(),
+                    text: text_to_send.to_string(),
+                },
+                None,
+            );
+        }
+    } else if raw.starts_with('[') {
+        if let Some(end) = raw.find(']') {
+            let prefix = raw[1..end].trim();
+            let rest = raw[end + 1..].trim();
+            if let Some(target) = projects.iter().find(|p| {
+                p.name.eq_ignore_ascii_case(prefix) || p.session.eq_ignore_ascii_case(prefix)
+            }) {
+                let text_to_send = if rest.is_empty() { raw } else { rest };
+                return (
+                    RouteResult::ForwardToPm {
+                        target: target.clone(),
+                        text: text_to_send.to_string(),
+                    },
+                    None,
+                );
+            }
+        }
+    }
+
+    // 4. Fallback: risoluzione target (pinned o attivo)
+    if let Some(target) = resolve_target(active_path, pinned_name, projects) {
+        return (
+            RouteResult::ForwardToPm {
+                target,
+                text: raw.to_string(),
+            },
+            None,
+        );
+    }
+
+    (
+        RouteResult::CommandReply(
+            "⚠️ Nessun progetto aperto o attivo in Work. Apri un progetto o usa /projects.".into(),
+        ),
+        None,
+    )
+}
+
 fn send_message(
     client: &reqwest::blocking::Client,
     config: &Config,
     text: &str,
-) -> Result<(), String> {
-    call(
+) -> Result<i64, String> {
+    let res = call(
         client,
         &config.token,
         "sendMessage",
@@ -517,12 +904,13 @@ fn send_message(
             "disable_web_page_preview": true,
         })),
     )?;
-    Ok(())
+    let msg_id = res["result"]["message_id"].as_i64().unwrap_or(0);
+    Ok(msg_id)
 }
 
 // ── Polling thread ───────────────────────────────────────────
 
-fn emit_status(app: &AppHandle, state: &Arc<TelegramState>) {
+pub fn emit_status(app: &AppHandle, state: &Arc<TelegramState>) {
     let _ = app.emit("telegram:status", state.status());
 }
 
@@ -557,47 +945,89 @@ fn poll(app: AppHandle, state: Arc<TelegramState>, config: Config, generation: u
                     if let Some(id) = update["update_id"].as_i64() {
                         offset = offset.max(id + 1);
                     }
-                    if let Some(text) = inbound(update, &config.chat_id) {
-                        // The PM window is the only destination of the bot.
-                        // Capture it first so the reply is only the new output.
-                        let baseline = capture_pm(&config.session).unwrap_or_default();
-                        let typed = dogwatch::answer(&config.session, "pm", &text);
-                        let error = typed.as_ref().err().cloned();
-                        let _ = app.emit(
-                            "telegram:message",
-                            json!({
-                                "direction": "in",
-                                "text": text,
-                                "typed": typed.is_ok(),
-                                "error": error,
-                            }),
+                    if let Some(inbound_msg) = parse_inbound(update, &config.chat_id) {
+                        let (active_path, projects) = state.resolve_projects(&config);
+                        let pinned = state.pinned_target.lock().unwrap().clone();
+                        let recent = state.recent_messages.lock().unwrap().clone();
+
+                        let (action, new_pinned) = route_inbound(
+                            &inbound_msg,
+                            active_path.as_deref(),
+                            pinned.as_deref(),
+                            &projects,
+                            &recent,
                         );
-                        if typed.is_err() {
-                            continue;
+                        if let Some(next_pin) = new_pinned {
+                            state.set_pinned_target(next_pin);
+                            emit_status(&app, &state);
                         }
-                        // The PM's answer is typed in the pm pane: send the new
-                        // text back to the same authorized chat.
-                        let stopped = || state.generation() != generation;
-                        let reply = collect_reply(
-                            &baseline,
-                            || capture_pm(&config.session),
-                            stopped,
-                            &text,
-                            REPLY_POLL,
-                            REPLY_IDLE,
-                            REPLY_TIMEOUT,
-                        );
-                        if let Some(reply) = reply {
-                            match send_message(&client, &config, &reply) {
-                                Ok(()) => {
-                                    let _ = app.emit(
-                                        "telegram:message",
-                                        json!({ "direction": "out", "text": reply }),
+
+                        match action {
+                            RouteResult::CommandReply(reply_text) => {
+                                let _ = send_message(&client, &config, &reply_text);
+                                let _ = app.emit(
+                                    "telegram:message",
+                                    json!({
+                                        "direction": "out",
+                                        "text": reply_text,
+                                    }),
+                                );
+                            }
+                            RouteResult::ForwardToPm { target, text } => {
+                                let baseline = capture_pm(&target.session).unwrap_or_default();
+                                let typed = dogwatch::answer(&target.session, "pm", &text);
+                                let error = typed.as_ref().err().cloned();
+                                let _ = app.emit(
+                                    "telegram:message",
+                                    json!({
+                                        "direction": "in",
+                                        "text": text,
+                                        "project": target.name,
+                                        "session": target.session,
+                                        "typed": typed.is_ok(),
+                                        "error": error,
+                                    }),
+                                );
+                                if let Err(e) = typed {
+                                    let err_msg = format!(
+                                        "❌ Impossibile inviare al PM di {}: {}",
+                                        target.name, e
                                     );
+                                    let _ = send_message(&client, &config, &err_msg);
+                                    continue;
                                 }
-                                Err(e) => {
-                                    state.set_error(Some(e));
-                                    emit_status(&app, &state);
+                                let stopped = || state.generation() != generation;
+                                let reply = collect_reply(
+                                    &baseline,
+                                    || capture_pm(&target.session),
+                                    stopped,
+                                    &text,
+                                    REPLY_POLL,
+                                    REPLY_IDLE,
+                                    REPLY_TIMEOUT,
+                                );
+                                if let Some(reply) = reply {
+                                    let formatted = format!("[{}] {}", target.name, reply);
+                                    match send_message(&client, &config, &formatted) {
+                                        Ok(msg_id) => {
+                                            if msg_id > 0 {
+                                                state.record_message(msg_id, target.clone());
+                                            }
+                                            let _ = app.emit(
+                                                "telegram:message",
+                                                json!({
+                                                    "direction": "out",
+                                                    "text": formatted,
+                                                    "project": target.name,
+                                                    "session": target.session,
+                                                }),
+                                            );
+                                        }
+                                        Err(e) => {
+                                            state.set_error(Some(e));
+                                            emit_status(&app, &state);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -726,7 +1156,7 @@ pub fn telegram_disconnect(app: AppHandle, state: State<Arc<TelegramState>>) -> 
 }
 
 // The authorized chat only, as for the PM: Work's own notices (plane dogwatch) go there too.
-pub fn notify(state: &TelegramState, text: &str) -> Result<(), String> {
+pub fn notify(state: &TelegramState, text: &str) -> Result<i64, String> {
     let config = state
         .config
         .lock()
@@ -736,12 +1166,21 @@ pub fn notify(state: &TelegramState, text: &str) -> Result<(), String> {
     if text.trim().is_empty() {
         return Err("Il messaggio è vuoto.".into());
     }
-    send_message(&client()?, &config, text)
+    let msg_id = send_message(&client()?, &config, text)?;
+    if msg_id > 0 {
+        let (_, projects) = state.resolve_projects(&config);
+        if let Some(target) = extract_project_from_text(text, &projects) {
+            state.record_message(msg_id, target);
+        } else if let Some(target) = projects.first() {
+            state.record_message(msg_id, target.clone());
+        }
+    }
+    Ok(msg_id)
 }
 
 #[tauri::command]
 pub fn telegram_send(state: State<Arc<TelegramState>>, text: String) -> Result<(), String> {
-    notify(&state, &text)
+    notify(&state, &text).map(|_| ())
 }
 
 pub fn shutdown(state: &TelegramState) {
@@ -1018,6 +1457,9 @@ Wait for background task task-1 to finish.
             project: Some(config.project.clone()),
             session: Some(config.session.clone()),
             last_error: None,
+            active_project: Some(project_name_from_path(&config.project)),
+            target_project: Some(project_name_from_path(&config.project)),
+            is_pinned: false,
         })
     }
 
@@ -1102,6 +1544,9 @@ Wait for background task task-1 to finish.
                     project: Some("/active/project".into()),
                     session: Some("work_active".into()),
                     last_error: None,
+                    active_project: Some("project".into()),
+                    target_project: Some("project".into()),
+                    is_pinned: false,
                 })
             },
         );
@@ -1171,5 +1616,257 @@ Wait for background task task-1 to finish.
             !main.contains("clear_saved_config"),
             "startup must not erase the saved connection"
         );
+    }
+
+    fn sample_projects() -> Vec<TargetProject> {
+        vec![
+            TargetProject {
+                name: "work-stack".into(),
+                path: "/home/user/work-stack".into(),
+                session: "work_work-stack".into(),
+            },
+            TargetProject {
+                name: "ecommerce-api".into(),
+                path: "/home/user/ecommerce-api".into(),
+                session: "work_ecommerce-api".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn route_inbound_shows_projects_list_on_command() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+        let inbound = InboundMessage {
+            text: "/projects".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, new_pinned) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        assert_eq!(new_pinned, None);
+        match action {
+            RouteResult::CommandReply(reply) => {
+                assert!(reply.contains("work-stack"));
+                assert!(reply.contains("ecommerce-api"));
+                assert!(reply.contains("[ATTIVO]"));
+            }
+            _ => panic!("Expected CommandReply"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_switches_target_with_use() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+        let inbound = InboundMessage {
+            text: "/use ecommerce-api".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, new_pinned) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        assert_eq!(new_pinned, Some(Some("ecommerce-api".into())));
+        match action {
+            RouteResult::CommandReply(reply) => {
+                assert!(reply.contains("Target fissato su \"ecommerce-api\""));
+            }
+            _ => panic!("Expected CommandReply"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_resets_target_with_use_auto() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+        let inbound = InboundMessage {
+            text: "/use auto".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, new_pinned) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            Some("ecommerce-api"),
+            &projects,
+            &recent,
+        );
+        assert_eq!(new_pinned, Some(None));
+        match action {
+            RouteResult::CommandReply(reply) => {
+                assert!(reply.contains("Target reimpostato su AUTO"));
+            }
+            _ => panic!("Expected CommandReply"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_routes_via_reply_to_cached_message() {
+        let projects = sample_projects();
+        let mut recent = HashMap::new();
+        recent.insert(42, projects[1].clone());
+
+        let inbound = InboundMessage {
+            text: "proceed with tests".into(),
+            reply_to_id: Some(42),
+            reply_to_text: None,
+        };
+        let (action, new_pinned) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        assert_eq!(new_pinned, None);
+        match action {
+            RouteResult::ForwardToPm { target, text } => {
+                assert_eq!(target.name, "ecommerce-api");
+                assert_eq!(target.session, "work_ecommerce-api");
+                assert_eq!(text, "proceed with tests");
+            }
+            _ => panic!("Expected ForwardToPm"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_routes_via_reply_to_tagged_text() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+
+        let inbound = InboundMessage {
+            text: "looks good".into(),
+            reply_to_id: Some(999),
+            reply_to_text: Some("[ecommerce-api] tests finished".into()),
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        match action {
+            RouteResult::ForwardToPm { target, text } => {
+                assert_eq!(target.name, "ecommerce-api");
+                assert_eq!(text, "looks good");
+            }
+            _ => panic!("Expected ForwardToPm"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_routes_via_at_prefix() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+
+        let inbound = InboundMessage {
+            text: "@ecommerce-api run migrations".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        match action {
+            RouteResult::ForwardToPm { target, text } => {
+                assert_eq!(target.name, "ecommerce-api");
+                assert_eq!(text, "run migrations");
+            }
+            _ => panic!("Expected ForwardToPm"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_routes_via_bracket_prefix() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+
+        let inbound = InboundMessage {
+            text: "[ecommerce-api] restart dev server".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        match action {
+            RouteResult::ForwardToPm { target, text } => {
+                assert_eq!(target.name, "ecommerce-api");
+                assert_eq!(text, "restart dev server");
+            }
+            _ => panic!("Expected ForwardToPm"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_follows_active_project_by_default() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+
+        let inbound = InboundMessage {
+            text: "show git diff".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        match action {
+            RouteResult::ForwardToPm { target, text } => {
+                assert_eq!(target.name, "work-stack");
+                assert_eq!(text, "show git diff");
+            }
+            _ => panic!("Expected ForwardToPm"),
+        }
+    }
+
+    #[test]
+    fn route_inbound_status_command() {
+        let projects = sample_projects();
+        let recent = HashMap::new();
+
+        let inbound = InboundMessage {
+            text: "/status".into(),
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &recent,
+        );
+        match action {
+            RouteResult::CommandReply(reply) => {
+                assert!(reply.contains("Stato Telegram Work"));
+                assert!(reply.contains("AUTO (segue UI)"));
+                assert!(reply.contains("work-stack"));
+            }
+            _ => panic!("Expected CommandReply"),
+        }
     }
 }

@@ -131,25 +131,31 @@ pub fn plane_settings() -> AppSettings {
 /// so that every agent window, terminal and child process can access them.
 pub fn agent_env_vars() -> Vec<(String, String)> {
     let s = load(&file());
+    agent_env_vars_from(&s)
+}
+
+pub fn agent_env_vars_from(s: &AppSettings) -> Vec<(String, String)> {
     let mut vars = Vec::new();
     if !s.plane_api_key.is_empty() {
-        vars.push(("PLANE_API_KEY".into(), s.plane_api_key));
+        vars.push(("PLANE_API_KEY".into(), s.plane_api_key.clone()));
     }
     if !s.plane_base_url.is_empty() {
-        vars.push(("PLANE_BASE_URL".into(), s.plane_base_url));
+        vars.push(("PLANE_BASE_URL".into(), s.plane_base_url.clone()));
     }
     if !s.plane_workspace.is_empty() {
         vars.push(("PLANE_WORKSPACE".into(), s.plane_workspace.clone()));
-        vars.push(("PLANE_WORKSPACE_SLUG".into(), s.plane_workspace));
+        vars.push(("PLANE_WORKSPACE_SLUG".into(), s.plane_workspace.clone()));
     }
     if !s.jev_api_key.is_empty() {
-        vars.push(("JEV_API_KEY".into(), s.jev_api_key));
+        vars.push(("JEV_API_KEY".into(), s.jev_api_key.clone()));
+        // oz plugin / Jev CLI relies on TYPESAFE_API_KEY
+        vars.push(("TYPESAFE_API_KEY".into(), s.jev_api_key.clone()));
     }
     if !s.jev_endpoint.is_empty() {
-        vars.push(("JEV_ENDPOINT".into(), s.jev_endpoint));
+        vars.push(("JEV_ENDPOINT".into(), s.jev_endpoint.clone()));
     }
-    for (k, v) in s.custom_env {
-        vars.push((k, v));
+    for (k, v) in &s.custom_env {
+        vars.push((k.clone(), v.clone()));
     }
     vars
 }
@@ -350,6 +356,30 @@ mod tests {
         let loaded = load(&f);
         assert_eq!(loaded.plane_api_key, "plane-secret");
         assert_eq!(loaded.jev_api_key, "jev-secret");
+
+        let vars = agent_env_vars_from(&loaded);
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "PLANE_API_KEY" && v == "plane-secret"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "PLANE_BASE_URL" && v == "https://plane.oz.it"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "PLANE_WORKSPACE" && v == "oz"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "PLANE_WORKSPACE_SLUG" && v == "oz"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "JEV_API_KEY" && v == "jev-secret"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "TYPESAFE_API_KEY" && v == "jev-secret"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "JEV_ENDPOINT" && v == "https://jev.oz.it/api"));
+        assert!(vars.iter().any(|(k, v)| k == "MY_VAR" && v == "val"));
     }
 
     #[test]
