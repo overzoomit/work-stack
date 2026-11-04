@@ -217,7 +217,7 @@ body.sidebar-hidden .layout { --left: 0px; }
 
 /* ── Terminals grid ── */
 .terminals {
-  display: grid; gap: 8px; padding: 8px; min-width: 0; min-height: 0; position: relative;
+  display: block; padding: 0; min-width: 0; min-height: 0; position: relative;
 }
 .term-empty {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -235,7 +235,24 @@ body.sidebar-hidden .layout { --left: 0px; }
 }
 .pane.closing { animation: pane-out 160ms var(--ease-in) forwards; }
 .pane.focused { box-shadow: 0 0 0 1px rgba(10, 132, 255, .55), 0 10px 30px rgba(0, 0, 0, .45); }
+/* Split tiles get their geometry from terminals.js; a maximized pane falls
+   back to the CSS inset above. */
+.pane.tiled { position: absolute; }
 .pane.maximized { position: absolute; inset: 8px; z-index: 5; }
+.pane-splitter {
+  position: absolute; z-index: 4; touch-action: none; border-radius: 3px;
+}
+.pane-splitter::after {
+  content: ''; position: absolute; background: var(--line); border-radius: 2px;
+  transition: background 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+.pane-splitter.splitter-row { cursor: col-resize; }
+.pane-splitter.splitter-col { cursor: row-resize; }
+.pane-splitter.splitter-row::after { inset: 0 2px; }
+.pane-splitter.splitter-col::after { inset: 2px 0; }
+.pane-splitter:hover::after, .pane-splitter.dragging::after {
+  background: var(--accent); box-shadow: 0 0 0 1px rgba(10, 132, 255, .35);
+}
 @keyframes materialize { from { opacity: 0; transform: scale(.97); filter: blur(4px); } }
 @keyframes dematerialize { to { opacity: 0; transform: scale(.97); filter: blur(4px); } }
 /* Terminal panes are large and not glass: scale + fade only, no filter to rasterize. */

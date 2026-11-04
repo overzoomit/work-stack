@@ -229,6 +229,14 @@
         call('tmux_send_keys', 'session', 'target', 'keys', 'remote')(session, target, keys, remote),
       capturePane: (session, target, lines, remote = null) =>
         call('tmux_capture_pane', 'session', 'target', 'lines', 'remote')(session, target, lines, remote),
+      splitPane: (session, window, direction, remote = null) =>
+        call('tmux_split_pane', 'session', 'window', 'direction', 'remote')(session, window, direction, remote),
+      resizePane: (session, target, cols, rows, remote = null) =>
+        call('tmux_resize_pane', 'session', 'target', 'cols', 'rows', 'remote')(session, target, cols, rows, remote),
+      zoomPane: (session, target, remote = null) =>
+        call('tmux_zoom_pane', 'session', 'target', 'remote')(session, target, remote),
+      closePane: (session, target, remote = null) =>
+        call('tmux_close_pane', 'session', 'target', 'remote')(session, target, remote),
     },
   };
 })();

@@ -8,7 +8,7 @@ import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
-  syncProjectTerminals, ensureInitialTerminal, terminalLayout,
+  syncProjectTerminals, ensureInitialTerminal, terminalLayout, splitTerminal,
 } from './terminals.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
@@ -352,6 +352,8 @@ function terminalMenu(t, x, y) {
     { label: 'Clear screen', run: () => t.term.clear() },
     '-',
     { label: 'New terminal in the same folder', run: () => openTerminal(t.project, { cwd: t.cwd }) },
+    { label: 'Split right', hint: 'Ctrl+Shift+O', run: () => splitTerminal(t.id, 'horizontal') },
+    { label: 'Split down', hint: 'Ctrl+Shift+E', run: () => splitTerminal(t.id, 'vertical') },
     {
       label: 'Rename…',
       run: async () => {
@@ -663,7 +665,11 @@ addEventListener('keydown', (e) => {
   const actions = {
     T: newTerminal,
     A: () => active && launchDefault(),
-    O: () => newProjectMenu($('#new-project')),
+    // Inside a pane O splits it; elsewhere it keeps opening the project menu.
+    O: () => (inTerminal(e) && active?.focusedId
+      ? splitTerminal(active.focusedId, 'horizontal')
+      : newProjectMenu($('#new-project'))),
+    E: () => (inTerminal(e) && active?.focusedId ? splitTerminal(active.focusedId, 'vertical') : null),
     B: () => togglePanel('left'),
     M: () => active?.focusedId && toggleMax(active.focusedId),
     P: () => openSearch(active),
@@ -688,6 +694,8 @@ let stats = null;
 const SHORTCUTS = [
   ['New terminal', 'Ctrl+Shift+T'],
   ['New agent', 'Ctrl+Shift+A'],
+  ['Split right', 'Ctrl+Shift+O'],
+  ['Split down', 'Ctrl+Shift+E'],
   ['Open project', 'Ctrl+Shift+O'],
   ['Close terminal', 'Ctrl+Shift+W'],
   ['Maximize terminal', 'Ctrl+Shift+M'],

@@ -388,6 +388,71 @@ pub fn kill_session(remote: &RemoteProject, session: &str) -> Result<(), String>
     run_script(remote, &script, STATUS_TIMEOUT).map(|_| ())
 }
 
+fn remote_pane_target(session: &str, target: &str) -> Result<String, String> {
+    check_target(target)?;
+    if target.starts_with('%') {
+        Ok(target.to_string())
+    } else {
+        Ok(format!("{session}:{target}"))
+    }
+}
+
+// A new tmux window after the source one: one window per Work rectangle keeps
+// each xterm attached to its own pane (see tmux::split_window).
+pub fn split_window(
+    remote: &RemoteProject,
+    session: &str,
+    window: &str,
+    direction: &str,
+) -> Result<crate::tmux::TmuxPaneInfo, String> {
+    check_session(session)?;
+    check_target(window)?;
+    crate::tmux::normalize_direction(direction)?;
+    let source = format!("{session}:{window}");
+    let script = format!(
+        "cwd=$(tmux display-message -p -t {} '#{{pane_current_path}}' 2>/dev/null); tmux new-window -P -F '#{{window_id}}\t#{{pane_id}}\t#{{pane_width}}\t#{{pane_height}}' -a -t {} -c \"$cwd\"",
+        quote(&source),
+        quote(&source)
+    );
+    let out = run_script(remote, &script, STATUS_TIMEOUT)?;
+    crate::tmux::parse_pane_info(&out, "")
+}
+
+pub fn resize_pane(
+    remote: &RemoteProject,
+    session: &str,
+    target: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    check_session(session)?;
+    if cols == 0 || rows == 0 {
+        return Err("Dimensioni del pannello non valide.".into());
+    }
+    let target = remote_pane_target(session, target)?;
+    let script = format!(
+        "tmux resize-pane -t {} -x {} -y {}",
+        quote(&target),
+        cols,
+        rows
+    );
+    run_script(remote, &script, STATUS_TIMEOUT).map(|_| ())
+}
+
+pub fn zoom_pane(remote: &RemoteProject, session: &str, target: &str) -> Result<(), String> {
+    check_session(session)?;
+    let target = remote_pane_target(session, target)?;
+    let script = format!("tmux resize-pane -Z -t {}", quote(&target));
+    run_script(remote, &script, STATUS_TIMEOUT).map(|_| ())
+}
+
+pub fn kill_pane(remote: &RemoteProject, session: &str, target: &str) -> Result<(), String> {
+    check_session(session)?;
+    let target = remote_pane_target(session, target)?;
+    let script = format!("tmux kill-pane -t {}", quote(&target));
+    run_script(remote, &script, STATUS_TIMEOUT).map(|_| ())
+}
+
 pub fn send_keys(
     remote: &RemoteProject,
     session: &str,

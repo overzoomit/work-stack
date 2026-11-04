@@ -66,6 +66,128 @@ const all = new Map(); // pty id -> pane
 const early = new Map(); // output that arrives before a pane registers its id
 const closedIds = new Set(); // output may still arrive after a pane is closed
 
+// ── Split layout ─────────────────────────────────────────────
+// Each project owns a binary tree: leaves are panes, splits keep the direction
+// ("row" = side by side, "col" = stacked) and the fraction given to the first
+// child. Geometry is absolute, so pane elements stay direct children of the
+// grid and the existing focus, list and drag code keeps working.
+const layouts = new WeakMap();
+const splitterEls = new Set();
+const INSET = 8;
+
+const leafNode = (pane) => ({ type: 'leaf', pane });
+const isSplit = (node) => node?.type === 'split';
+
+function leaves(node, out = []) {
+  if (!node) return out;
+  if (isSplit(node)) {
+    leaves(node.a, out);
+    leaves(node.b, out);
+  } else {
+    out.push(node);
+  }
+  return out;
+}
+
+const layoutFor = (project) => layouts.get(project) || null;
+function setLayout(project, root) {
+  if (root) layouts.set(project, root);
+  else layouts.delete(project);
+}
+
+function findLeaf(node, pane) {
+  if (!node) return null;
+  if (!isSplit(node)) return node.pane === pane ? node : null;
+  return findLeaf(node.a, pane) || findLeaf(node.b, pane);
+}
+
+function replaceNode(node, target, replacement) {
+  if (node === target) return replacement;
+  if (isSplit(node)) {
+    node.a = replaceNode(node.a, target, replacement);
+    node.b = replaceNode(node.b, target, replacement);
+  }
+  return node;
+}
+
+function stripPane(node, pane) {
+  if (!node) return null;
+  if (!isSplit(node)) return node.pane === pane ? null : node;
+  const a = stripPane(node.a, pane);
+  const b = stripPane(node.b, pane);
+  if (!a) return b;
+  if (!b) return a;
+  node.a = a;
+  node.b = b;
+  return node;
+}
+
+function removeLeaf(project, pane) {
+  const root = layoutFor(project);
+  if (root) setLayout(project, stripPane(root, pane));
+}
+
+// Splits `after` (a pane) or wraps the whole tree. `before` puts the new pane
+// on the left/top of the target, used by the drag gesture.
+function insertLeaf(project, pane, { after = null, direction = 'horizontal', before = false } = {}) {
+  const node = leafNode(pane);
+  const root = layoutFor(project);
+  const dir = direction === 'vertical' ? 'col' : 'row';
+  if (!root) {
+    setLayout(project, node);
+    return;
+  }
+  const target = after ? findLeaf(root, after) : null;
+  if (!target) {
+    setLayout(project, { type: 'split', dir, ratio: 0.5, a: root, b: node });
+    return;
+  }
+  const replacement = {
+    type: 'split', dir, ratio: 0.5,
+    a: before ? node : target,
+    b: before ? target : node,
+  };
+  setLayout(project, replaceNode(root, target, replacement));
+}
+
+function moveLeaf(project, pane, target, { after = true, direction = 'horizontal' } = {}) {
+  if (!pane || !target || pane === target) return;
+  removeLeaf(project, pane);
+  const root = layoutFor(project);
+  if (!root) {
+    setLayout(project, leafNode(pane));
+    return;
+  }
+  const found = findLeaf(root, target);
+  if (!found) {
+    insertLeaf(project, pane, { direction });
+    return;
+  }
+  const dir = direction === 'vertical' ? 'col' : 'row';
+  setLayout(project, replaceNode(root, found, {
+    type: 'split', dir, ratio: 0.5,
+    a: after ? found : leafNode(pane),
+    b: after ? leafNode(pane) : found,
+  }));
+}
+
+function currentPaneOf(project) {
+  const focused = all.get(project.focusedId);
+  if (focused && focused.project === project && !focused.console) return focused;
+  const list = leaves(layoutFor(project));
+  return list.length ? list[list.length - 1].pane : null;
+}
+
+// A serialisable view of the tree, for tests and diagnostics.
+export function layoutSnapshot(project) {
+  const snap = (node) => {
+    if (!node) return null;
+    if (!isSplit(node)) return { pane: node.pane?.id ?? null };
+    return { dir: node.dir, ratio: node.ratio, a: snap(node.a), b: snap(node.b) };
+  };
+  return snap(layoutFor(project));
+}
+
 // Acknowledged once xterm has parsed it: the main process pauses a shell that
 // gets too far ahead of its terminal (flow control).
 function writeOutput(t, data) {
@@ -116,12 +238,22 @@ export function initTerminals({ homeDir, changed, openAppearance, activity, menu
     t.term.write(`\r\n\x1b[90m── process exited${code ? ` (code ${code})` : ''} ──\x1b[0m\r\n`);
     paintHead(t);
     t.onExit?.(code);
+    // A split whose command ended has nothing left to show: collapse it after
+    // a moment so the surviving rectangles get the space back. A lone pane
+    // keeps its final output visible.
+    if (!t.console && terminalsOf(t.project).length > 1) {
+      setTimeout(() => {
+        if (all.has(id) && t.exited) closeTerminal(id);
+      }, 1500);
+    }
   });
 }
 
 const pending = new Set(); // panes waiting for their pty id
-// Grid order is DOM order, so reordering a pane is just moving its element.
-const panesOf = (project) => [...$('#terminals').children].filter((el) => el._t?.project === project).map((el) => el._t);
+// Layout order is the tree's depth-first order, independent of the DOM.
+const panesOf = (project) => leaves(layoutFor(project))
+  .map((node) => node.pane)
+  .filter((pane) => pane?.el?._t?.project === project);
 
 export function showProject(project) {
   active = project;
@@ -146,19 +278,118 @@ export function terminalsOf(project) {
   return panesOf(project).filter((t) => all.has(t.id));
 }
 
-function relayout() {
-  const panes = active ? panesOf(active) : [];
+function placePane(el, rect) {
+  el.style.left = `calc(${(rect.x * 100).toFixed(4)}% + ${INSET}px)`;
+  el.style.top = `calc(${(rect.y * 100).toFixed(4)}% + ${INSET}px)`;
+  el.style.width = `calc(${(rect.w * 100).toFixed(4)}% - ${INSET * 2}px)`;
+  el.style.height = `calc(${(rect.h * 100).toFixed(4)}% - ${INSET * 2}px)`;
+}
+
+function clearGeometry(el) {
+  el.style.left = '';
+  el.style.top = '';
+  el.style.width = '';
+  el.style.height = '';
+}
+
+function renderNode(project, node, rect, grid) {
+  if (!isSplit(node)) {
+    const t = node.pane;
+    if (!t?.el) return;
+    if (t.el.parentNode !== grid) grid.appendChild(t.el);
+    if (project.maximizedId && project.maximizedId === t.id) clearGeometry(t.el);
+    else placePane(t.el, rect);
+    return;
+  }
+  const ratio = Math.min(0.85, Math.max(0.15, Number.isFinite(node.ratio) ? node.ratio : 0.5));
+  let a;
+  let b;
+  if (node.dir === 'col') {
+    a = { x: rect.x, y: rect.y, w: rect.w, h: rect.h * ratio };
+    b = { x: rect.x, y: rect.y + rect.h * ratio, w: rect.w, h: rect.h * (1 - ratio) };
+  } else {
+    a = { x: rect.x, y: rect.y, w: rect.w * ratio, h: rect.h };
+    b = { x: rect.x + rect.w * ratio, y: rect.y, w: rect.w * (1 - ratio), h: rect.h };
+  }
+  renderNode(project, node.a, a, grid);
+  renderNode(project, node.b, b, grid);
+  addSplitter(project, node, rect, ratio, grid);
+}
+
+let draggingNode = null;
+
+function addSplitter(project, node, rect, ratio, grid) {
+  const el = document.createElement('div');
+  el.className = `pane-splitter splitter-${node.dir === 'col' ? 'col' : 'row'}`;
+  if (node === draggingNode) el.classList.add('dragging');
+  el.dataset.dir = node.dir;
+  if (node.dir === 'col') {
+    el.style.left = `calc(${(rect.x * 100).toFixed(4)}% + ${INSET}px)`;
+    el.style.width = `calc(${(rect.w * 100).toFixed(4)}% - ${INSET * 2}px)`;
+    el.style.top = `calc(${((rect.y + rect.h * ratio) * 100).toFixed(4)}% - 3px)`;
+    el.style.height = '6px';
+  } else {
+    el.style.left = `calc(${((rect.x + rect.w * ratio) * 100).toFixed(4)}% - 3px)`;
+    el.style.width = '6px';
+    el.style.top = `calc(${(rect.y * 100).toFixed(4)}% + ${INSET}px)`;
+    el.style.height = `calc(${(rect.h * 100).toFixed(4)}% - ${INSET * 2}px)`;
+  }
+  el.title = 'Drag to resize';
+  el.addEventListener('pointerdown', (e) => startSplitDrag(e, el, node, rect, project));
+  grid.appendChild(el);
+  splitterEls.add(el);
+}
+
+function startSplitDrag(e, handle, node, rect, project) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  draggingNode = node;
+  handle.classList.add('dragging');
   const grid = $('#terminals');
-  const n = panes.length;
-  $('#term-empty').hidden = n > 0 || !active;
-  const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
-  const rows = Math.max(1, Math.ceil(n / cols));
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
-  // The last pane stretches over the empty cells of its row.
-  panes.forEach((t, i) => {
-    t.el.style.gridColumn = i === n - 1 && n % cols ? `span ${cols - (n % cols) + 1}` : '';
-  });
+  const move = (ev) => {
+    const box = grid.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const raw = node.dir === 'col'
+      ? (ev.clientY - (box.top + rect.y * box.height)) / (rect.h * box.height)
+      : (ev.clientX - (box.left + rect.x * box.width)) / (rect.w * box.width);
+    node.ratio = Math.min(0.85, Math.max(0.15, raw));
+    relayout();
+  };
+  const end = () => {
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', end);
+    removeEventListener('pointercancel', end);
+    draggingNode = null;
+    relayout();
+    onChange();
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', end);
+  addEventListener('pointercancel', end);
+}
+
+function relayout() {
+  const grid = $('#terminals');
+  for (const el of [...splitterEls]) el.remove();
+  splitterEls.clear();
+  const root = active ? layoutFor(active) : null;
+  const panes = leaves(root);
+  $('#term-empty').hidden = panes.length > 0 || !active;
+  if (!active) {
+    for (const t of [...all.values(), ...pending]) t.el.classList.add('off');
+    return;
+  }
+  if (root) renderNode(active, root, { x: 0, y: 0, w: 1, h: 1 }, grid);
+  // One maximized pane covers the others: its CSS inset replaces the tiles and
+  // the splitters would only catch gestures behind it.
+  if (active.maximizedId) {
+    for (const el of [...splitterEls]) el.remove();
+    splitterEls.clear();
+  }
+  for (const t of [...all.values(), ...pending]) {
+    t.el.classList.toggle('off', t.project !== active);
+  }
   requestAnimationFrame(fitAll);
 }
 
@@ -202,7 +433,7 @@ export function roleBadgeFor(name) {
 
 // `container`: mount somewhere other than the terminal grid (e.g. the Run
 // console). Such panes stay out of the grid, the terminal list and drag.
-export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null } = {}) {
+export async function openTerminal(project, { cwd, command, title, kind = 'shell', badge = null, onOutput, onExit, focus: takeFocus = true, container = null, tmuxSession = null, tmuxWindow = null, tmuxName = null, role = null, agentId = null, sessionRef = null, splitDirection = null, splitFrom = null } = {}) {
   const remote = project?.remote || null;
   const effectiveBadge = badge || roleBadgeFor(tmuxName || title);
   // The command actually running in the pane wins; an explicit agent id comes
@@ -211,7 +442,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   const effectiveAgent = agentBadgeFor(agentId || detectedAgentId || roleFor(role || tmuxName || title)?.agentId);
   const agentBadgeHtml = effectiveAgent ? `<span class="pane-badge pane-agent-badge" data-agent="${esc(effectiveAgent.id)}" title="${esc(effectiveAgent.name)}" style="--agent-tint-1:${esc(effectiveAgent.tint[0])};--agent-tint-2:${esc(effectiveAgent.tint[1])}">${esc(effectiveAgent.text)}</span>` : '';
   const el = document.createElement('div');
-  el.className = container ? 'pane console' : 'pane';
+  el.className = container ? 'pane console' : 'pane tiled';
   el.innerHTML = `
     <div class="pane-head">
       <span class="dot"></span>
@@ -221,6 +452,8 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
       <span class="pane-cwd"></span>
       <div class="spacer"></div>
       <button class="icon-btn pane-aa" data-act="look" title="Terminal appearance">Aa</button>
+      ${container ? '' : '<button class="icon-btn" data-act="split-h" title="Split right (Ctrl+Shift+O)">◫</button>'}
+      ${container ? '' : '<button class="icon-btn" data-act="split-v" title="Split down (Ctrl+Shift+E)">⬓</button>'}
       <button class="icon-btn" data-act="max" title="Maximize (Ctrl+Shift+M)">⤢</button>
       <button class="icon-btn" data-act="close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
@@ -259,6 +492,15 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   if (effectiveAgent) paintAgentBadge(t, effectiveAgent);
   pending.add(t);
   styleFor(t);
+  if (!container) {
+    const after = splitFrom && splitFrom.project === project ? splitFrom : currentPaneOf(project);
+    insertLeaf(project, t, { after, direction: splitDirection || 'horizontal' });
+    // A newcomer must be visible: leave maximize before laying it out.
+    if (project.maximizedId) {
+      project.maximizedId = null;
+      for (const x of terminalsOf(project)) x.el.classList.remove('maximized');
+    }
+  }
   relayout();
   try {
     fit.fit();
@@ -275,7 +517,20 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
       const session = tmuxSession || (await work.tmux.sessionForProject(project.path, remote).catch(() => null));
       if (session) {
         ptyOpts.tmux_session = session;
-        if (tmuxWindow) ptyOpts.tmux_window = tmuxWindow;
+        let targetWindow = tmuxWindow || null;
+        // A split asks tmux for a sibling window and then attaches this xterm
+        // to it; a failure falls back to the backend's own new window.
+        if (!targetWindow && splitDirection && splitFrom?.tmuxWindow && splitFrom.tmuxSession === session && work.tmux.splitPane) {
+          const info = await work.tmux.splitPane(session, splitFrom.tmuxWindow, splitDirection, remote).catch(() => null);
+          if (info?.windowId) {
+            targetWindow = info.windowId;
+            t.tmuxPane = info.paneId || null;
+          }
+        }
+        if (targetWindow) {
+          ptyOpts.tmux_window = targetWindow;
+          t.tmuxWindow = targetWindow;
+        }
         if (tmuxName || title) ptyOpts.tmux_name = tmuxName || title;
         if (t.role) ptyOpts.role = t.role;
         if (t.agentId) ptyOpts.agent_id = t.agentId;
@@ -308,6 +563,16 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   el.addEventListener('pointerdown', () => focus(id));
   el.querySelector('[data-act="close"]').onclick = () => closeTerminal(id);
   el.querySelector('[data-act="max"]').onclick = () => toggleMax(id);
+  if (!container) {
+    el.querySelector('[data-act="split-h"]').onclick = (event) => {
+      event.stopPropagation();
+      splitTerminal(id, 'horizontal');
+    };
+    el.querySelector('[data-act="split-v"]').onclick = (event) => {
+      event.stopPropagation();
+      splitTerminal(id, 'vertical');
+    };
+  }
   // Files dropped on a terminal type their paths, quoted, as in Terminal.app.
   el.addEventListener('dragover', (e) => {
     if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
@@ -342,6 +607,25 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   }
   onChange();
   return t;
+}
+
+// Splits the pane in place: a new tmux window (its own PTY) in the same
+// folder, laid out to the right or below. Works for plain shells too.
+export async function splitTerminal(id, direction = 'horizontal') {
+  const t = all.get(id);
+  if (!t || t.console || t.exited) return null;
+  // A split must be visible: leave maximize before adding the new rectangle.
+  if (t.project.maximizedId) {
+    t.project.maximizedId = null;
+    for (const x of terminalsOf(t.project)) x.el.classList.remove('maximized');
+    relayout();
+  }
+  return openTerminal(t.project, {
+    cwd: t.cwd,
+    tmuxSession: t.tmuxSession,
+    splitDirection: direction,
+    splitFrom: t,
+  });
 }
 
 function paintHead(t) {
@@ -428,8 +712,12 @@ export function closeTerminal(id) {
   closedIds.add(id);
   const p = t.project;
   if (p.maximizedId === id) p.maximizedId = null;
+  // Take the rectangle out of the tree now: the survivors grow while the
+  // closing pane plays its exit animation in the space it last occupied.
+  removeLeaf(p, t);
   t.search?.dispose();
   t.el.classList.add('closing');
+  relayout();
   afterExit(t.el, () => {
     t.term.dispose();
     t.el.remove();
@@ -457,6 +745,7 @@ export function toggleMax(id) {
   const p = t.project;
   p.maximizedId = p.maximizedId === id ? null : id;
   for (const x of terminalsOf(p)) x.el.classList.toggle('maximized', x.id === p.maximizedId);
+  relayout();
   requestAnimationFrame(fitAll);
   t.term.focus();
 }
@@ -525,10 +814,11 @@ export function moveToProject(t, project) {
     from.maximizedId = null;
     t.el.classList.remove('maximized');
   }
+  removeLeaf(from, t);
   t.project = project;
   t.el.classList.toggle('off', project !== active);
   t.el.classList.remove('focused');
-  $('#terminals').appendChild(t.el); // last in the destination's grid
+  insertLeaf(project, t, { after: currentPaneOf(project) });
   // focus() also moves the highlight; an empty destination focuses the newcomer.
   if (from.focusedId === t.id) {
     from.focusedId = null;
@@ -613,8 +903,9 @@ function startPaneDrag(t, e) {
     if (!zone) return mark(null);
     if (zone.kind === 'tab') return mark({ kind: 'tab', el: zone.el });
     const { r } = zone;
-    const after = r.width > r.height * 1.2 ? x > r.left + r.width / 2 : y > r.top + r.height / 2;
-    mark({ kind: 'pane', el: zone.el, after });
+    const horizontal = r.width > r.height * 1.2;
+    const after = horizontal ? x > r.left + r.width / 2 : y > r.top + r.height / 2;
+    mark({ kind: 'pane', el: zone.el, after, horizontal });
   };
 
   const end = (ev) => {
@@ -637,7 +928,10 @@ function startPaneDrag(t, e) {
       el.classList.remove('dragging');
       el.style.transform = '';
       if (!cancelled && drop?.kind === 'pane') {
-        drop.el.parentNode.insertBefore(el, drop.after ? drop.el.nextSibling : drop.el);
+        moveLeaf(t.project, t, drop.el._t, {
+          after: drop.after,
+          direction: drop.horizontal ? 'horizontal' : 'vertical',
+        });
         relayout();
         onChange();
       }

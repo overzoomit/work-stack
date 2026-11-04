@@ -172,6 +172,8 @@ export const env = {
   tmuxNewError: null,
   tmuxWindowOf: null,
   createdWindows: [],
+  tmuxSplit: null, // what tmux.splitPane answers (or an Error through tmuxSplitError)
+  tmuxSplitError: null,
 };
 let nextId = 1;
 globalThis.window = {
@@ -229,6 +231,23 @@ globalThis.window = {
       killWindow: async () => {},
       sendKeys: async (session, target, keys, remote) => {
         env.tmuxCalls.push(['sendKeys', session, target, keys, remote]);
+      },
+      splitPane: async (session, window, direction, remote) => {
+        env.tmuxCalls.push(['splitPane', session, window, direction, remote]);
+        if (env.tmuxSplitError) throw env.tmuxSplitError;
+        const windowId = env.tmuxSplit?.windowId || `@${(env.tmuxWindows?.length || 0) + 8}`;
+        const info = { paneId: '%99', ptyId: '', width: 80, height: 24, windowId, ...env.tmuxSplit };
+        env.tmuxWindows = [...(env.tmuxWindows || []), { id: info.windowId, name: '', active: false, path: '' }];
+        return info;
+      },
+      resizePane: async (session, target, cols, rows, remote) => {
+        env.tmuxCalls.push(['resizePane', session, target, cols, rows, remote]);
+      },
+      zoomPane: async (session, target, remote) => {
+        env.tmuxCalls.push(['zoomPane', session, target, remote]);
+      },
+      closePane: async (session, target, remote) => {
+        env.tmuxCalls.push(['closePane', session, target, remote]);
       },
     },
   },

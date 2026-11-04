@@ -298,6 +298,154 @@ pub fn capture_pane(session: &str, target: &str, lines: Option<u32>) -> Result<S
     run_tmux(&args)
 }
 
+// ── Split panes ──────────────────────────────────────────────
+//
+// Every terminal rectangle in Work is backed by its own tmux *window*, each
+// holding one pane. A tmux window shares its active pane with every client
+// attached to it, so two clients on the same window would mirror each other;
+// one window per rectangle is what keeps input, output and scrollback
+// isolated. The split direction is a renderer concern (where the new
+// rectangle goes); tmux places the new window right after the source one.
+
+// The public directions the renderer may ask for; anything else is a bug and
+// must never reach tmux as an option.
+pub fn normalize_direction(direction: &str) -> Result<&'static str, String> {
+    match direction {
+        "horizontal" | "h" | "right" => Ok("horizontal"),
+        "vertical" | "v" | "down" => Ok("vertical"),
+        _ => Err(format!(
+            "Direzione di split non valida: {direction}. Usa \"horizontal\" o \"vertical\"."
+        )),
+    }
+}
+
+// A pane/window target is passed to tmux as a single argv entry, but a leading
+// '-' would still be read as an option and a control character could corrupt
+// tmux's output.
+fn check_pane_target(target: &str) -> Result<(), String> {
+    let valid = !target.is_empty()
+        && target.len() <= 128
+        && !target.starts_with('-')
+        && !target.chars().any(char::is_control);
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("Target tmux non valido: {target}"))
+    }
+}
+
+fn pane_target(session: &str, target: &str) -> Result<String, String> {
+    check_pane_target(target)?;
+    if target.starts_with('%') {
+        // Pane ids are global: "session:%1" is not a valid tmux target.
+        Ok(target.to_string())
+    } else {
+        Ok(format!("{session}:{target}"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TmuxPaneInfo {
+    pub pane_id: String,
+    // The renderer creates the PTY after this call; kept in the contract so a
+    // future backend-created pane can fill it.
+    pub pty_id: String,
+    pub width: u16,
+    pub height: u16,
+    // The tmux window the renderer must attach the new xterm to.
+    pub window_id: String,
+}
+
+// Parses the `#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}` line.
+pub fn parse_pane_info(raw: &str, pty_id: &str) -> Result<TmuxPaneInfo, String> {
+    let line = raw.lines().next().unwrap_or("").trim();
+    if line.is_empty() {
+        return Err("tmux non ha restituito una finestra per il nuovo pannello.".into());
+    }
+    let mut parts = line.split('\t');
+    let window_id = parts.next().unwrap_or("").trim().to_string();
+    let pane_id = parts.next().unwrap_or("").trim().to_string();
+    let width = parts
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    let height = parts
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    if !window_id.starts_with('@') || !pane_id.starts_with('%') {
+        return Err(format!("tmux non ha restituito un pannello valido: {line}"));
+    }
+    Ok(TmuxPaneInfo {
+        pane_id,
+        pty_id: pty_id.to_string(),
+        width,
+        height,
+        window_id,
+    })
+}
+
+// Opens a sibling window after `window`, in the source pane's current folder.
+pub fn split_window(session: &str, window: &str, direction: &str) -> Result<TmuxPaneInfo, String> {
+    normalize_direction(direction)?;
+    check_pane_target(window)?;
+    let source = format!("{session}:{window}");
+    let cwd = run_tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &source,
+        "#{pane_current_path}",
+    ])
+    .map(|s| s.trim().to_string())
+    .unwrap_or_default();
+    let mut args = vec![
+        "new-window",
+        "-P",
+        "-F",
+        "#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}",
+        "-t",
+        &source,
+        "-a",
+    ];
+    if !cwd.is_empty() {
+        args.push("-c");
+        args.push(&cwd);
+    }
+    let out = run_tmux(&args)?;
+    parse_pane_info(&out, "")
+}
+
+// Resizes a pane (or the sole pane of a window) to an exact character grid.
+pub fn resize_pane(session: &str, target: &str, cols: u16, rows: u16) -> Result<(), String> {
+    if cols == 0 || rows == 0 {
+        return Err(
+            "Dimensioni del pannello non valide: righe e colonne devono essere maggiori di zero."
+                .into(),
+        );
+    }
+    let target = pane_target(session, target)?;
+    let (cols, rows) = (cols.to_string(), rows.to_string());
+    run_tmux(&["resize-pane", "-t", &target, "-x", &cols, "-y", &rows])?;
+    Ok(())
+}
+
+// Toggles tmux's zoom for the pane: the same gesture as the renderer's
+// maximize, applied to the native layout.
+pub fn zoom_pane(session: &str, target: &str) -> Result<(), String> {
+    let target = pane_target(session, target)?;
+    run_tmux(&["resize-pane", "-Z", "-t", &target])?;
+    Ok(())
+}
+
+// Closes a pane; a window whose last pane goes away disappears with it.
+pub fn kill_pane(session: &str, target: &str) -> Result<(), String> {
+    let target = pane_target(session, target)?;
+    run_tmux(&["kill-pane", "-t", &target])?;
+    Ok(())
+}
+
 // ── IPC Commands ─────────────────────────────────────────────
 
 #[tauri::command]
@@ -400,6 +548,57 @@ pub fn tmux_capture_pane(
     match remote {
         Some(remote) => crate::remote::capture_pane(&remote, &session, &target, lines),
         None => capture_pane(&session, &target, lines),
+    }
+}
+
+#[tauri::command(async)]
+pub fn tmux_split_pane(
+    session: String,
+    window: String,
+    direction: String,
+    remote: Option<RemoteProject>,
+) -> Result<TmuxPaneInfo, String> {
+    match remote {
+        Some(remote) => crate::remote::split_window(&remote, &session, &window, &direction),
+        None => split_window(&session, &window, &direction),
+    }
+}
+
+#[tauri::command(async)]
+pub fn tmux_resize_pane(
+    session: String,
+    target: String,
+    cols: u16,
+    rows: u16,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::resize_pane(&remote, &session, &target, cols, rows),
+        None => resize_pane(&session, &target, cols, rows),
+    }
+}
+
+#[tauri::command(async)]
+pub fn tmux_zoom_pane(
+    session: String,
+    target: String,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::zoom_pane(&remote, &session, &target),
+        None => zoom_pane(&session, &target),
+    }
+}
+
+#[tauri::command(async)]
+pub fn tmux_close_pane(
+    session: String,
+    target: String,
+    remote: Option<RemoteProject>,
+) -> Result<(), String> {
+    match remote {
+        Some(remote) => crate::remote::kill_pane(&remote, &session, &target),
+        None => kill_pane(&session, &target),
     }
 }
 
@@ -642,5 +841,67 @@ mod tests {
                 "{name:?}"
             );
         }
+    }
+
+    #[test]
+    fn split_direction_accepts_only_the_two_public_values() {
+        assert_eq!(normalize_direction("horizontal").unwrap(), "horizontal");
+        assert_eq!(normalize_direction("right").unwrap(), "horizontal");
+        assert_eq!(normalize_direction("vertical").unwrap(), "vertical");
+        assert_eq!(normalize_direction("down").unwrap(), "vertical");
+        assert!(normalize_direction("diagonal").is_err());
+        assert!(normalize_direction("-h").is_err());
+    }
+
+    #[test]
+    fn pane_info_is_parsed_from_the_tmux_format() {
+        let info = parse_pane_info("@4\t%9\t120\t36\n", "pty-7").unwrap();
+        assert_eq!(info.window_id, "@4");
+        assert_eq!(info.pane_id, "%9");
+        assert_eq!(info.width, 120);
+        assert_eq!(info.height, 36);
+        assert_eq!(info.pty_id, "pty-7");
+
+        assert!(parse_pane_info("", "").is_err());
+        assert!(parse_pane_info("nonsense", "").is_err());
+    }
+
+    #[test]
+    fn pane_targets_never_start_with_a_dash() {
+        assert_eq!(pane_target("work_x", "@3").unwrap(), "work_x:@3");
+        assert_eq!(pane_target("work_x", "%5").unwrap(), "%5");
+        assert!(pane_target("work_x", "-h").is_err());
+        assert!(pane_target("work_x", "").is_err());
+    }
+
+    #[test]
+    fn splitting_creates_a_sibling_window_that_resizes_and_closes() {
+        if !is_available() {
+            return;
+        }
+        let session = unique("wssplit_");
+        ensure_session(&session, Path::new("/tmp")).unwrap();
+        let source = list_windows(&session).unwrap().remove(0).id;
+
+        let info = split_window(&session, &source, "horizontal").unwrap();
+        assert_ne!(info.window_id, source, "a new independent window");
+        assert!(info.pane_id.starts_with('%'));
+        assert!(info.width > 0 && info.height > 0, "{info:?}");
+
+        let windows = list_windows(&session).unwrap();
+        assert_eq!(windows.len(), 2, "both rectangles stay alive");
+        assert!(windows.iter().any(|w| w.id == info.window_id));
+
+        // The renderer resizes through the PTY; these commands keep tmux in
+        // sync when the user drags a splitter.
+        assert!(resize_pane(&session, &info.window_id, 100, 30).is_ok());
+        assert!(zoom_pane(&session, &info.window_id).is_ok());
+        assert!(kill_pane(&session, &info.window_id).is_ok());
+        assert!(!list_windows(&session)
+            .unwrap()
+            .iter()
+            .any(|w| w.id == info.window_id));
+
+        let _ = kill_session(&session);
     }
 }

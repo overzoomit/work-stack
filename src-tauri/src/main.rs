@@ -336,6 +336,10 @@ fn main() {
             tmux::tmux_kill_session,
             tmux::tmux_send_keys,
             tmux::tmux_capture_pane,
+            tmux::tmux_split_pane,
+            tmux::tmux_resize_pane,
+            tmux::tmux_zoom_pane,
+            tmux::tmux_close_pane,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Work")
