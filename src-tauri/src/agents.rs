@@ -21,7 +21,9 @@ const MAX_EVENTS: usize = 60;
 pub fn projects_dir() -> PathBuf {
     match std::env::var_os("WORK_CLAUDE_PROJECTS") {
         Some(d) => PathBuf::from(d),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/projects"),
+        None => {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/projects")
+        }
     }
 }
 
@@ -32,11 +34,19 @@ pub fn is_session_file(name: &str) -> bool {
     let b = name.as_bytes();
     b.len() == 42
         && b[36..].eq_ignore_ascii_case(b".jsonl")
-        && b[..36].iter().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { *c == b'-' } else { c.is_ascii_hexdigit() })
+        && b[..36].iter().enumerate().all(|(i, c)| {
+            if [8, 13, 18, 23].contains(&i) {
+                *c == b'-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 
 fn now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 // The main checkout of the linked git worktree a folder is in, so that its
@@ -55,7 +65,10 @@ fn main_worktree(cwd: &Path) -> Option<String> {
 }
 
 fn mtime_ms(m: &fs::Metadata) -> f64 {
-    m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 // A whole number goes out as an integer, like a JS number would.
@@ -98,7 +111,9 @@ fn parse_ts(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     let n = |from: usize, len: usize| -> Option<i64> {
         let d = b.get(from..from + len)?;
-        d.iter().all(u8::is_ascii_digit).then(|| s[from..from + len].parse().ok())?
+        d.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| s[from..from + len].parse().ok())?
     };
     let at = |i: usize, c: u8| b.get(i) == Some(&c);
     let (y, mo, d) = (n(0, 4)?, n(5, 2)?, n(8, 2)?);
@@ -118,7 +133,8 @@ fn parse_ts(s: &str) -> Option<i64> {
                 if digits == 0 {
                     return None;
                 }
-                ms = s[20..20 + digits.min(3)].parse::<i64>().ok()? * 10i64.pow(3 - digits.min(3) as u32);
+                ms = s[20..20 + digits.min(3)].parse::<i64>().ok()?
+                    * 10i64.pow(3 - digits.min(3) as u32);
                 i = 20 + digits;
             }
         }
@@ -150,7 +166,14 @@ fn parse_ts(s: &str) -> Option<i64> {
 }
 
 // The most telling field of a tool call's input, in order of preference.
-const SUMMARY_FIELDS: [&str; 6] = ["command", "file_path", "pattern", "url", "description", "prompt"];
+const SUMMARY_FIELDS: [&str; 6] = [
+    "command",
+    "file_path",
+    "pattern",
+    "url",
+    "description",
+    "prompt",
+];
 
 fn summarize_input(input: Option<&Value>) -> String {
     let input = input.cloned().unwrap_or_else(|| json!({}));
@@ -191,7 +214,10 @@ fn last_mode(buf: &[u8]) -> Option<String> {
             continue;
         }
         let from = i + NEEDLE.len();
-        let len = buf[from..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == b'_').count();
+        let len = buf[from..]
+            .iter()
+            .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_')
+            .count();
         if len > 0 && buf.get(from + len) == Some(&b'"') {
             found = Some(String::from_utf8_lossy(&buf[from..from + len]).into_owned());
         }
@@ -211,7 +237,9 @@ fn last_mode_before(file: &Path, end: u64) -> io::Result<Option<String>> {
         let mut buf = Vec::new();
         f.seek(SeekFrom::Start(start))?;
         // overlap: a match cut at a block edge
-        (&mut f).take(end.min(pos + 64) - start).read_to_end(&mut buf)?;
+        (&mut f)
+            .take(end.min(pos + 64) - start)
+            .read_to_end(&mut buf)?;
         if let Some(m) = last_mode(&buf) {
             return Ok(Some(m));
         }
@@ -252,7 +280,10 @@ pub struct Session {
 
 impl Session {
     pub fn new(file: &Path) -> Self {
-        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         Session {
             file: file.to_path_buf(),
             id: name.strip_suffix(".jsonl").unwrap_or(&name).to_string(),
@@ -350,7 +381,12 @@ impl Session {
 
     fn push(&mut self, ts: Option<i64>, kind: &'static str, text: String, tool: Option<String>) {
         self.event_seq += 1;
-        self.events.push(Event { ts, kind, text, tool });
+        self.events.push(Event {
+            ts,
+            kind,
+            text,
+            tool,
+        });
         if self.events.len() > MAX_EVENTS {
             self.events.remove(0);
         }
@@ -382,7 +418,11 @@ impl Session {
                 self.title = Some(clip(p, 80));
             }
         }
-        let ts = if truthy(e.get("timestamp")) { e["timestamp"].as_str().and_then(parse_ts) } else { Some(now_ms() as i64) };
+        let ts = if truthy(e.get("timestamp")) {
+            e["timestamp"].as_str().and_then(parse_ts)
+        } else {
+            Some(now_ms() as i64)
+        };
         let msg = match e.get("message") {
             Some(m) if truthy(Some(m)) && !truthy(e.get("isSidechain")) => m,
             _ => return,
@@ -395,12 +435,24 @@ impl Session {
                 self.last_kind = Some("assistant-end");
                 return;
             }
-            let result = content.and_then(Value::as_array).and_then(|a| a.iter().find(|c| c.get("type").and_then(Value::as_str) == Some("tool_result")));
+            let result = content.and_then(Value::as_array).and_then(|a| {
+                a.iter()
+                    .find(|c| c.get("type").and_then(Value::as_str) == Some("tool_result"))
+            });
             if let Some(r) = result {
                 self.last_kind = Some("tool-result");
                 if truthy(r.get("is_error")) {
                     let t = clip(&text_of(r.get("content")), 300);
-                    self.push(ts, "error", if t.is_empty() { "errore tool".into() } else { t }, None);
+                    self.push(
+                        ts,
+                        "error",
+                        if t.is_empty() {
+                            "errore tool".into()
+                        } else {
+                            t
+                        },
+                        None,
+                    );
                 }
                 return;
             }
@@ -420,9 +472,17 @@ impl Session {
         if ty == Some("assistant") {
             if let Some(u) = msg.get("usage").filter(|u| truthy(Some(u))) {
                 let n = |k: &str| u.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-                self.tokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") + n("output_tokens");
+                self.tokens = n("input_tokens")
+                    + n("cache_read_input_tokens")
+                    + n("cache_creation_input_tokens")
+                    + n("output_tokens");
             }
-            for c in msg.get("content").and_then(Value::as_array).into_iter().flatten() {
+            for c in msg
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 match c.get("type").and_then(Value::as_str) {
                     Some("text") => {
                         let t = c.get("text").and_then(Value::as_str).unwrap_or("").trim();
@@ -433,7 +493,12 @@ impl Session {
                     Some("tool_use") => {
                         let name = c.get("name").and_then(Value::as_str).map(String::from);
                         self.last_tool.clone_from(&name);
-                        self.push(ts, "tool", clip(&summarize_input(c.get("input")), 300), name);
+                        self.push(
+                            ts,
+                            "tool",
+                            clip(&summarize_input(c.get("input")), 300),
+                            name,
+                        );
                     }
                     _ => {}
                 }
@@ -456,7 +521,12 @@ impl Session {
             Some("assistant-end") => ("waiting", "Attende il tuo input".into()),
             // A tool call with no result for a while usually means a permission
             // prompt, unless permissions are bypassed: then it's just a long tool.
-            Some("assistant-tool") if idle > 15000.0 && self.permission_mode.as_deref() != Some("bypassPermissions") => ("blocked", format!("Attende permesso: {tool}")),
+            Some("assistant-tool")
+                if idle > 15000.0
+                    && self.permission_mode.as_deref() != Some("bypassPermissions") =>
+            {
+                ("blocked", format!("Attende permesso: {tool}"))
+            }
             Some("assistant-tool") => ("working", format!("Esegue {tool}")),
             _ => ("working", "Sta ragionando…".into()),
         }
@@ -470,7 +540,11 @@ impl Session {
         if open == Some(false) && state != "idle" {
             (state, label) = ("idle", "Chiusa".into());
         }
-        let base = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let base = |p: &Path| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
         let project = match &self.cwd {
             Some(cwd) => base(Path::new(cwd)),
             None => self.file.parent().map(base).unwrap_or_default(),
@@ -492,7 +566,17 @@ impl Session {
 }
 
 fn state_key(list: &[Value]) -> String {
-    list.iter().map(|a| format!("{}:{}:{}", a["status"]["state"].as_str().unwrap_or(""), a["status"]["label"].as_str().unwrap_or(""), a["live"])).collect::<Vec<_>>().join(",")
+    list.iter()
+        .map(|a| {
+            format!(
+                "{}:{}:{}",
+                a["status"]["state"].as_str().unwrap_or(""),
+                a["status"]["label"].as_str().unwrap_or(""),
+                a["live"]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[derive(Default)]
@@ -512,12 +596,23 @@ struct Shared {
 
 impl Shared {
     fn list(&self) -> Vec<Value> {
-        let open = claudeprocs::tracked(&self.sessions_dir).then(|| claudeprocs::live(&self.sessions_dir));
+        let open =
+            claudeprocs::tracked(&self.sessions_dir).then(|| claudeprocs::live(&self.sessions_dir));
         let st = self.state.lock().unwrap();
-        let mut list: Vec<&Session> = st.sessions.values().filter(|s| !s.events.is_empty()).collect();
+        let mut list: Vec<&Session> = st
+            .sessions
+            .values()
+            .filter(|s| !s.events.is_empty())
+            .collect();
         // The path breaks ties so the order doesn't flicker between updates.
-        list.sort_by(|a, b| b.mtime.total_cmp(&a.mtime).then_with(|| a.file.cmp(&b.file)));
-        list.iter().map(|s| s.to_json(open.as_ref().map(|o| o.contains_key(&s.id)))).collect()
+        list.sort_by(|a, b| {
+            b.mtime
+                .total_cmp(&a.mtime)
+                .then_with(|| a.file.cmp(&b.file))
+        });
+        list.iter()
+            .map(|s| s.to_json(open.as_ref().map(|o| o.contains_key(&s.id))))
+            .collect()
     }
 
     fn emit(&self) {
@@ -539,7 +634,10 @@ impl Shared {
 
     fn read_file(&self, file: &Path) -> bool {
         let mut st = self.state.lock().unwrap();
-        let s = st.sessions.entry(file.to_path_buf()).or_insert_with(|| Session::new(file));
+        let s = st
+            .sessions
+            .entry(file.to_path_buf())
+            .or_insert_with(|| Session::new(file));
         match s.read() {
             Ok(changed) => changed,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -547,7 +645,8 @@ impl Shared {
                 true
             }
             Err(_) => {
-                self.failed_reads.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.failed_reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 false
             }
         }
@@ -556,14 +655,19 @@ impl Shared {
     // Old sessions stay (the whole history is listed); only those whose
     // transcript is gone are dropped, in case the delete event was missed.
     fn prune(&self) {
-        self.state.lock().unwrap().sessions.retain(|file, _| file.exists());
+        self.state
+            .lock()
+            .unwrap()
+            .sessions
+            .retain(|file, _| file.exists());
     }
 }
 
 // Reads (inotify's IN_OPEN) are ignored: the worker's own read_dir/read_file
 // would otherwise wake it to read again, in an endless loop at 100% CPU.
 fn wakes_worker(r: &notify::Result<notify::Event>) -> bool {
-    !r.as_ref().is_ok_and(|ev| matches!(ev.kind, notify::EventKind::Access(_)))
+    !r.as_ref()
+        .is_ok_and(|ev| matches!(ev.kind, notify::EventKind::Access(_)))
 }
 
 enum Msg {
@@ -592,12 +696,16 @@ fn real(p: &Path) -> PathBuf {
 
 impl Worker {
     fn watch(&mut self, dir: &Path) -> bool {
-        self.fsw.as_mut().is_some_and(|w| w.watch(dir, RecursiveMode::NonRecursive).is_ok())
+        self.fsw
+            .as_mut()
+            .is_some_and(|w| w.watch(dir, RecursiveMode::NonRecursive).is_ok())
     }
 
     fn watch_dirs(&mut self) {
         self.root = real(&self.shared.projects);
-        let (Ok(rd), Some(fsw)) = (fs::read_dir(&self.root), self.fsw.as_mut()) else { return };
+        let (Ok(rd), Some(fsw)) = (fs::read_dir(&self.root), self.fsw.as_mut()) else {
+            return;
+        };
         // One commit for all folders: each watch() restarts the FSEvents stream.
         let mut paths = fsw.paths_mut();
         // A folder removed is forgotten, so one created again is watched again.
@@ -637,7 +745,8 @@ impl Worker {
     // Coalesce bursts of writes (a streaming reply writes many lines) into one update.
     fn touch(&mut self, file: PathBuf) {
         self.dirty.insert(file);
-        self.flush_at.get_or_insert_with(|| Instant::now() + Duration::from_millis(250));
+        self.flush_at
+            .get_or_insert_with(|| Instant::now() + Duration::from_millis(250));
     }
 
     fn flush(&mut self) {
@@ -654,9 +763,14 @@ impl Worker {
     fn scan(&mut self) {
         self.root = real(&self.shared.projects);
         let (mut dirs, mut sessions, mut unreadable) = (0, 0, 0);
-        let failed_before = self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed);
+        let failed_before = self
+            .shared
+            .failed_reads
+            .load(std::sync::atomic::Ordering::Relaxed);
         for d in fs::read_dir(&self.root).into_iter().flatten().flatten() {
-            let Ok(files) = fs::read_dir(d.path()) else { continue };
+            let Ok(files) = fs::read_dir(d.path()) else {
+                continue;
+            };
             dirs += 1;
             for f in files.flatten() {
                 if !f.file_name().to_str().is_some_and(is_session_file) {
@@ -666,9 +780,17 @@ impl Worker {
                 self.shared.read_file(&f.path());
             }
         }
-        unreadable += self.shared.failed_reads.load(std::sync::atomic::Ordering::Relaxed) - failed_before;
+        unreadable += self
+            .shared
+            .failed_reads
+            .load(std::sync::atomic::Ordering::Relaxed)
+            - failed_before;
         // The first scan always, the ones every 60 s only with WORK_DEBUG.
-        let level = if self.started { Level::Debug } else { Level::Info };
+        let level = if self.started {
+            Level::Debug
+        } else {
+            Level::Info
+        };
         log(level, "agents", format!("scansione: {dirs} cartelle progetto, {sessions} sessioni, {unreadable} illeggibili"));
         self.watch_dirs();
     }
@@ -681,7 +803,11 @@ impl Worker {
             self.procs_at = Some(Instant::now() + Duration::from_millis(300));
         } else if p == self.root || parent == Some(&self.root) {
             self.watch_dirs();
-        } else if parent.and_then(Path::parent) == Some(&self.root) && p.file_name().and_then(|n| n.to_str()).is_some_and(is_session_file) {
+        } else if parent.and_then(Path::parent) == Some(&self.root)
+            && p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(is_session_file)
+        {
             self.touch(p.to_path_buf());
         }
     }
@@ -691,11 +817,17 @@ impl Worker {
         let mut tick_at = Instant::now() + tick;
         let mut ticks = 0u32;
         loop {
-            let next = [self.flush_at, self.procs_at, Some(tick_at)].into_iter().flatten().min().unwrap_or(tick_at);
+            let next = [self.flush_at, self.procs_at, Some(tick_at)]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(tick_at);
             match rx.recv_timeout(next.saturating_duration_since(Instant::now())) {
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 Ok(Msg::Fs(Ok(ev))) => ev.paths.iter().for_each(|p| self.route(p)),
-                Ok(Msg::Fs(Err(e))) => log(Level::Warn, "agents", format!("errore del watcher: {e}")),
+                Ok(Msg::Fs(Err(e))) => {
+                    log(Level::Warn, "agents", format!("errore del watcher: {e}"))
+                }
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
@@ -740,9 +872,19 @@ pub struct AgentWatcher {
 }
 
 impl AgentWatcher {
-    pub fn new(projects: PathBuf, sessions_dir: PathBuf, on_update: impl Fn(Vec<Value>) + Send + Sync + 'static) -> Self {
+    pub fn new(
+        projects: PathBuf,
+        sessions_dir: PathBuf,
+        on_update: impl Fn(Vec<Value>) + Send + Sync + 'static,
+    ) -> Self {
         AgentWatcher {
-            shared: Arc::new(Shared { projects, sessions_dir, on_update: Box::new(on_update), state: Mutex::default(), failed_reads: Default::default() }),
+            shared: Arc::new(Shared {
+                projects,
+                sessions_dir,
+                on_update: Box::new(on_update),
+                state: Mutex::default(),
+                failed_reads: Default::default(),
+            }),
             worker: Mutex::new(None),
         }
     }
@@ -762,7 +904,8 @@ impl AgentWatcher {
                 "watcher: projects_dir {}, sessions_dir {}, file watcher {}",
                 describe_dir(&self.shared.projects),
                 describe_dir(&self.shared.sessions_dir),
-                fsw.as_ref().map_or_else(|e| format!("non partito: {e}"), |_| "ok".into())
+                fsw.as_ref()
+                    .map_or_else(|e| format!("non partito: {e}"), |_| "ok".into())
             ),
         );
         let mut w = Worker {
@@ -832,38 +975,87 @@ impl Drop for AgentWatcher {
 // folder's transcripts in ~/.claude/projects/<path with every character
 // other than a letter or digit turned into "-">.
 pub fn has_history(projects: &Path, dir: &Value) -> bool {
-    let Some(dir) = dir.as_str().filter(|d| d.starts_with('/')) else { return false };
+    let Some(dir) = dir.as_str().filter(|d| d.starts_with('/')) else {
+        return false;
+    };
     // One "-" per UTF-16 unit, as the JS regex replaced them.
-    let name: String = dir.chars().flat_map(|c| std::iter::repeat_n(if c.is_ascii_alphanumeric() { c } else { '-' }, if c.is_ascii_alphanumeric() { 1 } else { c.len_utf16() })).collect();
-    let sessions = fs::read_dir(projects.join(&name)).map_or(0, |rd| rd.flatten().filter(|f| f.file_name().to_str().is_some_and(is_session_file)).count());
-    log(Level::Debug, "agents", format!("storia di {dir}: {name}, {sessions} sessioni"));
+    let name: String = dir
+        .chars()
+        .flat_map(|c| {
+            std::iter::repeat_n(
+                if c.is_ascii_alphanumeric() { c } else { '-' },
+                if c.is_ascii_alphanumeric() {
+                    1
+                } else {
+                    c.len_utf16()
+                },
+            )
+        })
+        .collect();
+    let sessions = fs::read_dir(projects.join(&name)).map_or(0, |rd| {
+        rd.flatten()
+            .filter(|f| f.file_name().to_str().is_some_and(is_session_file))
+            .count()
+    });
+    log(
+        Level::Debug,
+        "agents",
+        format!("storia di {dir}: {name}, {sessions} sessioni"),
+    );
     sessions > 0
 }
 
 fn is_safe_command(c: &str) -> bool {
-    !c.is_empty() && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+    !c.is_empty()
+        && c.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
 // Which agent CLIs are installed, resolved through an interactive login shell
 // (-lic) so nvm / ~/.local/bin paths are found like in a normal terminal.
 pub async fn available(commands: Vec<String>) -> Vec<String> {
-    let safe: Vec<String> = commands.into_iter().filter(|c| is_safe_command(c)).collect();
+    let safe: Vec<String> = commands
+        .into_iter()
+        .filter(|c| is_safe_command(c))
+        .collect();
     if safe.is_empty() {
         return safe;
     }
-    let script = safe.iter().map(|c| format!("command -v {c} >/dev/null 2>&1 && echo {c}")).collect::<Vec<_>>().join("; ");
+    let script = safe
+        .iter()
+        .map(|c| format!("command -v {c} >/dev/null 2>&1 && echo {c}"))
+        .collect::<Vec<_>>()
+        .join("; ");
     let shell = crate::pty::user_shell();
     let start = std::time::Instant::now();
-    let script = format!("{script}; printf '\\n{}%s\\n' \"$PATH\"", crate::app::PATH_MARK);
+    let script = format!(
+        "{script}; printf '\\n{}%s\\n' \"$PATH\"",
+        crate::app::PATH_MARK
+    );
     let sh = shell.clone();
     // What was printed before the timeout still counts.
-    let ran = tokio::task::spawn_blocking(move || crate::app::run_shell(&sh, "-lic", &script, Duration::from_secs(8))).await;
+    let ran = tokio::task::spawn_blocking(move || {
+        crate::app::run_shell(&sh, "-lic", &script, Duration::from_secs(8))
+    })
+    .await;
     let Ok(Ok((out, timed_out))) = ran else {
-        log(Level::Warn, "agents", format!("CLI disponibili: {shell} -lic non parte"));
+        log(
+            Level::Warn,
+            "agents",
+            format!("CLI disponibili: {shell} -lic non parte"),
+        );
         return vec![];
     };
-    let found: Vec<String> = out.split('\n').filter(|l| safe.iter().any(|c| c == l)).map(String::from).collect();
-    let missing: Vec<&str> = safe.iter().filter(|c| !found.contains(c)).map(String::as_str).collect();
+    let found: Vec<String> = out
+        .split('\n')
+        .filter(|l| safe.iter().any(|c| c == l))
+        .map(String::from)
+        .collect();
+    let missing: Vec<&str> = safe
+        .iter()
+        .filter(|c| !found.contains(c))
+        .map(String::as_str)
+        .collect();
     log(
         Level::Info,
         "agents",
@@ -875,7 +1067,14 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
             missing.join(", ")
         ),
     );
-    log(Level::Debug, "agents", format!("PATH della shell: {}", crate::app::after_mark(&out).unwrap_or("?")));
+    log(
+        Level::Debug,
+        "agents",
+        format!(
+            "PATH della shell: {}",
+            crate::app::after_mark(&out).unwrap_or("?")
+        ),
+    );
     found
 }
 
@@ -894,7 +1093,9 @@ mod tests {
 
     fn line(o: Value) -> String {
         let mut v = json!({ "timestamp": "2026-09-29T12:00:00.000Z", "cwd": "/work/proj" });
-        v.as_object_mut().unwrap().extend(o.as_object().unwrap().clone());
+        v.as_object_mut()
+            .unwrap()
+            .extend(o.as_object().unwrap().clone());
         v.to_string() + "\n"
     }
     fn user(text: &str) -> String {
@@ -911,10 +1112,14 @@ mod tests {
         line(json!({ "type": "assistant", "message": msg }))
     }
     fn reply(text: &str) -> String {
-        line(json!({ "type": "assistant", "message": { "role": "assistant", "stop_reason": "end_turn", "content": [{ "type": "text", "text": text }] } }))
+        line(
+            json!({ "type": "assistant", "message": { "role": "assistant", "stop_reason": "end_turn", "content": [{ "type": "text", "text": text }] } }),
+        )
     }
     fn tool_result(is_error: bool, text: &str) -> String {
-        line(json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "tool_result", "is_error": is_error, "content": [{ "type": "text", "text": text }] }] } }))
+        line(
+            json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "tool_result", "is_error": is_error, "content": [{ "type": "text", "text": text }] }] } }),
+        )
     }
     fn interrupt(text: &str, with_tool_result: bool) -> String {
         let mut content = vec![];
@@ -937,7 +1142,12 @@ mod tests {
     }
     fn append(file: &Path, text: &[u8]) {
         use std::io::Write;
-        fs::OpenOptions::new().append(true).open(file).unwrap().write_all(text).unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(file)
+            .unwrap()
+            .write_all(text)
+            .unwrap();
     }
     fn texts(s: &Session) -> Vec<&str> {
         s.events.iter().map(|e| e.text.as_str()).collect()
@@ -951,10 +1161,16 @@ mod tests {
 
     #[test]
     fn a_session_that_just_asked_for_a_tool_is_working_on_it() {
-        let (_d, mut s) = transcript(&[user("sistema il bug"), tool_use("Bash", json!({ "command": "npm test" }))]);
+        let (_d, mut s) = transcript(&[
+            user("sistema il bug"),
+            tool_use("Bash", json!({ "command": "npm test" })),
+        ]);
         s.read().unwrap();
         assert_eq!(s.status(), ("working", "Esegue Bash".into()));
-        assert_eq!(kinds(&s), [("user", "sistema il bug"), ("tool", "npm test")]);
+        assert_eq!(
+            kinds(&s),
+            [("user", "sistema il bug"), ("tool", "npm test")]
+        );
     }
 
     #[test]
@@ -982,7 +1198,11 @@ mod tests {
 
     #[test]
     fn the_title_prefers_agent_name_then_ai_title_then_first_prompt() {
-        let (_d, mut s) = transcript(&[user("primo messaggio"), line(json!({ "type": "ai-title", "aiTitle": "Titolo AI" })), line(json!({ "type": "agent-name", "agentName": "nome-agente" }))]);
+        let (_d, mut s) = transcript(&[
+            user("primo messaggio"),
+            line(json!({ "type": "ai-title", "aiTitle": "Titolo AI" })),
+            line(json!({ "type": "agent-name", "agentName": "nome-agente" })),
+        ]);
         s.read().unwrap();
         assert_eq!(s.to_json(None)["title"], "nome-agente");
     }
@@ -1004,10 +1224,17 @@ mod tests {
         assert!(!is_session_file(&format!("{UUID}.jsonl.bak")));
     }
 
-    fn watcher_with(projects: &Path, on_update: impl Fn(Vec<Value>) + Send + Sync + 'static) -> AgentWatcher {
+    fn watcher_with(
+        projects: &Path,
+        on_update: impl Fn(Vec<Value>) + Send + Sync + 'static,
+    ) -> AgentWatcher {
         // No sessions folder: whether a process is open stays unknown, so the real
         // ~/.claude/sessions of whoever runs the tests never leaks in.
-        let w = AgentWatcher::new(projects.to_path_buf(), projects.join("no-sessions"), on_update);
+        let w = AgentWatcher::new(
+            projects.to_path_buf(),
+            projects.join("no-sessions"),
+            on_update,
+        );
         w.start();
         w
     }
@@ -1028,7 +1255,15 @@ mod tests {
         file
     }
     fn set_mtime(w: &AgentWatcher, id: &str, mtime: f64) {
-        w.shared.state.lock().unwrap().sessions.values_mut().find(|s| s.id == id).unwrap().mtime = mtime;
+        w.shared
+            .state
+            .lock()
+            .unwrap()
+            .sessions
+            .values_mut()
+            .find(|s| s.id == id)
+            .unwrap()
+            .mtime = mtime;
     }
     fn ids(list: &[Value]) -> Vec<&str> {
         list.iter().map(|a| a["id"].as_str().unwrap()).collect()
@@ -1041,7 +1276,11 @@ mod tests {
     fn the_watcher_ignores_files_with_invalid_names_regression() {
         let root = tempfile::tempdir().unwrap();
         project(root.path(), "-proj-a", UUID, &user("valida"));
-        fs::write(root.path().join("-proj-a/x; touch PWNED.jsonl"), user("malevola")).unwrap();
+        fs::write(
+            root.path().join("-proj-a/x; touch PWNED.jsonl"),
+            user("malevola"),
+        )
+        .unwrap();
         let w = watcher(root.path());
         assert_eq!(ids(&w.list()), [UUID]);
     }
@@ -1049,19 +1288,34 @@ mod tests {
     #[test]
     fn sessions_older_than_24_hours_are_listed_most_recent_first() {
         let root = tempfile::tempdir().unwrap();
-        let (old, recent) = ("22222222-2222-2222-2222-222222222222", "33333333-3333-3333-3333-333333333333");
+        let (old, recent) = (
+            "22222222-2222-2222-2222-222222222222",
+            "33333333-3333-3333-3333-333333333333",
+        );
         let file = project(root.path(), "-proj-b", old, &user("di un mese fa"));
         let month_ago = SystemTime::now() - Duration::from_secs(30 * 24 * 3600);
-        File::options().write(true).open(&file).unwrap().set_modified(month_ago).unwrap();
+        File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(month_ago)
+            .unwrap();
         project(root.path(), "-proj-b", recent, &user("di oggi"));
         let w = watcher(root.path());
-        assert_eq!(ids(&w.list()), [recent, old], "the first scan reads old transcripts too");
+        assert_eq!(
+            ids(&w.list()),
+            [recent, old],
+            "the first scan reads old transcripts too"
+        );
     }
 
     #[test]
     fn prune_keeps_old_sessions_and_drops_those_whose_file_is_gone() {
         let root = tempfile::tempdir().unwrap();
-        let (old, gone) = ("33333333-3333-3333-3333-333333333333", "55555555-5555-5555-5555-555555555555");
+        let (old, gone) = (
+            "33333333-3333-3333-3333-333333333333",
+            "55555555-5555-5555-5555-555555555555",
+        );
         project(root.path(), "-proj-c", old, &user("vecchia"));
         let file = project(root.path(), "-proj-c", gone, &user("cancellata"));
         let w = watcher(root.path());
@@ -1081,12 +1335,25 @@ mod tests {
         fs::create_dir_all(wt.join("src")).unwrap();
         fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
         fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
-        let main = fs::canonicalize(main).unwrap().to_string_lossy().into_owned();
-        assert_eq!(main_worktree(&wt.join("src")).as_deref(), Some(main.as_str()), "from a subfolder too");
-        assert_eq!(main_worktree(Path::new(&main)), None, "the main checkout is not a linked worktree");
+        let main = fs::canonicalize(main)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            main_worktree(&wt.join("src")).as_deref(),
+            Some(main.as_str()),
+            "from a subfolder too"
+        );
+        assert_eq!(
+            main_worktree(Path::new(&main)),
+            None,
+            "the main checkout is not a linked worktree"
+        );
         assert_eq!(main_worktree(d.path()), None, "outside git");
 
-        let (_t, mut s) = transcript(&[line(json!({ "type": "user", "cwd": wt.to_string_lossy(), "message": { "role": "user", "content": "ciao" } }))]);
+        let (_t, mut s) = transcript(&[line(
+            json!({ "type": "user", "cwd": wt.to_string_lossy(), "message": { "role": "user", "content": "ciao" } }),
+        )]);
         s.read().unwrap();
         assert_eq!(s.to_json(None)["repo"], main.as_str());
     }
@@ -1095,7 +1362,12 @@ mod tests {
     fn the_list_sent_to_the_ui_has_no_events_which_are_asked_by_id() {
         let root = tempfile::tempdir().unwrap();
         let id = "44444444-4444-4444-4444-444444444444";
-        project(root.path(), "-proj-events", id, &(user("ciao") + &reply("fatto")));
+        project(
+            root.path(),
+            "-proj-events",
+            id,
+            &(user("ciao") + &reply("fatto")),
+        );
         let w = watcher(root.path());
         let list = w.list();
         let a = list.iter().find(|a| a["id"] == id).unwrap();
@@ -1121,7 +1393,15 @@ mod tests {
         project(root.path(), "-proj-old", id, &user("vecchia"));
         project(root.path(), "-proj-new", id, &user("nuova"));
         let w = watcher(root.path());
-        w.shared.state.lock().unwrap().sessions.values_mut().find(|s| s.id == id && s.events[0].text == "vecchia").unwrap().mtime = ago(3600.0 * 1000.0);
+        w.shared
+            .state
+            .lock()
+            .unwrap()
+            .sessions
+            .values_mut()
+            .find(|s| s.id == id && s.events[0].text == "vecchia")
+            .unwrap()
+            .mtime = ago(3600.0 * 1000.0);
         assert_eq!(event_texts(&w, id), ["nuova"]);
     }
 
@@ -1134,23 +1414,45 @@ mod tests {
             tool_use("Empty", json!({})),
         ]);
         s.read().unwrap();
-        let got: Vec<(&str, &str)> = s.events.iter().map(|e| (e.tool.as_deref().unwrap(), e.text.as_str())).collect();
-        assert_eq!(got, [("Read", "/src/a.js"), ("Grep", "TODO"), ("Custom", r#"{"x":1}"#), ("Empty", "")]);
+        let got: Vec<(&str, &str)> = s
+            .events
+            .iter()
+            .map(|e| (e.tool.as_deref().unwrap(), e.text.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("Read", "/src/a.js"),
+                ("Grep", "TODO"),
+                ("Custom", r#"{"x":1}"#),
+                ("Empty", "")
+            ]
+        );
     }
 
     #[test]
     fn a_failed_tool_becomes_an_error_event_a_successful_one_does_not() {
-        let (_d, mut s) = transcript(&[tool_use("Bash", json!({ "command": "ls" })), tool_result(true, "permesso negato"), tool_result(false, "ok")]);
+        let (_d, mut s) = transcript(&[
+            tool_use("Bash", json!({ "command": "ls" })),
+            tool_result(true, "permesso negato"),
+            tool_result(false, "ok"),
+        ]);
         s.read().unwrap();
         assert_eq!(kinds(&s), [("tool", "ls"), ("error", "permesso negato")]);
-        assert_eq!(s.status().1, "Sta ragionando…", "a tool result means the model is thinking again");
+        assert_eq!(
+            s.status().1,
+            "Sta ragionando…",
+            "a tool result means the model is thinking again"
+        );
     }
 
     #[test]
     fn system_reminders_and_subagent_messages_stay_out_of_the_timeline() {
         let (_d, mut s) = transcript(&[
             user("<system-reminder>ignora</system-reminder>"),
-            line(json!({ "type": "user", "isSidechain": true, "message": { "role": "user", "content": "dal sotto-agente" } })),
+            line(
+                json!({ "type": "user", "isSidechain": true, "message": { "role": "user", "content": "dal sotto-agente" } }),
+            ),
             user("vero messaggio"),
         ]);
         s.read().unwrap();
@@ -1178,7 +1480,10 @@ mod tests {
 
     #[test]
     fn a_transcript_rewritten_from_scratch_drops_the_previous_half_line_regression() {
-        let (_d, mut s) = transcript(&[user("primo"), r#"{"type":"user","message":{"role":"user","content":"a metà"#.into()]);
+        let (_d, mut s) = transcript(&[
+            user("primo"),
+            r#"{"type":"user","message":{"role":"user","content":"a metà"#.into(),
+        ]);
         s.read().unwrap();
         fs::write(&s.file, user("nuovo inizio")).unwrap(); // shorter than before: rewritten from scratch
         s.read().unwrap();
@@ -1197,14 +1502,21 @@ mod tests {
         })
         .unwrap();
         fsw.watch(root.path(), RecursiveMode::NonRecursive).unwrap();
-        fsw.watch(file.parent().unwrap(), RecursiveMode::NonRecursive).unwrap();
+        fsw.watch(file.parent().unwrap(), RecursiveMode::NonRecursive)
+            .unwrap();
         // FSEvents can deliver the setup's own writes after watch(): drain them first.
         while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
         let _ = fs::read_dir(root.path()).unwrap().count(); // what watch_dirs and scan do
         let _ = fs::read(&file).unwrap(); // what flush does
-        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "our own reads must not loop back");
+        assert!(
+            rx.recv_timeout(Duration::from_millis(300)).is_err(),
+            "our own reads must not loop back"
+        );
         append(&file, user("nuova").as_bytes());
-        assert!(rx.recv_timeout(Duration::from_millis(500)).is_ok(), "writes still do");
+        assert!(
+            rx.recv_timeout(Duration::from_millis(500)).is_ok(),
+            "writes still do"
+        );
     }
 
     #[test]
@@ -1222,14 +1534,22 @@ mod tests {
         sleep(Duration::from_millis(700));
         let updates = updates.lock().unwrap();
         assert_eq!(updates.len(), 1, "writes within 250 ms are coalesced");
-        assert_eq!(updates[0].iter().find(|a| a["id"] == id).unwrap()["eventSeq"], 4);
+        assert_eq!(
+            updates[0].iter().find(|a| a["id"] == id).unwrap()["eventSeq"],
+            4
+        );
         assert_eq!(event_texts(&w, id), ["inizio", "uno", "due", "tre"]);
     }
 
     #[test]
     fn no_updates_after_stop_not_even_from_writes_just_made_regression() {
         let root = tempfile::tempdir().unwrap();
-        let file = project(root.path(), "-proj-stop", "88888888-8888-8888-8888-888888888888", &user("inizio"));
+        let file = project(
+            root.path(),
+            "-proj-stop",
+            "88888888-8888-8888-8888-888888888888",
+            &user("inizio"),
+        );
         let (updates, cb) = recorder();
         let w = watcher_with(root.path(), cb);
         sleep(Duration::from_millis(150));
@@ -1251,7 +1571,10 @@ mod tests {
         project(root.path(), "-proj-nuovo", id, &user("prima riga"));
         sleep(Duration::from_millis(800));
         assert!(ids(&w.list()).contains(&id), "listed");
-        assert!(updates.lock().unwrap().iter().any(|l| ids(l).contains(&id)), "and sent to the UI");
+        assert!(
+            updates.lock().unwrap().iter().any(|l| ids(l).contains(&id)),
+            "and sent to the UI"
+        );
     }
 
     #[test]
@@ -1265,20 +1588,35 @@ mod tests {
         fs::remove_file(&file).unwrap();
         sleep(Duration::from_millis(700));
         assert!(!ids(&w.list()).contains(&id), "gone from the list");
-        assert!(!ids(updates.lock().unwrap().last().unwrap()).contains(&id), "and the UI was told");
+        assert!(
+            !ids(updates.lock().unwrap().last().unwrap()).contains(&id),
+            "and the UI was told"
+        );
     }
 
     #[test]
     fn after_an_interruption_the_agent_waits_for_input_regression() {
-        let (_d, mut s) = transcript(&[user("fai il deploy"), reply("Inizio…"), interrupt("[Request interrupted by user]", false)]);
+        let (_d, mut s) = transcript(&[
+            user("fai il deploy"),
+            reply("Inizio…"),
+            interrupt("[Request interrupted by user]", false),
+        ]);
         s.read().unwrap();
         assert_eq!(s.status().0, "waiting");
-        assert_eq!(texts(&s), ["fai il deploy", "Inizio…"], "the marker is not shown as your message");
+        assert_eq!(
+            texts(&s),
+            ["fai il deploy", "Inizio…"],
+            "the marker is not shown as your message"
+        );
     }
 
     #[test]
     fn an_interruption_during_a_tool_also_leaves_the_agent_waiting_regression() {
-        let (_d, mut s) = transcript(&[user("pulisci"), tool_use("Bash", json!({ "command": "rm -rf dist" })), interrupt("[Request interrupted by user for tool use]", true)]);
+        let (_d, mut s) = transcript(&[
+            user("pulisci"),
+            tool_use("Bash", json!({ "command": "rm -rf dist" })),
+            interrupt("[Request interrupted by user for tool use]", true),
+        ]);
         s.read().unwrap();
         assert_eq!(s.status().0, "waiting");
     }
@@ -1297,12 +1635,19 @@ mod tests {
 
     #[test]
     fn in_bypass_mode_a_long_tool_stays_working_regression() {
-        let (_d, mut s) = transcript(&[mode("bypassPermissions"), user("lancia i test"), tool_use("Bash", json!({ "command": "npm test" }))]);
+        let (_d, mut s) = transcript(&[
+            mode("bypassPermissions"),
+            user("lancia i test"),
+            tool_use("Bash", json!({ "command": "npm test" })),
+        ]);
         s.read().unwrap();
         s.mtime = ago(60000.0);
         assert_eq!(s.status(), ("working", "Esegue Bash".into()));
         // Switching back to a mode with prompts brings the permission reading back.
-        append(&s.file, (mode("default") + &tool_use("Edit", json!({ "file_path": "/x.js" }))).as_bytes());
+        append(
+            &s.file,
+            (mode("default") + &tool_use("Edit", json!({ "file_path": "/x.js" }))).as_bytes(),
+        );
         s.read().unwrap();
         s.mtime = ago(20000.0);
         assert_eq!(s.status(), ("blocked", "Attende permesso: Edit".into()));
@@ -1311,7 +1656,12 @@ mod tests {
     #[test]
     fn bypass_mode_is_found_before_the_last_256_kb_of_a_long_transcript_regression() {
         let filler = reply(&"x".repeat(300)).repeat(1200); // ~400 KB of an autonomous run
-        let (_d, mut s) = transcript(&[mode("bypassPermissions"), user("fai tutto"), filler, tool_use("Bash", json!({ "command": "npm run build" }))]);
+        let (_d, mut s) = transcript(&[
+            mode("bypassPermissions"),
+            user("fai tutto"),
+            filler,
+            tool_use("Bash", json!({ "command": "npm run build" })),
+        ]);
         s.read().unwrap();
         s.mtime = ago(60000.0);
         assert_eq!(s.status(), ("working", "Esegue Bash".into()));
@@ -1320,11 +1670,20 @@ mod tests {
     #[test]
     fn clipped_titles_and_texts_never_split_an_emoji_regression() {
         let prompt = format!("{}🚀 e poi altro testo", "a".repeat(79));
-        let (_d, mut s) = transcript(&[user(&prompt), tool_use("Bash", json!({ "command": format!("{}✅ fine", "b".repeat(299)) }))]);
+        let (_d, mut s) = transcript(&[
+            user(&prompt),
+            tool_use(
+                "Bash",
+                json!({ "command": format!("{}✅ fine", "b".repeat(299)) }),
+            ),
+        ]);
         s.read().unwrap();
         // A Rust string can't hold a lone surrogate: check the cut is the one JS makes.
         assert_eq!(s.to_json(None)["title"], "a".repeat(79));
-        assert_eq!(s.events.last().unwrap().text, format!("{}✅", "b".repeat(299)));
+        assert_eq!(
+            s.events.last().unwrap().text,
+            format!("{}✅", "b".repeat(299))
+        );
     }
 
     #[test]
@@ -1333,9 +1692,16 @@ mod tests {
         s.read().unwrap();
         assert_eq!(s.to_json(Some(true))["status"]["state"], "waiting");
         assert_eq!(s.to_json(Some(true))["live"], true);
-        assert_eq!(s.to_json(Some(false))["status"], json!({ "state": "idle", "label": "Chiusa" }));
+        assert_eq!(
+            s.to_json(Some(false))["status"],
+            json!({ "state": "idle", "label": "Chiusa" })
+        );
         assert_eq!(s.to_json(Some(false))["live"], false);
-        assert_eq!(s.to_json(None)["status"]["state"], "waiting", "unknown (older Claude Code): the transcript decides");
+        assert_eq!(
+            s.to_json(None)["status"]["state"],
+            "waiting",
+            "unknown (older Claude Code): the transcript decides"
+        );
     }
 
     #[test]
@@ -1345,11 +1711,20 @@ mod tests {
         let dir = p.join("-home-u-my-app-v1-2");
         fs::create_dir_all(&dir).unwrap();
         let has = |d: Value| has_history(p, &d);
-        assert!(!has(json!("/home/u/my.app/v1_2")), "folder without transcripts");
+        assert!(
+            !has(json!("/home/u/my.app/v1_2")),
+            "folder without transcripts"
+        );
         fs::write(dir.join("note.txt"), "x").unwrap();
-        assert!(!has(json!("/home/u/my.app/v1_2")), "only session transcripts count");
+        assert!(
+            !has(json!("/home/u/my.app/v1_2")),
+            "only session transcripts count"
+        );
         fs::write(dir.join(format!("{UUID}.jsonl")), user("ciao")).unwrap();
-        assert!(has(json!("/home/u/my.app/v1_2")), "every non-alphanumeric character becomes \"-\"");
+        assert!(
+            has(json!("/home/u/my.app/v1_2")),
+            "every non-alphanumeric character becomes \"-\""
+        );
         assert!(!has(json!("/home/u/altro")));
         assert!(!has(json!("relativo")));
         assert!(!has(Value::Null));
@@ -1361,30 +1736,64 @@ mod tests {
         s.read().unwrap();
         let v = s.to_json(None);
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["id", "cwd", "repo", "project", "title", "mtime", "tokens", "status", "live", "eventSeq"]);
+        assert_eq!(
+            keys,
+            [
+                "id", "cwd", "repo", "project", "title", "mtime", "tokens", "status", "live",
+                "eventSeq"
+            ]
+        );
         assert_eq!(v["project"], "proj");
-        assert_eq!(serde_json::to_value(&s.events[0]).unwrap(), json!({ "ts": 1790683200000i64, "kind": "user", "text": "ciao" }));
-        assert_eq!(serde_json::to_value(&s.events[1]).unwrap(), json!({ "ts": 1790683200000i64, "kind": "tool", "text": "ls", "tool": "Bash" }));
-        assert_eq!(parse_ts("2026-09-29T14:24:21.96+02:00"), Some(1790684661960));
+        assert_eq!(
+            serde_json::to_value(&s.events[0]).unwrap(),
+            json!({ "ts": 1790683200000i64, "kind": "user", "text": "ciao" })
+        );
+        assert_eq!(
+            serde_json::to_value(&s.events[1]).unwrap(),
+            json!({ "ts": 1790683200000i64, "kind": "tool", "text": "ls", "tool": "Bash" })
+        );
+        assert_eq!(
+            parse_ts("2026-09-29T14:24:21.96+02:00"),
+            Some(1790684661960)
+        );
         assert_eq!(parse_ts("ieri"), None);
     }
 
     #[test]
     fn available_lists_only_installed_and_safe_commands() {
         let _guard = LOGIN_SHELL.lock().unwrap_or_else(|e| e.into_inner());
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let got = rt.block_on(available(vec!["sh".into(), "no-such-cmd-xyz".into(), "sh;id".into(), "$(id)".into()]));
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let got = rt.block_on(available(vec![
+            "sh".into(),
+            "no-such-cmd-xyz".into(),
+            "sh;id".into(),
+            "$(id)".into(),
+        ]));
         assert_eq!(got, ["sh"]);
     }
 
     #[test]
     fn available_logs_the_missing_clis() {
         let _guard = LOGIN_SHELL.lock().unwrap_or_else(|e| e.into_inner());
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(available(vec!["sh".into(), "manca-davvero-qwz".into()]));
         let logged = crate::diag::CAPTURED.lock().unwrap().join("");
-        let line = logged.lines().find(|l| l.contains("mancanti: manca-davvero-qwz")).expect(&logged);
-        assert!(line.contains(" INFO  agents ") && line.contains("-lic in ") && line.contains("trovati: sh;"), "{line}");
+        let line = logged
+            .lines()
+            .find(|l| l.contains("mancanti: manca-davvero-qwz"))
+            .expect(&logged);
+        assert!(
+            line.contains(" INFO  agents ")
+                && line.contains("-lic in ")
+                && line.contains("trovati: sh;"),
+            "{line}"
+        );
     }
 }
 
@@ -1402,9 +1811,13 @@ pub fn agents_has_history(dir: Value) -> bool {
 // Only a session id crosses IPC: the pid comes from Claude Code's own record.
 #[tauri::command]
 pub async fn agents_stop(w: tauri::State<'_, AgentWatcher>, id: Value) -> Result<(), String> {
-    let Value::String(id) = id else { return Err("ID di sessione non valido".into()) };
+    let Value::String(id) = id else {
+        return Err("ID di sessione non valido".into());
+    };
     let dir = crate::claudeprocs::sessions_dir();
-    tauri::async_runtime::spawn_blocking(move || crate::claudeprocs::stop(&dir, &id, 3000)).await.map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || crate::claudeprocs::stop(&dir, &id, 3000))
+        .await
+        .map_err(|e| e.to_string())??;
     w.emit();
     Ok(())
 }

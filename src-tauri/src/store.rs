@@ -11,7 +11,10 @@ fn normalize(s: Value) -> Value {
         return json!({ "projects": [], "active": null });
     };
     let projects: Vec<Value> = match s.remove("projects") {
-        Some(Value::Array(list)) => list.into_iter().filter(|p| p.get("path").is_some_and(Value::is_string)).collect(),
+        Some(Value::Array(list)) => list
+            .into_iter()
+            .filter(|p| p.get("path").is_some_and(Value::is_string))
+            .collect(),
         _ => vec![],
     };
     let active = match s.remove("active") {
@@ -29,7 +32,11 @@ fn read(file: &Path) -> Option<Value> {
 
 // `legacy` is the Electron build's state.json: read once, until this build saves its own.
 pub fn load(file: &Path, legacy: Option<&Path>) -> Value {
-    normalize(read(file).or_else(|| legacy.and_then(read)).unwrap_or(Value::Null))
+    normalize(
+        read(file)
+            .or_else(|| legacy.and_then(read))
+            .unwrap_or(Value::Null),
+    )
 }
 
 // Written to a temporary file and renamed over the old one: a write cut short
@@ -62,8 +69,15 @@ mod tests {
     fn saves_and_reads_back() {
         let d = dir();
         let f = d.path().join("state.json");
-        save(&f, &json!({ "projects": [{ "path": "/a" }], "active": "/a" })).unwrap();
-        assert_eq!(load(&f, None), json!({ "projects": [{ "path": "/a" }], "active": "/a" }));
+        save(
+            &f,
+            &json!({ "projects": [{ "path": "/a" }], "active": "/a" }),
+        )
+        .unwrap();
+        assert_eq!(
+            load(&f, None),
+            json!({ "projects": [{ "path": "/a" }], "active": "/a" })
+        );
     }
 
     #[test]
@@ -79,14 +93,27 @@ mod tests {
     fn wrong_shape_does_not_stop_the_start() {
         let d = dir();
         let f = d.path().join("state.json");
-        for text in ["null", "[]", r#"{"projects": null}"#, r#"{"projects": {"path": "/a"}}"#, r#"{"projects": [{"path": "/a"}, 3, null, {}]}"#] {
+        for text in [
+            "null",
+            "[]",
+            r#"{"projects": null}"#,
+            r#"{"projects": {"path": "/a"}}"#,
+            r#"{"projects": [{"path": "/a"}, 3, null, {}]}"#,
+        ] {
             fs::write(&f, text).unwrap();
             let s = load(&f, None);
             let list = s["projects"].as_array().expect(text);
             assert!(list.iter().all(|p| p["path"].is_string()), "{text}");
         }
-        fs::write(&f, r#"{"projects": [{"path": "/a"}, 3], "active": "/a", "theme": "x"}"#).unwrap();
-        assert_eq!(load(&f, None), json!({ "projects": [{ "path": "/a" }], "active": "/a", "theme": "x" }));
+        fs::write(
+            &f,
+            r#"{"projects": [{"path": "/a"}, 3], "active": "/a", "theme": "x"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            load(&f, None),
+            json!({ "projects": [{ "path": "/a" }], "active": "/a", "theme": "x" })
+        );
     }
 
     #[test]
@@ -94,7 +121,11 @@ mod tests {
         let d = dir();
         let f = d.path().join("new/state.json");
         let old = d.path().join("old.json");
-        fs::write(&old, r#"{"projects": [{"path": "/old"}], "active": "/old"}"#).unwrap();
+        fs::write(
+            &old,
+            r#"{"projects": [{"path": "/old"}], "active": "/old"}"#,
+        )
+        .unwrap();
         assert_eq!(load(&f, Some(&old))["active"], "/old");
         save(&f, &json!({ "projects": [], "active": "/new" })).unwrap();
         assert_eq!(load(&f, Some(&old))["active"], "/new");

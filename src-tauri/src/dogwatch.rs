@@ -1006,10 +1006,14 @@ mod tests {
 
     #[test]
     fn only_team_windows_are_watched() {
-        for name in ["pm", "dev1", "DEV12", "qa", "qa2", "agent3", "doc1", "DOC2", "doc", "generico"] {
+        for name in [
+            "pm", "dev1", "DEV12", "qa", "qa2", "agent3", "doc1", "DOC2", "doc", "generico",
+        ] {
             assert!(is_agent_window(name), "{name}");
         }
-        for name in ["shell", "dev", "agent", "qatest", "dev1x", "docx", "docs", ""] {
+        for name in [
+            "shell", "dev", "agent", "qatest", "dev1x", "docx", "docs", "",
+        ] {
             assert!(!is_agent_window(name), "{name}");
         }
     }

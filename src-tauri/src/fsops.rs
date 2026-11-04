@@ -15,7 +15,11 @@ pub struct Roots(pub RwLock<Vec<PathBuf>>);
 
 impl Roots {
     pub fn set(&self, list: &[String]) {
-        let real = list.iter().map(|p| resolve(Path::new(p))).map(|p| fs::canonicalize(&p).unwrap_or(p)).collect();
+        let real = list
+            .iter()
+            .map(|p| resolve(Path::new(p)))
+            .map(|p| fs::canonicalize(&p).unwrap_or(p))
+            .collect();
         *self.0.write().unwrap() = real;
     }
 
@@ -40,7 +44,9 @@ fn resolve(p: &Path) -> PathBuf {
 }
 
 fn base(p: &Path) -> String {
-    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn err(e: std::io::Error) -> String {
@@ -82,7 +88,10 @@ pub fn guard(roots: &[PathBuf], p: &Path, follow: bool) -> Result<PathBuf, Strin
         _ => real_of(&abs),
     };
     if !inside(roots, &real) {
-        return Err(format!("Percorso fuori dai progetti aperti: {}", abs.display()));
+        return Err(format!(
+            "Percorso fuori dai progetti aperti: {}",
+            abs.display()
+        ));
     }
     Ok(abs)
 }
@@ -93,7 +102,13 @@ fn is_root(roots: &[PathBuf], abs: &Path) -> bool {
 
 // ".git" is refused too: the tree hides it, and a stray one breaks git there.
 fn check_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." || name.eq_ignore_ascii_case(".git") {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+        || name.eq_ignore_ascii_case(".git")
+    {
         return Err(format!("Nome non valido: {name}"));
     }
     Ok(())
@@ -129,8 +144,18 @@ fn natural(a: &str, b: &str) -> Ordering {
                 }
             }
             (Some(x), Some(y)) => {
-                let class = |c: char| if c.is_alphabetic() { 2 } else if c.is_numeric() { 1 } else { 0 };
-                let o = class(x).cmp(&class(y)).then_with(|| x.to_lowercase().cmp(y.to_lowercase()));
+                let class = |c: char| {
+                    if c.is_alphabetic() {
+                        2
+                    } else if c.is_numeric() {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                let o = class(x)
+                    .cmp(&class(y))
+                    .then_with(|| x.to_lowercase().cmp(y.to_lowercase()));
                 if o != Ordering::Equal {
                     return o;
                 }
@@ -160,8 +185,16 @@ fn list(roots: &[PathBuf], dir: &str) -> Result<Vec<Entry>, String> {
         let path = abs.join(&name);
         let ft = e.file_type().map_err(err)?;
         // A dangling link fails the stat: show it as a file.
-        let dir = if ft.is_symlink() { fs::metadata(&path).is_ok_and(|m| m.is_dir()) } else { ft.is_dir() };
-        out.push(Entry { name, path: path.to_string_lossy().into_owned(), dir });
+        let dir = if ft.is_symlink() {
+            fs::metadata(&path).is_ok_and(|m| m.is_dir())
+        } else {
+            ft.is_dir()
+        };
+        out.push(Entry {
+            name,
+            path: path.to_string_lossy().into_owned(),
+            dir,
+        });
     }
     out.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| natural(&a.name, &b.name)));
     Ok(out)
@@ -173,7 +206,10 @@ fn read(roots: &[PathBuf], file: &str) -> Result<Value, String> {
     let abs = guard(roots, Path::new(file), true)?;
     let st = fs::metadata(&abs).map_err(err)?;
     if st.is_dir() {
-        return Err(format!("{} è una cartella: aprila dal tab Project.", base(&abs)));
+        return Err(format!(
+            "{} è una cartella: aprila dal tab Project.",
+            base(&abs)
+        ));
     }
     let size = st.len();
     if size > MAX_PREVIEW {
@@ -185,11 +221,16 @@ fn read(roots: &[PathBuf], file: &str) -> Result<Value, String> {
     }
     // utf8: false → shown lossy, and not editable (saving would rewrite the bytes).
     let utf8 = std::str::from_utf8(&buf).is_ok();
-    Ok(json!({ "text": String::from_utf8_lossy(&buf), "size": size, "mtime": mtime_ms(&st), "utf8": utf8 }))
+    Ok(
+        json!({ "text": String::from_utf8_lossy(&buf), "size": size, "mtime": mtime_ms(&st), "utf8": utf8 }),
+    )
 }
 
 fn mtime_ms(m: &fs::Metadata) -> u64 {
-    m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64)
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 // Saves an edit from the preview: existing files only (new ones come from
@@ -200,7 +241,14 @@ fn mtime_ms(m: &fs::Metadata) -> u64 {
 // links stay as they are.
 // ponytail: not atomic, a crash mid-write can truncate the file; temp file +
 // rename (copying mode and owner) if it ever matters.
-fn write(roots: &[PathBuf], file: &str, text: &str, mtime: u64, size: u64, force: bool) -> Result<Value, String> {
+fn write(
+    roots: &[PathBuf],
+    file: &str,
+    text: &str,
+    mtime: u64,
+    size: u64,
+    force: bool,
+) -> Result<Value, String> {
     let abs = guard(roots, Path::new(file), true)?;
     let st = fs::metadata(&abs).map_err(err)?;
     if !st.is_file() {
@@ -220,7 +268,17 @@ fn write(roots: &[PathBuf], file: &str, text: &str, mtime: u64, size: u64, force
 // ── Project-wide search ──────────────────────────────────────
 const MAX_FILES: usize = 50_000;
 // Without git, the folders no one searches in.
-const SKIP_DIRS: [&str; 9] = [".git", "node_modules", "target", "dist", "build", ".next", ".venv", "venv", "__pycache__"];
+const SKIP_DIRS: [&str; 9] = [
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".venv",
+    "venv",
+    "__pycache__",
+];
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct Found {
@@ -231,20 +289,68 @@ pub struct Found {
 // A git command's NUL-separated output, or None if git can't run there (not a repository).
 fn git_z(dir: &Path, args: &[&str]) -> Option<Vec<String>> {
     use std::process::{Command, Stdio};
-    let out = Command::new("git").args(args).current_dir(dir).env("GIT_OPTIONAL_LOCKS", "0").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
-    out.status.success().then(|| out.stdout.split(|b| *b == 0).filter(|p| !p.is_empty()).map(|p| String::from_utf8_lossy(p).into_owned()).collect())
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status.success().then(|| {
+        out.stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect()
+    })
 }
 
 // Tracked and new files, then the ignored ones (.env) but not what is inside
 // ignored folders (node_modules/, target/): git reports those as one entry
 // ending in "/", which is dropped. Files deleted but still in the index go.
 fn git_files(dir: &Path) -> Option<Vec<Found>> {
-    let mut tracked = git_z(dir, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
+    let mut tracked = git_z(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
+    )?;
     tracked.dedup(); // a conflicted file is listed once per stage
-    let deleted: std::collections::HashSet<String> = git_z(dir, &["ls-files", "-z", "--deleted"]).unwrap_or_default().into_iter().collect();
-    let ignored = git_z(dir, &["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]).unwrap_or_default();
+    let deleted: std::collections::HashSet<String> = git_z(dir, &["ls-files", "-z", "--deleted"])
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let ignored = git_z(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ],
+    )
+    .unwrap_or_default();
     let found = |ignored| move |path| Found { path, ignored };
-    Some(tracked.into_iter().filter(|p| !deleted.contains(p)).map(found(false)).chain(ignored.into_iter().filter(|p| !p.ends_with('/')).map(found(true))).collect())
+    Some(
+        tracked
+            .into_iter()
+            .filter(|p| !deleted.contains(p))
+            .map(found(false))
+            .chain(
+                ignored
+                    .into_iter()
+                    .filter(|p| !p.ends_with('/'))
+                    .map(found(true)),
+            )
+            .collect(),
+    )
 }
 
 // Without git: every file, not following links into folders, skipping SKIP_DIRS.
@@ -252,7 +358,9 @@ fn walk_files(dir: &Path) -> Vec<Found> {
     let mut out = vec![];
     let mut stack = vec![PathBuf::new()];
     while let Some(rel) = stack.pop() {
-        let Ok(rd) = fs::read_dir(dir.join(&rel)) else { continue };
+        let Ok(rd) = fs::read_dir(dir.join(&rel)) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name();
             let path = rel.join(&name);
@@ -262,7 +370,10 @@ fn walk_files(dir: &Path) -> Vec<Found> {
                     stack.push(path);
                 }
             } else if !ft.is_symlink() || fs::metadata(dir.join(&path)).is_ok_and(|m| m.is_file()) {
-                out.push(Found { path: path.to_string_lossy().into_owned(), ignored: false });
+                out.push(Found {
+                    path: path.to_string_lossy().into_owned(),
+                    ignored: false,
+                });
                 if out.len() > MAX_FILES {
                     return out;
                 }
@@ -315,10 +426,18 @@ impl Hits {
             return false;
         }
         self.count += 1;
-        let hit = Hit { line, col, text: clip(text, col) };
+        let hit = Hit {
+            line,
+            col,
+            text: clip(text, col),
+        };
         match self.groups.last_mut() {
             Some(g) if g.path == path => g.hits.push(hit),
-            _ => self.groups.push(Group { path: path.to_string(), ignored, hits: vec![hit] }),
+            _ => self.groups.push(Group {
+                path: path.to_string(),
+                ignored,
+                hits: vec![hit],
+            }),
         }
         true
     }
@@ -331,8 +450,14 @@ fn clip(text: &str, col: u64) -> String {
     if text.chars().count() <= MAX_LINE {
         return text.to_string();
     }
-    let at = text.char_indices().take_while(|(i, _)| (*i as u64) < col.saturating_sub(1)).count();
-    text.chars().skip(at.saturating_sub(MAX_LINE / 3)).take(MAX_LINE).collect()
+    let at = text
+        .char_indices()
+        .take_while(|(i, _)| (*i as u64) < col.saturating_sub(1))
+        .count();
+    text.chars()
+        .skip(at.saturating_sub(MAX_LINE / 3))
+        .take(MAX_LINE)
+        .collect()
 }
 
 // Like `rg -S`: case matters only when the query has a capital letter.
@@ -344,7 +469,8 @@ fn smart_case(query: &str) -> bool {
 // search_files). Killed at the deadline or once the results are full.
 // The latest search per project: typing starts a new one every pause, and an
 // older one still running stops instead of taking the CPU from it.
-static SEARCHES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>> = std::sync::LazyLock::new(Default::default);
+static SEARCHES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>> =
+    std::sync::LazyLock::new(Default::default);
 
 #[derive(Clone)]
 struct Search {
@@ -358,7 +484,11 @@ impl Search {
         let mut all = SEARCHES.lock().unwrap();
         let id = all.get(root).map_or(1, |n| n + 1);
         all.insert(root.to_path_buf(), id);
-        Search { root: root.to_path_buf(), id, deadline: std::time::Instant::now() + GREP_TIMEOUT }
+        Search {
+            root: root.to_path_buf(),
+            id,
+            deadline: std::time::Instant::now() + GREP_TIMEOUT,
+        }
     }
 
     fn superseded(&self) -> bool {
@@ -373,12 +503,29 @@ impl Search {
 fn git_grep(dir: &Path, query: &str, search: &Search, hits: &mut Hits) -> Result<(), String> {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
-    let mut args = vec!["grep", "-z", "-n", "--column", "-I", "--untracked", "-F", "--no-color"];
+    let mut args = vec![
+        "grep",
+        "-z",
+        "-n",
+        "--column",
+        "-I",
+        "--untracked",
+        "-F",
+        "--no-color",
+    ];
     if smart_case(query) {
         args.push("-i");
     }
     args.extend(["-e", query]);
-    let mut child = Command::new("git").args(&args).current_dir(dir).env("GIT_OPTIONAL_LOCKS", "0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(err)?;
+    let mut child = Command::new("git")
+        .args(&args)
+        .current_dir(dir)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(err)?;
     let stdout = child.stdout.take().unwrap();
     let (done, wait) = std::sync::mpsc::channel::<()>();
     let search = search.clone();
@@ -386,7 +533,11 @@ fn git_grep(dir: &Path, query: &str, search: &Search, hits: &mut Hits) -> Result
     let killer = std::thread::spawn(move || {
         let cut = loop {
             match wait.recv_timeout(std::time::Duration::from_millis(100)) {
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if search.timed_out() || search.superseded() => break true,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    if search.timed_out() || search.superseded() =>
+                {
+                    break true
+                }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 _ => break false,
             }
@@ -396,11 +547,24 @@ fn git_grep(dir: &Path, query: &str, search: &Search, hits: &mut Hits) -> Result
         cut
     });
     // path\0line\0column\0text\n
-    for rec in std::io::BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
+    for rec in std::io::BufReader::new(stdout)
+        .split(b'\n')
+        .map_while(Result::ok)
+    {
         let rec = String::from_utf8_lossy(&rec);
         let mut f = rec.splitn(4, '\0');
-        let (Some(path), Some(line), Some(col), Some(text)) = (f.next(), f.next(), f.next(), f.next()) else { continue };
-        if !hits.add(path, false, line.parse().unwrap_or(0), col.parse().unwrap_or(0), text) {
+        let (Some(path), Some(line), Some(col), Some(text)) =
+            (f.next(), f.next(), f.next(), f.next())
+        else {
+            continue;
+        };
+        if !hits.add(
+            path,
+            false,
+            line.parse().unwrap_or(0),
+            col.parse().unwrap_or(0),
+            text,
+        ) {
             break;
         }
     }
@@ -412,16 +576,29 @@ fn git_grep(dir: &Path, query: &str, search: &Search, hits: &mut Hits) -> Result
 // The files git grep doesn't see (ignored ones, or a project without git),
 // up to the preview's size and skipping binaries like `read`. A link that
 // leads out of the open projects is not read, as in the preview.
-fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, search: &Search, hits: &mut Hits) {
+fn search_files(
+    roots: &[PathBuf],
+    dir: &Path,
+    list: &[Found],
+    query: &str,
+    search: &Search,
+    hits: &mut Hits,
+) {
     let ci = smart_case(query);
-    let q = if ci { query.to_lowercase() } else { query.to_string() };
+    let q = if ci {
+        query.to_lowercase()
+    } else {
+        query.to_string()
+    };
     for f in list {
         if search.timed_out() || search.superseded() {
             hits.truncated = true;
             return;
         }
         let path = dir.join(&f.path);
-        if guard(roots, &path, true).is_err() || fs::metadata(&path).map_or(true, |m| m.len() > MAX_PREVIEW) {
+        if guard(roots, &path, true).is_err()
+            || fs::metadata(&path).map_or(true, |m| m.len() > MAX_PREVIEW)
+        {
             continue;
         }
         let Ok(buf) = fs::read(&path) else { continue };
@@ -429,7 +606,11 @@ fn search_files(roots: &[PathBuf], dir: &Path, list: &[Found], query: &str, sear
             continue;
         }
         for (n, line) in String::from_utf8_lossy(&buf).split('\n').enumerate() {
-            let found = if ci { line.to_lowercase().find(&q) } else { line.find(&q) };
+            let found = if ci {
+                line.to_lowercase().find(&q)
+            } else {
+                line.find(&q)
+            };
             if let Some(i) = found {
                 if !hits.add(&f.path, f.ignored, n as u64 + 1, i as u64 + 1, line) {
                     return;
@@ -466,7 +647,11 @@ fn create(roots: &[PathBuf], parent: &str, name: &str, dir: bool) -> Result<Path
     if dir {
         fs::create_dir(&abs).map_err(err)?;
     } else {
-        fs::OpenOptions::new().write(true).create_new(true).open(&abs).map_err(err)?;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&abs)
+            .map_err(err)?;
     }
     Ok(abs)
 }
@@ -545,7 +730,11 @@ fn copy_in(roots: &[PathBuf], srcs: &[String], to_dir: &str) -> Result<Vec<PathB
         }
         // fs.cp refuses this too; without it the copy would recurse into itself.
         if dest.starts_with(src) {
-            return Err(format!("Cannot copy {} to a subdirectory of self {}", src.display(), dest.display()));
+            return Err(format!(
+                "Cannot copy {} to a subdirectory of self {}",
+                src.display(),
+                dest.display()
+            ));
         }
     }
     for (src, dest) in &pairs {
@@ -563,8 +752,12 @@ fn check_trash(roots: &[PathBuf], p: &str) -> Result<PathBuf, String> {
 }
 
 // Disk work runs off the main thread.
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -580,7 +773,14 @@ pub async fn fs_read(roots: State<'_, Roots>, file: String) -> Result<Value, Str
 }
 
 #[tauri::command]
-pub async fn fs_write(roots: State<'_, Roots>, file: String, text: String, mtime: u64, size: u64, force: bool) -> Result<Value, String> {
+pub async fn fs_write(
+    roots: State<'_, Roots>,
+    file: String,
+    text: String,
+    mtime: u64,
+    size: u64,
+    force: bool,
+) -> Result<Value, String> {
     let r = roots.get();
     blocking(move || write(&r, &file, &text, mtime, size, force)).await
 }
@@ -592,31 +792,52 @@ pub async fn fs_files(roots: State<'_, Roots>, root: String) -> Result<Value, St
 }
 
 #[tauri::command]
-pub async fn fs_grep(roots: State<'_, Roots>, root: String, query: String) -> Result<Value, String> {
+pub async fn fs_grep(
+    roots: State<'_, Roots>,
+    root: String,
+    query: String,
+) -> Result<Value, String> {
     let r = roots.get();
     blocking(move || grep(&r, &root, &query)).await
 }
 
 #[tauri::command]
-pub async fn fs_create(roots: State<'_, Roots>, parent: String, name: String, dir: bool) -> Result<PathBuf, String> {
+pub async fn fs_create(
+    roots: State<'_, Roots>,
+    parent: String,
+    name: String,
+    dir: bool,
+) -> Result<PathBuf, String> {
     let r = roots.get();
     blocking(move || create(&r, &parent, &name, dir)).await
 }
 
 #[tauri::command]
-pub async fn fs_rename(roots: State<'_, Roots>, from: String, name: String) -> Result<PathBuf, String> {
+pub async fn fs_rename(
+    roots: State<'_, Roots>,
+    from: String,
+    name: String,
+) -> Result<PathBuf, String> {
     let r = roots.get();
     blocking(move || rename(&r, &from, &name)).await
 }
 
 #[tauri::command]
-pub async fn fs_move(roots: State<'_, Roots>, from: String, to_dir: String) -> Result<PathBuf, String> {
+pub async fn fs_move(
+    roots: State<'_, Roots>,
+    from: String,
+    to_dir: String,
+) -> Result<PathBuf, String> {
     let r = roots.get();
     blocking(move || move_to(&r, &from, &to_dir)).await
 }
 
 #[tauri::command]
-pub async fn fs_copy_in(roots: State<'_, Roots>, srcs: Vec<String>, to_dir: String) -> Result<Vec<PathBuf>, String> {
+pub async fn fs_copy_in(
+    roots: State<'_, Roots>,
+    srcs: Vec<String>,
+    to_dir: String,
+) -> Result<Vec<PathBuf>, String> {
     let r = roots.get();
     blocking(move || copy_in(&r, &srcs, &to_dir)).await
 }
@@ -631,7 +852,10 @@ pub async fn fs_trash(roots: State<'_, Roots>, path: String) -> Result<(), Strin
         // NSFileManager, like Electron's shell.trashItem: the Finder method
         // needs Automation permission and plays a sound.
         #[cfg(target_os = "macos")]
-        trash::macos::TrashContextExtMacos::set_delete_method(&mut ctx, trash::macos::DeleteMethod::NsFileManager);
+        trash::macos::TrashContextExtMacos::set_delete_method(
+            &mut ctx,
+            trash::macos::DeleteMethod::NsFileManager,
+        );
         ctx.delete(&abs).map_err(|e| e.to_string())
     })
     .await
@@ -639,15 +863,27 @@ pub async fn fs_trash(roots: State<'_, Roots>, path: String) -> Result<(), Strin
 
 // Opening follows links (it may launch the target), revealing only shows the entry.
 #[tauri::command]
-pub async fn fs_open_path(app: tauri::AppHandle, roots: State<'_, Roots>, path: String) -> Result<(), String> {
+pub async fn fs_open_path(
+    app: tauri::AppHandle,
+    roots: State<'_, Roots>,
+    path: String,
+) -> Result<(), String> {
     let abs = guard(&roots.get(), Path::new(&path), true)?;
-    app.opener().open_path(abs.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_path(abs.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn fs_reveal(app: tauri::AppHandle, roots: State<'_, Roots>, path: String) -> Result<(), String> {
+pub async fn fs_reveal(
+    app: tauri::AppHandle,
+    roots: State<'_, Roots>,
+    path: String,
+) -> Result<(), String> {
     let abs = guard(&roots.get(), Path::new(&path), false)?;
-    app.opener().reveal_item_in_dir(abs).map_err(|e| e.to_string())
+    app.opener()
+        .reveal_item_in_dir(abs)
+        .map_err(|e| e.to_string())
 }
 
 // Integration: the Project tree's file operations on a real temp folder.
@@ -665,7 +901,10 @@ mod tests {
     }
 
     fn fx() -> Fx {
-        let tmp = tempfile::Builder::new().prefix("work-fs-").tempdir().unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("work-fs-")
+            .tempdir()
+            .unwrap();
         let project = tmp.path().join("project");
         let outside = tmp.path().join("outside");
         fs::create_dir_all(project.join("src")).unwrap();
@@ -676,7 +915,12 @@ mod tests {
         symlink(&outside, project.join("link-dir")).unwrap();
         let r = Roots::default();
         r.set(&[s(&project)]);
-        Fx { roots: r.get(), _tmp: tmp, project, outside }
+        Fx {
+            roots: r.get(),
+            _tmp: tmp,
+            project,
+            outside,
+        }
     }
 
     fn s(p: &Path) -> String {
@@ -694,17 +938,40 @@ mod tests {
         fs::create_dir(f.project.join(".git")).unwrap();
         fs::write(f.project.join("file10.txt"), "").unwrap();
         fs::write(f.project.join("file2.txt"), "").unwrap();
-        let names: Vec<String> = list(&f.roots, &s(&f.project)).unwrap().into_iter().map(|e| e.name).collect();
-        assert_eq!(names, ["link-dir", "src", "file2.txt", "file10.txt", "link-file"]);
+        let names: Vec<String> = list(&f.roots, &s(&f.project))
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(
+            names,
+            ["link-dir", "src", "file2.txt", "file10.txt", "link-file"]
+        );
     }
 
     fn git(dir: &Path, args: &[&str]) {
-        let ok = std::process::Command::new("git").args(args).current_dir(dir).output().unwrap().status.success();
+        let ok = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap()
+            .status
+            .success();
         assert!(ok, "git {args:?}");
     }
 
     fn paths(v: &Value) -> Vec<(String, bool)> {
-        v["files"].as_array().unwrap().iter().map(|f| (f["path"].as_str().unwrap().to_string(), f["ignored"].as_bool().unwrap())).collect()
+        v["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                (
+                    f["path"].as_str().unwrap().to_string(),
+                    f["ignored"].as_bool().unwrap(),
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -715,7 +982,18 @@ mod tests {
         fs::write(p.join(".gitignore"), ".env*\nnode_modules/\n").unwrap();
         fs::write(p.join("vecchio.txt"), "").unwrap();
         git(p, &["add", "."]);
-        git(p, &["-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "x"]);
+        git(
+            p,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "x",
+            ],
+        );
         fs::remove_file(p.join("vecchio.txt")).unwrap();
         fs::write(p.join(".env.local"), "A=1\n").unwrap();
         fs::write(p.join("nuovo.js"), "").unwrap();
@@ -724,10 +1002,19 @@ mod tests {
 
         let got = paths(&files(&f.roots, &s(p)).unwrap());
         let has = |path: &str, ignored: bool| got.contains(&(path.to_string(), ignored));
-        assert!(has("src/a.txt", false) && has("nuovo.js", false) && has(".gitignore", false), "{got:?}");
+        assert!(
+            has("src/a.txt", false) && has("nuovo.js", false) && has(".gitignore", false),
+            "{got:?}"
+        );
         assert!(has(".env.local", true), "{got:?}");
-        assert!(!got.iter().any(|(p, _)| p.starts_with("node_modules")), "{got:?}");
-        assert!(!got.iter().any(|(p, _)| p == "vecchio.txt"), "deleted from disk: {got:?}");
+        assert!(
+            !got.iter().any(|(p, _)| p.starts_with("node_modules")),
+            "{got:?}"
+        );
+        assert!(
+            !got.iter().any(|(p, _)| p == "vecchio.txt"),
+            "deleted from disk: {got:?}"
+        );
     }
 
     #[test]
@@ -741,22 +1028,37 @@ mod tests {
         let v = files(&f.roots, &s(&f.project)).unwrap();
         assert_eq!(v["truncated"], false);
         let got: Vec<String> = paths(&v).into_iter().map(|(p, _)| p).collect();
-        assert_eq!(got, [".env", "link-file", "src/a.txt"], "the link to a folder is not followed");
+        assert_eq!(
+            got,
+            [".env", "link-file", "src/a.txt"],
+            "the link to a folder is not followed"
+        );
     }
 
     #[test]
     fn non_elenca_i_file_fuori_dal_progetto() {
         let f = fx();
         rejects(files(&f.roots, &s(&f.outside)), "fuori dai progetti");
-        rejects(files(&f.roots, &s(&f.project.join("link-dir"))), "fuori dai progetti");
+        rejects(
+            files(&f.roots, &s(&f.project.join("link-dir"))),
+            "fuori dai progetti",
+        );
     }
 
     fn repo_with_env(f: &Fx) {
         let p = &f.project;
         git(p, &["init", "-q"]);
         fs::write(p.join(".gitignore"), ".env\nnode_modules/\n").unwrap();
-        fs::write(p.join("db.js"), "const url = process.env.DATABASE_URL;\nconst x = 1;\n").unwrap();
-        fs::write(p.join(".env"), "# locale\nDATABASE_URL=postgres://localhost\n").unwrap();
+        fs::write(
+            p.join("db.js"),
+            "const url = process.env.DATABASE_URL;\nconst x = 1;\n",
+        )
+        .unwrap();
+        fs::write(
+            p.join(".env"),
+            "# locale\nDATABASE_URL=postgres://localhost\n",
+        )
+        .unwrap();
         fs::create_dir_all(p.join("node_modules/pg")).unwrap();
         fs::write(p.join("node_modules/pg/index.js"), "DATABASE_URL\n").unwrap();
     }
@@ -765,7 +1067,11 @@ mod tests {
         let mut out = vec![];
         for g in v["groups"].as_array().unwrap() {
             for h in g["hits"].as_array().unwrap() {
-                out.push((g["path"].as_str().unwrap().to_string(), g["ignored"].as_bool().unwrap(), h["line"].as_u64().unwrap()));
+                out.push((
+                    g["path"].as_str().unwrap().to_string(),
+                    g["ignored"].as_bool().unwrap(),
+                    h["line"].as_u64().unwrap(),
+                ));
             }
         }
         out
@@ -776,9 +1082,18 @@ mod tests {
         let f = fx();
         repo_with_env(&f);
         let v = grep(&f.roots, &s(&f.project), "DATABASE_URL").unwrap();
-        assert_eq!(hits(&v), [("db.js".to_string(), false, 1), (".env".to_string(), true, 2)]);
+        assert_eq!(
+            hits(&v),
+            [
+                ("db.js".to_string(), false, 1),
+                (".env".to_string(), true, 2)
+            ]
+        );
         assert_eq!(v["groups"][0]["hits"][0]["col"], 25);
-        assert_eq!(v["groups"][0]["hits"][0]["text"], "const url = process.env.DATABASE_URL;");
+        assert_eq!(
+            v["groups"][0]["hits"][0]["text"],
+            "const url = process.env.DATABASE_URL;"
+        );
         assert_eq!(v["truncated"], false);
     }
 
@@ -786,12 +1101,24 @@ mod tests {
     fn le_maiuscole_contano_solo_se_la_query_ne_ha() {
         let f = fx();
         repo_with_env(&f);
-        assert_eq!(hits(&grep(&f.roots, &s(&f.project), "database_url").unwrap()).len(), 2);
-        assert_eq!(hits(&grep(&f.roots, &s(&f.project), "Database_url").unwrap()).len(), 0);
+        assert_eq!(
+            hits(&grep(&f.roots, &s(&f.project), "database_url").unwrap()).len(),
+            2
+        );
+        assert_eq!(
+            hits(&grep(&f.roots, &s(&f.project), "Database_url").unwrap()).len(),
+            0
+        );
         let no_git = fx();
         fs::write(no_git.project.join("b.txt"), "DATABASE_URL\n").unwrap();
-        assert_eq!(hits(&grep(&no_git.roots, &s(&no_git.project), "database_url").unwrap()).len(), 1);
-        assert_eq!(hits(&grep(&no_git.roots, &s(&no_git.project), "Database_url").unwrap()).len(), 0);
+        assert_eq!(
+            hits(&grep(&no_git.roots, &s(&no_git.project), "database_url").unwrap()).len(),
+            1
+        );
+        assert_eq!(
+            hits(&grep(&no_git.roots, &s(&no_git.project), "Database_url").unwrap()).len(),
+            0
+        );
     }
 
     #[test]
@@ -831,7 +1158,10 @@ mod tests {
         assert!(old.superseded() && !new.superseded());
         let other = fx();
         Search::start(&other.project);
-        assert!(!new.superseded(), "a search in another project doesn't count");
+        assert!(
+            !new.superseded(),
+            "a search in another project doesn't count"
+        );
 
         let list = walk_files(&f.project);
         let mut hits = Hits::default();
@@ -844,7 +1174,10 @@ mod tests {
     #[test]
     fn non_cerca_fuori_dal_progetto() {
         let f = fx();
-        rejects(grep(&f.roots, &s(&f.outside), "segreto"), "fuori dai progetti");
+        rejects(
+            grep(&f.roots, &s(&f.outside), "segreto"),
+            "fuori dai progetti",
+        );
         let v = grep(&f.roots, &s(&f.project), "segreto").unwrap();
         assert_eq!(hits(&v), [], "link-file leads outside: not read");
     }
@@ -866,7 +1199,10 @@ mod tests {
         assert_eq!(r["utf8"], true);
         assert!(r["mtime"].as_u64().unwrap() > 0);
         fs::write(f.project.join("latin1.txt"), b"caff\xe8\n").unwrap();
-        assert_eq!(read(&f.roots, &s(&f.project.join("latin1.txt"))).unwrap()["utf8"], false);
+        assert_eq!(
+            read(&f.roots, &s(&f.project.join("latin1.txt"))).unwrap()["utf8"],
+            false
+        );
     }
 
     // What the preview saw when it read the file: (mtime, size).
@@ -882,8 +1218,19 @@ mod tests {
         let (m, size) = seen(&f, "src/a.txt");
         let r = write(&f.roots, &file, "nuovo\n", m, size, false).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "nuovo\n");
-        assert_eq!((r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap()), seen(&f, "src/a.txt"));
-        write(&f.roots, &file, "ancora\n", r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap(), false).expect("the returned mtime and size save again");
+        assert_eq!(
+            (r["mtime"].as_u64().unwrap(), r["size"].as_u64().unwrap()),
+            seen(&f, "src/a.txt")
+        );
+        write(
+            &f.roots,
+            &file,
+            "ancora\n",
+            r["mtime"].as_u64().unwrap(),
+            r["size"].as_u64().unwrap(),
+            false,
+        )
+        .expect("the returned mtime and size save again");
     }
 
     #[test]
@@ -892,8 +1239,16 @@ mod tests {
         let file = f.project.join("src/a.txt");
         let (m, size) = seen(&f, "src/a.txt");
         fs::write(&file, "da un terminale\n").unwrap();
-        fs::File::options().write(true).open(&file).unwrap().set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
-        assert_eq!(write(&f.roots, &s(&file), "mio\n", m, size, false), Err("CHANGED".into()));
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(
+            write(&f.roots, &s(&file), "mio\n", m, size, false),
+            Err("CHANGED".into())
+        );
         assert_eq!(fs::read_to_string(&file).unwrap(), "da un terminale\n");
         write(&f.roots, &s(&file), "mio\n", m, size, true).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "mio\n");
@@ -906,9 +1261,21 @@ mod tests {
         let (m, size) = seen(&f, "src/a.txt");
         let when = fs::metadata(&file).unwrap().modified().unwrap();
         fs::write(&file, "cambiato da fuori\n").unwrap();
-        fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
-        assert_eq!(seen(&f, "src/a.txt").0, m, "same mtime, as on a coarse file system");
-        assert_eq!(write(&f.roots, &s(&file), "mio\n", m, size, false), Err("CHANGED".into()));
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+        assert_eq!(
+            seen(&f, "src/a.txt").0,
+            m,
+            "same mtime, as on a coarse file system"
+        );
+        assert_eq!(
+            write(&f.roots, &s(&file), "mio\n", m, size, false),
+            Err("CHANGED".into())
+        );
     }
 
     #[test]
@@ -920,58 +1287,98 @@ mod tests {
         fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
         let (m, size) = seen(&f, ".env");
         write(&f.roots, &s(&env), "A=2\n", m, size, false).unwrap();
-        assert_eq!(fs::metadata(&env).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(&env).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         assert_eq!(fs::read_to_string(&env).unwrap(), "A=2\n");
     }
 
     #[test]
     fn non_salva_fuori_dal_progetto_ne_cartelle_ne_file_nuovi() {
         let f = fx();
-        rejects(write(&f.roots, &s(&f.outside.join("secret.txt")), "x", 0, 0, true), "fuori dai progetti");
-        rejects(write(&f.roots, &s(&f.project.join("link-file")), "x", 0, 0, true), "fuori dai progetti");
-        rejects(write(&f.roots, &s(&f.project.join("src")), "x", 0, 0, true), "non è un file");
+        rejects(
+            write(&f.roots, &s(&f.outside.join("secret.txt")), "x", 0, 0, true),
+            "fuori dai progetti",
+        );
+        rejects(
+            write(&f.roots, &s(&f.project.join("link-file")), "x", 0, 0, true),
+            "fuori dai progetti",
+        );
+        rejects(
+            write(&f.roots, &s(&f.project.join("src")), "x", 0, 0, true),
+            "non è un file",
+        );
         assert!(write(&f.roots, &s(&f.project.join("nuovo.txt")), "x", 0, 0, true).is_err());
         assert!(!f.project.join("nuovo.txt").exists());
-        assert_eq!(fs::read_to_string(f.outside.join("secret.txt")).unwrap(), "segreto\n");
+        assert_eq!(
+            fs::read_to_string(f.outside.join("secret.txt")).unwrap(),
+            "segreto\n"
+        );
     }
 
     #[test]
     fn non_legge_un_file_fuori_dal_progetto() {
         let f = fx();
-        rejects(read(&f.roots, &s(&f.outside.join("secret.txt"))), "fuori dai progetti");
+        rejects(
+            read(&f.roots, &s(&f.outside.join("secret.txt"))),
+            "fuori dai progetti",
+        );
     }
 
     #[test]
     fn non_legge_un_file_esterno_tramite_un_symlink_nel_progetto_regressione() {
         let f = fx();
-        rejects(read(&f.roots, &s(&f.project.join("link-file"))), "fuori dai progetti");
+        rejects(
+            read(&f.roots, &s(&f.project.join("link-file"))),
+            "fuori dai progetti",
+        );
     }
 
     #[test]
     fn non_elenca_una_cartella_esterna_tramite_un_symlink_regressione() {
         let f = fx();
-        rejects(list(&f.roots, &s(&f.project.join("link-dir"))), "fuori dai progetti");
+        rejects(
+            list(&f.roots, &s(&f.project.join("link-dir"))),
+            "fuori dai progetti",
+        );
     }
 
     #[test]
     fn non_crea_file_dentro_una_cartella_esterna_raggiunta_da_un_symlink_regressione() {
         let f = fx();
-        rejects(create(&f.roots, &s(&f.project.join("link-dir")), "x.txt", false), "fuori dai progetti");
+        rejects(
+            create(&f.roots, &s(&f.project.join("link-dir")), "x.txt", false),
+            "fuori dai progetti",
+        );
         assert!(!f.outside.join("x.txt").exists());
     }
 
     #[test]
     fn non_sposta_file_in_una_cartella_esterna_raggiunta_da_un_symlink_regressione() {
         let f = fx();
-        rejects(move_to(&f.roots, &s(&f.project.join("src/a.txt")), &s(&f.project.join("link-dir"))), "fuori dai progetti");
+        rejects(
+            move_to(
+                &f.roots,
+                &s(&f.project.join("src/a.txt")),
+                &s(&f.project.join("link-dir")),
+            ),
+            "fuori dai progetti",
+        );
         assert!(f.project.join("src/a.txt").exists());
     }
 
     #[test]
     fn non_apre_file_fuori_dal_progetto_regressione() {
         let f = fx();
-        rejects(guard(&f.roots, Path::new("/etc/passwd"), true), "fuori dai progetti");
-        rejects(guard(&f.roots, &f.project.join("link-file"), true), "fuori dai progetti");
+        rejects(
+            guard(&f.roots, Path::new("/etc/passwd"), true),
+            "fuori dai progetti",
+        );
+        rejects(
+            guard(&f.roots, &f.project.join("link-file"), true),
+            "fuori dai progetti",
+        );
     }
 
     #[test]
@@ -979,34 +1386,59 @@ mod tests {
         let f = fx();
         let renamed = rename(&f.roots, &s(&f.project.join("link-file")), "link-renamed").unwrap();
         assert_eq!(base(&renamed), "link-renamed");
-        assert_eq!(check_trash(&f.roots, &s(&f.project.join("link-dir"))).unwrap(), f.project.join("link-dir"));
-        assert!(f.outside.join("secret.txt").exists(), "the outside target is untouched");
+        assert_eq!(
+            check_trash(&f.roots, &s(&f.project.join("link-dir"))).unwrap(),
+            f.project.join("link-dir")
+        );
+        assert!(
+            f.outside.join("secret.txt").exists(),
+            "the outside target is untouched"
+        );
     }
 
     #[test]
     fn rifiuta_nomi_con_separatori_o_dotdot() {
         let f = fx();
-        rejects(create(&f.roots, &s(&f.project), "../evil", false), "Nome non valido");
-        rejects(rename(&f.roots, &s(&f.project.join("src/a.txt")), "x/y"), "Nome non valido");
+        rejects(
+            create(&f.roots, &s(&f.project), "../evil", false),
+            "Nome non valido",
+        );
+        rejects(
+            rename(&f.roots, &s(&f.project.join("src/a.txt")), "x/y"),
+            "Nome non valido",
+        );
     }
 
     #[test]
     fn non_crea_un_file_che_esiste_gia() {
         let f = fx();
-        rejects(create(&f.roots, &s(&f.project.join("src")), "a.txt", false), "Esiste già");
+        rejects(
+            create(&f.roots, &s(&f.project.join("src")), "a.txt", false),
+            "Esiste già",
+        );
     }
 
     #[test]
     fn non_sposta_una_cartella_dentro_se_stessa() {
         let f = fx();
         fs::create_dir(f.project.join("src/sub")).unwrap();
-        rejects(move_to(&f.roots, &s(&f.project.join("src")), &s(&f.project.join("src/sub"))), "dentro sé stessa");
+        rejects(
+            move_to(
+                &f.roots,
+                &s(&f.project.join("src")),
+                &s(&f.project.join("src/sub")),
+            ),
+            "dentro sé stessa",
+        );
     }
 
     #[test]
     fn non_cestina_la_cartella_del_progetto() {
         let f = fx();
-        rejects(check_trash(&f.roots, &s(&f.project)), "cartella del progetto");
+        rejects(
+            check_trash(&f.roots, &s(&f.project)),
+            "cartella del progetto",
+        );
     }
 
     #[test]
@@ -1014,16 +1446,33 @@ mod tests {
         let f = fx();
         fs::write(f.project.join("img.bin"), [0x89, 0x50, 0, 0x47]).unwrap();
         fs::write(f.project.join("big.txt"), vec![b'a'; 1024 * 1024 + 1]).unwrap();
-        assert_eq!(read(&f.roots, &s(&f.project.join("img.bin"))).unwrap(), json!({ "binary": true, "size": 4 }));
-        assert_eq!(read(&f.roots, &s(&f.project.join("big.txt"))).unwrap(), json!({ "tooBig": true, "size": 1024 * 1024 + 1 }));
+        assert_eq!(
+            read(&f.roots, &s(&f.project.join("img.bin"))).unwrap(),
+            json!({ "binary": true, "size": 4 })
+        );
+        assert_eq!(
+            read(&f.roots, &s(&f.project.join("big.txt"))).unwrap(),
+            json!({ "tooBig": true, "size": 1024 * 1024 + 1 })
+        );
     }
 
     #[test]
     fn un_symlink_rotto_compare_come_file_e_non_blocca_l_elenco() {
         let f = fx();
         symlink(f.project.join("non-esiste"), f.project.join("rotto")).unwrap();
-        let entry = list(&f.roots, &s(&f.project)).unwrap().into_iter().find(|e| e.name == "rotto").unwrap();
-        assert_eq!(entry, Entry { name: "rotto".into(), path: s(&f.project.join("rotto")), dir: false });
+        let entry = list(&f.roots, &s(&f.project))
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "rotto")
+            .unwrap();
+        assert_eq!(
+            entry,
+            Entry {
+                name: "rotto".into(),
+                path: s(&f.project.join("rotto")),
+                dir: false
+            }
+        );
     }
 
     #[test]
@@ -1031,7 +1480,14 @@ mod tests {
         let f = fx();
         let created = create(&f.roots, &s(&f.project.join("src")), "nuova", true).unwrap();
         assert_eq!(created, f.project.join("src/nuova"));
-        assert!(list(&f.roots, &s(&f.project.join("src"))).unwrap().into_iter().find(|e| e.name == "nuova").unwrap().dir);
+        assert!(
+            list(&f.roots, &s(&f.project.join("src")))
+                .unwrap()
+                .into_iter()
+                .find(|e| e.name == "nuova")
+                .unwrap()
+                .dir
+        );
     }
 
     #[test]
@@ -1039,9 +1495,22 @@ mod tests {
         let f = fx();
         fs::create_dir(f.project.join("dest")).unwrap();
         fs::write(f.project.join("dest/a.txt"), "altro\n").unwrap();
-        rejects(move_to(&f.roots, &s(&f.project.join("src/a.txt")), &s(&f.project.join("dest"))), "esiste già");
-        assert_eq!(fs::read_to_string(f.project.join("src/a.txt")).unwrap(), "dentro\n");
-        assert_eq!(fs::read_to_string(f.project.join("dest/a.txt")).unwrap(), "altro\n");
+        rejects(
+            move_to(
+                &f.roots,
+                &s(&f.project.join("src/a.txt")),
+                &s(&f.project.join("dest")),
+            ),
+            "esiste già",
+        );
+        assert_eq!(
+            fs::read_to_string(f.project.join("src/a.txt")).unwrap(),
+            "dentro\n"
+        );
+        assert_eq!(
+            fs::read_to_string(f.project.join("dest/a.txt")).unwrap(),
+            "altro\n"
+        );
     }
 
     #[test]
@@ -1057,25 +1526,46 @@ mod tests {
         let f = fx();
         let p = f.project.join("src/a.txt");
         assert_eq!(guard(&f.roots, &p, false).unwrap(), p);
-        rejects(guard(&f.roots, &f.outside.join("secret.txt"), false), "fuori dai progetti");
+        rejects(
+            guard(&f.roots, &f.outside.join("secret.txt"), false),
+            "fuori dai progetti",
+        );
     }
 
     #[test]
     fn la_cartella_del_progetto_non_si_puo_rinominare_ne_spostare_regressione() {
         let f = fx();
-        rejects(rename(&f.roots, &s(&f.project), "altro-nome"), "cartella del progetto");
+        rejects(
+            rename(&f.roots, &s(&f.project), "altro-nome"),
+            "cartella del progetto",
+        );
         fs::create_dir(f.project.join("dentro")).unwrap();
         let e = move_to(&f.roots, &s(&f.project), &s(&f.project.join("dentro"))).unwrap_err();
-        assert!(e.contains("cartella del progetto") || e.contains("dentro sé stessa"), "{e}");
-        assert!(f.project.join("src/a.txt").exists(), "the project is where it was");
+        assert!(
+            e.contains("cartella del progetto") || e.contains("dentro sé stessa"),
+            "{e}"
+        );
+        assert!(
+            f.project.join("src/a.txt").exists(),
+            "the project is where it was"
+        );
     }
 
     #[test]
     fn rifiuta_dot_git_come_nome_regressione() {
         let f = fx();
-        rejects(create(&f.roots, &s(&f.project.join("src")), ".git", false), "Nome non valido");
-        rejects(create(&f.roots, &s(&f.project), ".GIT", true), "Nome non valido");
-        rejects(rename(&f.roots, &s(&f.project.join("src/a.txt")), ".git"), "Nome non valido");
+        rejects(
+            create(&f.roots, &s(&f.project.join("src")), ".git", false),
+            "Nome non valido",
+        );
+        rejects(
+            create(&f.roots, &s(&f.project), ".GIT", true),
+            "Nome non valido",
+        );
+        rejects(
+            rename(&f.roots, &s(&f.project.join("src/a.txt")), ".git"),
+            "Nome non valido",
+        );
         assert!(!f.project.join("src/.git").exists());
     }
 
@@ -1083,7 +1573,10 @@ mod tests {
     fn leggere_una_cartella_da_un_messaggio_chiaro_invece_di_eisdir_regressione() {
         let f = fx();
         let e = read(&f.roots, &s(&f.project.join("src"))).unwrap_err();
-        assert!(e.to_lowercase().contains("cartella") && !e.contains("EISDIR"), "{e}");
+        assert!(
+            e.to_lowercase().contains("cartella") && !e.contains("EISDIR"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -1091,10 +1584,30 @@ mod tests {
         let f = fx();
         fs::create_dir_all(f.outside.join("assets/img")).unwrap();
         fs::write(f.outside.join("assets/img/a.png"), "png").unwrap();
-        let copied = copy_in(&f.roots, &[s(&f.outside.join("assets")), s(&f.outside.join("secret.txt"))], &s(&f.project.join("src"))).unwrap();
-        assert_eq!(copied, [f.project.join("src/assets"), f.project.join("src/secret.txt")]);
-        assert_eq!(fs::read_to_string(f.project.join("src/assets/img/a.png")).unwrap(), "png");
-        assert!(f.outside.join("secret.txt").exists(), "the source stays where it was");
+        let copied = copy_in(
+            &f.roots,
+            &[
+                s(&f.outside.join("assets")),
+                s(&f.outside.join("secret.txt")),
+            ],
+            &s(&f.project.join("src")),
+        )
+        .unwrap();
+        assert_eq!(
+            copied,
+            [
+                f.project.join("src/assets"),
+                f.project.join("src/secret.txt")
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(f.project.join("src/assets/img/a.png")).unwrap(),
+            "png"
+        );
+        assert!(
+            f.outside.join("secret.txt").exists(),
+            "the source stays where it was"
+        );
     }
 
     #[test]
@@ -1103,9 +1616,29 @@ mod tests {
         fs::write(f.outside.join("a.txt"), "fuori\n").unwrap();
         fs::write(f.outside.join("nuovo.txt"), "").unwrap();
         let to = s(&f.project.join("src"));
-        rejects(copy_in(&f.roots, &[s(&f.outside.join("nuovo.txt")), s(&f.outside.join("a.txt"))], &to), "esiste già a.txt");
-        assert_eq!(fs::read_to_string(f.project.join("src/a.txt")).unwrap(), "dentro\n");
-        assert!(!f.project.join("src/nuovo.txt").exists(), "a conflict copies nothing");
-        rejects(copy_in(&f.roots, &[s(&f.project.join("src/a.txt"))], &s(&f.project.join("link-dir"))), "fuori dai progetti");
+        rejects(
+            copy_in(
+                &f.roots,
+                &[s(&f.outside.join("nuovo.txt")), s(&f.outside.join("a.txt"))],
+                &to,
+            ),
+            "esiste già a.txt",
+        );
+        assert_eq!(
+            fs::read_to_string(f.project.join("src/a.txt")).unwrap(),
+            "dentro\n"
+        );
+        assert!(
+            !f.project.join("src/nuovo.txt").exists(),
+            "a conflict copies nothing"
+        );
+        rejects(
+            copy_in(
+                &f.roots,
+                &[s(&f.project.join("src/a.txt"))],
+                &s(&f.project.join("link-dir")),
+            ),
+            "fuori dai progetti",
+        );
     }
 }

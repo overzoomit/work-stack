@@ -819,7 +819,10 @@ mod tests {
         if !crate::tmux::is_available() {
             return;
         }
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let session = format!("test_detach_{nanos:x}");
         let (m, rx) = manager();
         let open = |name: &str| {
@@ -835,7 +838,10 @@ mod tests {
         };
         let (pm, dev1) = (open("pm"), open("dev1"));
         let wait_exit = |id: u32| loop {
-            if let Ev::Exit(i, _) = rx.recv_timeout(Duration::from_secs(10)).expect("the terminal ends") {
+            if let Ev::Exit(i, _) = rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the terminal ends")
+            {
                 if i == id {
                     break;
                 }
@@ -847,19 +853,38 @@ mod tests {
 
         m.kill(pm); // one terminal closed in the UI
         wait_exit(pm);
-        assert!(!crate::tmux::has_session(&client(pm)), "its client session is gone");
-        assert!(crate::tmux::has_session(&client(dev1)), "the other terminal stays attached");
+        assert!(
+            !crate::tmux::has_session(&client(pm)),
+            "its client session is gone"
+        );
+        assert!(
+            crate::tmux::has_session(&client(dev1)),
+            "the other terminal stays attached"
+        );
         let window = m.tmux_window(dev1).expect("a tmux pane knows its window");
         let windows = crate::tmux::list_windows(&session).unwrap();
-        assert!(windows.iter().any(|w| w.id == window && w.name == "dev1"), "{window} in {windows:?}");
+        assert!(
+            windows.iter().any(|w| w.id == window && w.name == "dev1"),
+            "{window} in {windows:?}"
+        );
 
         m.kill_all(); // the app quits
         wait_exit(dev1);
         assert!(!crate::tmux::has_session(&client(dev1)));
-        assert!(crate::tmux::has_session(&session), "the project session survives");
-        let names: Vec<String> = crate::tmux::list_windows(&session).unwrap().into_iter().map(|w| w.name).collect();
+        assert!(
+            crate::tmux::has_session(&session),
+            "the project session survives"
+        );
+        let names: Vec<String> = crate::tmux::list_windows(&session)
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
         let _ = crate::tmux::kill_session(&session);
-        assert!(names.contains(&"pm".into()) && names.contains(&"dev1".into()), "{names:?}");
+        assert!(
+            names.contains(&"pm".into()) && names.contains(&"dev1".into()),
+            "{names:?}"
+        );
     }
 
     #[test]
@@ -994,6 +1019,9 @@ mod tests {
         assert_eq!(opts.tmux_name.as_deref(), Some("pm"));
         assert_eq!(opts.role.as_deref(), Some("pm"));
         assert_eq!(opts.agent_id.as_deref(), Some("antigravity"));
-        assert_eq!(opts.session_ref.as_deref(), Some("11111111-2222-3333-4444-555555555555"));
+        assert_eq!(
+            opts.session_ref.as_deref(),
+            Some("11111111-2222-3333-4444-555555555555")
+        );
     }
 }

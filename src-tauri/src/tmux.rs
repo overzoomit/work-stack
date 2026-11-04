@@ -345,13 +345,9 @@ pub fn tmux_new_window(
     remote: Option<RemoteProject>,
 ) -> Result<String, String> {
     match remote {
-        Some(remote) => crate::remote::new_window(
-            &remote,
-            &session,
-            name.as_deref(),
-            &cwd,
-            command.as_deref(),
-        ),
+        Some(remote) => {
+            crate::remote::new_window(&remote, &session, name.as_deref(), &cwd, command.as_deref())
+        }
         None => new_window(
             &session,
             name.as_deref(),
@@ -541,10 +537,23 @@ mod tests {
 
     #[test]
     fn environment_commands_are_chained_in_one_call() {
-        let vars = [("DISPLAY", ":1".to_string()), ("XDG_RUNTIME_DIR", "/run/user/1".to_string())];
+        let vars = [
+            ("DISPLAY", ":1".to_string()),
+            ("XDG_RUNTIME_DIR", "/run/user/1".to_string()),
+        ];
         assert_eq!(
             set_environment_args(&vars, &["-g"]),
-            ["set-environment", "-g", "DISPLAY", ":1", ";", "set-environment", "-g", "XDG_RUNTIME_DIR", "/run/user/1"]
+            [
+                "set-environment",
+                "-g",
+                "DISPLAY",
+                ":1",
+                ";",
+                "set-environment",
+                "-g",
+                "XDG_RUNTIME_DIR",
+                "/run/user/1"
+            ]
         );
         assert!(set_environment_args(&[], &["-g"]).is_empty());
     }
@@ -564,7 +573,8 @@ mod tests {
         run_tmux(&args.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
 
         let command = format!("echo \"got=${name}\"; sleep 30");
-        let window = new_window(&session, Some("probe"), Path::new("/tmp"), Some(&command)).unwrap();
+        let window =
+            new_window(&session, Some("probe"), Path::new("/tmp"), Some(&command)).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(300));
         let shown = capture_pane(&session, &window, None).unwrap();
         let _ = kill_session(&session);
@@ -586,7 +596,11 @@ mod tests {
         }
         let folder = unique("wsproj_");
         let path = PathBuf::from("/tmp/somewhere").join(&folder);
-        assert_eq!(session_for_project(&path), session_name_for_path(&path), "no session yet: Work's own name");
+        assert_eq!(
+            session_for_project(&path),
+            session_name_for_path(&path),
+            "no session yet: Work's own name"
+        );
 
         ensure_session(&folder, Path::new("/tmp")).unwrap();
         let adopted = session_for_project(&path);
@@ -612,14 +626,21 @@ mod tests {
 
         assert!(!found, "\"{folder}\" is not \"{longer}\"");
         assert_eq!(resolved, session_name_for_path(&path));
-        assert!(!killed && survived, "killing a missing session leaves the longer one alone");
+        assert!(
+            !killed && survived,
+            "killing a missing session leaves the longer one alone"
+        );
     }
 
     #[test]
     fn a_folder_name_tmux_cannot_use_as_is_falls_back_to_the_canonical_name() {
         for name in ["my.app", "a:b", "con spazi", ""] {
             let path = PathBuf::from("/tmp").join(name);
-            assert_eq!(session_for_project(&path), session_name_for_path(&path), "{name:?}");
+            assert_eq!(
+                session_for_project(&path),
+                session_name_for_path(&path),
+                "{name:?}"
+            );
         }
     }
 }

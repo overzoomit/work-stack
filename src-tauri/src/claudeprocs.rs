@@ -12,7 +12,9 @@ use std::time::Duration;
 pub fn sessions_dir() -> PathBuf {
     match std::env::var_os("WORK_CLAUDE_SESSIONS") {
         Some(d) => PathBuf::from(d),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/sessions"),
+        None => {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude/sessions")
+        }
     }
 }
 
@@ -32,7 +34,15 @@ pub fn proc_start(pid: i32) -> Option<String> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
     // SAFETY: the buffer is a proc_bsdinfo of the size passed.
-    let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+    let n = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
     (n == size).then(|| lstart(info.pbi_start_tvsec as i64))
 }
 
@@ -45,7 +55,9 @@ pub fn proc_start(_pid: i32) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn lstart(secs: i64) -> String {
     const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
     let (days, t) = (secs.div_euclid(86400), secs.rem_euclid(86400));
     // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
     let z = days + 719468;
@@ -57,7 +69,16 @@ fn lstart(secs: i64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{} {} {:>2} {:02}:{:02}:{:02} {}", DAYS[days.rem_euclid(7) as usize], MONTHS[m as usize - 1], d, t / 3600, t / 60 % 60, t % 60, y)
+    format!(
+        "{} {} {:>2} {:02}:{:02}:{:02} {}",
+        DAYS[days.rem_euclid(7) as usize],
+        MONTHS[m as usize - 1],
+        d,
+        t / 3600,
+        t / 60 % 60,
+        t % 60,
+        y
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +91,9 @@ pub struct Entry {
 // without removing its file (crash, kill -9).
 fn alive(e: &Entry) -> bool {
     // SAFETY: signal 0 only checks that the pid exists.
-    if unsafe { libc::kill(e.pid, 0) } != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM) {
+    if unsafe { libc::kill(e.pid, 0) } != 0
+        && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+    {
         return false;
     }
     match (&e.proc_start, proc_start(e.pid)) {
@@ -112,17 +135,27 @@ fn parse(name: &str, text: &str) -> Option<(String, Entry)> {
     if pid.to_string() != stem {
         return None; // the file name is the pid
     }
-    Some((sid.to_string(), Entry { pid, proc_start: recorded_start(v.get("procStart")) }))
+    Some((
+        sid.to_string(),
+        Entry {
+            pid,
+            proc_start: recorded_start(v.get("procStart")),
+        },
+    ))
 }
 
 // sessionId -> entry for every Claude Code process still running.
 pub fn live(dir: &Path) -> HashMap<String, Entry> {
     let mut map = HashMap::new();
-    let Ok(rd) = fs::read_dir(dir) else { return map };
+    let Ok(rd) = fs::read_dir(dir) else {
+        return map;
+    };
     for f in rd.flatten() {
         let name = f.file_name();
         let Some(name) = name.to_str() else { continue };
-        let Ok(text) = fs::read_to_string(f.path()) else { continue };
+        let Ok(text) = fs::read_to_string(f.path()) else {
+            continue;
+        };
         if let Some((sid, e)) = parse(name, &text) {
             if alive(&e) {
                 map.insert(sid, e);
@@ -192,7 +225,9 @@ mod tests {
             .spawn()
             .unwrap();
         let mut line = String::new();
-        BufReader::new(c.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        BufReader::new(c.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
         Fake(c)
     }
 
@@ -210,11 +245,27 @@ mod tests {
     fn open_sessions_are_those_with_the_same_live_process() {
         let d = tempfile::tempdir().unwrap();
         let c = fake_claude(false);
-        record(d.path(), c.pid(), serde_json::json!({ "sessionId": SID, "procStart": start_of(c.pid()) }));
-        record(d.path(), 999999, serde_json::json!({ "sessionId": "morto" })); // process gone
+        record(
+            d.path(),
+            c.pid(),
+            serde_json::json!({ "sessionId": SID, "procStart": start_of(c.pid()) }),
+        );
+        record(
+            d.path(),
+            999999,
+            serde_json::json!({ "sessionId": "morto" }),
+        ); // process gone
         let reused = fake_claude(false);
-        record(d.path(), reused.pid(), serde_json::json!({ "sessionId": "pid-riusato", "procStart": "1" })); // same pid, another process
-        fs::write(d.path().join("12.json"), serde_json::json!({ "pid": c.pid(), "sessionId": "nome-sbagliato" }).to_string()).unwrap();
+        record(
+            d.path(),
+            reused.pid(),
+            serde_json::json!({ "sessionId": "pid-riusato", "procStart": "1" }),
+        ); // same pid, another process
+        fs::write(
+            d.path().join("12.json"),
+            serde_json::json!({ "pid": c.pid(), "sessionId": "nome-sbagliato" }).to_string(),
+        )
+        .unwrap();
         fs::write(d.path().join("13.json"), "{ non json").unwrap();
         let live = live(d.path());
         assert!(tracked(d.path()));
@@ -227,7 +278,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let mut c = fake_claude(false);
         let id = "aaaaaaaa-0000-0000-0000-000000000001";
-        record(d.path(), c.pid(), serde_json::json!({ "sessionId": id, "procStart": start_of(c.pid()) }));
+        record(
+            d.path(),
+            c.pid(),
+            serde_json::json!({ "sessionId": id, "procStart": start_of(c.pid()) }),
+        );
         stop(d.path(), id, 3000).unwrap();
         assert_eq!(c.exited(), Some(libc::SIGTERM));
     }
@@ -237,7 +292,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let mut c = fake_claude(true);
         let id = "aaaaaaaa-0000-0000-0000-000000000002";
-        record(d.path(), c.pid(), serde_json::json!({ "sessionId": id, "procStart": start_of(c.pid()) }));
+        record(
+            d.path(),
+            c.pid(),
+            serde_json::json!({ "sessionId": id, "procStart": start_of(c.pid()) }),
+        );
         stop(d.path(), id, 300).unwrap();
         assert_eq!(c.exited(), Some(libc::SIGKILL));
     }
@@ -246,10 +305,20 @@ mod tests {
     fn stopping_a_session_not_open_is_a_clear_error_and_signals_nothing() {
         let d = tempfile::tempdir().unwrap();
         let reused = fake_claude(false);
-        record(d.path(), reused.pid(), serde_json::json!({ "sessionId": "pid-riusato", "procStart": "1" }));
-        assert_eq!(stop(d.path(), "non-esiste", 3000), Err("La sessione non è più aperta".into()));
+        record(
+            d.path(),
+            reused.pid(),
+            serde_json::json!({ "sessionId": "pid-riusato", "procStart": "1" }),
+        );
+        assert_eq!(
+            stop(d.path(), "non-esiste", 3000),
+            Err("La sessione non è più aperta".into())
+        );
         // A reused pid is never signalled.
-        assert_eq!(stop(d.path(), "pid-riusato", 3000), Err("La sessione non è più aperta".into()));
+        assert_eq!(
+            stop(d.path(), "pid-riusato", 3000),
+            Err("La sessione non è più aperta".into())
+        );
         assert!(unsafe { libc::kill(reused.pid(), 0) } == 0, "still running");
     }
 

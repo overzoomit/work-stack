@@ -11,8 +11,19 @@ fn work_pids(sys: &mut System) -> Vec<Pid> {
     let me = sysinfo::get_current_pid().ok();
     let mut pids: Vec<Pid> = me.into_iter().collect();
     if cfg!(target_os = "linux") {
-        sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
-        pids.extend(sys.processes().iter().filter(|(_, p)| p.parent() == me && p.name().to_string_lossy().starts_with("WebKit")).map(|(pid, _)| *pid));
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        pids.extend(
+            sys.processes()
+                .iter()
+                .filter(|(_, p)| {
+                    p.parent() == me && p.name().to_string_lossy().starts_with("WebKit")
+                })
+                .map(|(pid, _)| *pid),
+        );
     }
     pids
 }
@@ -22,7 +33,11 @@ pub fn sample(sys: &mut System) -> Value {
     sys.refresh_memory();
     let cores = sys.cpus().len().max(1);
     let pids = work_pids(sys);
-    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&pids), true, ProcessRefreshKind::nothing().with_cpu().with_memory());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&pids),
+        true,
+        ProcessRefreshKind::nothing().with_cpu().with_memory(),
+    );
     let procs: Vec<_> = pids.iter().filter_map(|p| sys.process(*p)).collect();
     let load = System::load_average();
     json!({
@@ -49,10 +64,16 @@ mod tests {
         sample(&mut sys);
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
         let s = sample(&mut sys);
-        let (used, total) = (s["memUsed"].as_u64().unwrap(), s["memTotal"].as_u64().unwrap());
+        let (used, total) = (
+            s["memUsed"].as_u64().unwrap(),
+            s["memTotal"].as_u64().unwrap(),
+        );
         assert!(used > 0 && used <= total);
         assert!((0.0..=1.0).contains(&s["cpu"].as_f64().unwrap()));
-        assert!(s["work"]["mem"].as_u64().unwrap() > 0, "this test process is Work here");
+        assert!(
+            s["work"]["mem"].as_u64().unwrap() > 0,
+            "this test process is Work here"
+        );
         assert_eq!(s["load"].as_array().unwrap().len(), 3);
     }
 }

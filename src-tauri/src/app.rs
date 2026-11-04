@@ -29,8 +29,13 @@ pub fn is_own_page(url: &Url, dev: Option<&Url>) -> bool {
 
 // Like `code .`: the folder given on the command line, resolved against the
 // caller's cwd. Flags are skipped (macOS may still pass -psn_… from Finder).
-pub fn open_arg(args: impl IntoIterator<Item = String>, cwd: &Path) -> Result<Option<PathBuf>, String> {
-    let Some(arg) = args.into_iter().skip(1).find(|a| !a.starts_with('-')) else { return Ok(None) };
+pub fn open_arg(
+    args: impl IntoIterator<Item = String>,
+    cwd: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let Some(arg) = args.into_iter().skip(1).find(|a| !a.starts_with('-')) else {
+        return Ok(None);
+    };
     match cwd.join(&arg).canonicalize() {
         Ok(path) if path.is_dir() => Ok(Some(path)),
         _ => Err(format!("work: non è una cartella: {arg}")),
@@ -53,8 +58,16 @@ pub fn detach_from_terminal() {
         eprintln!("{e}");
         std::process::exit(1)
     });
-    let Ok(exe) = std::env::current_exe() else { return };
-    let child = Command::new(exe).args(open).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn();
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let child = Command::new(exe)
+        .args(open)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
     if child.is_ok() {
         std::process::exit(0);
     }
@@ -115,7 +128,8 @@ pub fn login_path(shell: &str) -> (Option<String>, String) {
 pub const PATH_MARK: &str = "__WORK_PATH__";
 
 pub fn after_mark(out: &str) -> Option<&str> {
-    out.rsplit_once(PATH_MARK).and_then(|(_, rest)| rest.lines().next())
+    out.rsplit_once(PATH_MARK)
+        .and_then(|(_, rest)| rest.lines().next())
 }
 
 // Runs `script` (which ends by printing the PATH_MARK line) in the user's
@@ -125,13 +139,21 @@ pub fn after_mark(out: &str) -> Option<&str> {
 // - The output ends at the marker line, not at EOF: a job the rc leaves in
 //   the background keeps stdout open long after the shell is done.
 // - Then the whole group goes (the shell and what its rc started).
-pub fn run_shell(shell: &str, flags: &str, script: &str, timeout: std::time::Duration) -> Result<(String, bool), &'static str> {
+pub fn run_shell(
+    shell: &str,
+    flags: &str,
+    script: &str,
+    timeout: std::time::Duration,
+) -> Result<(String, bool), &'static str> {
     use std::io::Read;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::{mpsc, Arc};
     let mut cmd = Command::new(shell);
-    cmd.args([flags, script]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.args([flags, script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
@@ -163,7 +185,9 @@ pub fn run_shell(shell: &str, flags: &str, script: &str, timeout: std::time::Dur
 
 fn marker_line_done(out: &[u8]) -> bool {
     let mark = PATH_MARK.as_bytes();
-    out.windows(mark.len()).rposition(|w| w == mark).is_some_and(|i| out[i..].contains(&b'\n'))
+    out.windows(mark.len())
+        .rposition(|w| w == mark)
+        .is_some_and(|i| out[i..].contains(&b'\n'))
 }
 
 // A profile waiting for input must not hold the start up: 3 s at most.
@@ -195,12 +219,20 @@ pub fn log_start(app: &AppHandle) {
             yes(std::env::var_os("SSH_AUTH_SOCK").is_some()),
         ),
     );
-    log(Level::Debug, "app", format!("PATH={}", std::env::var("PATH").unwrap_or_default()));
+    log(
+        Level::Debug,
+        "app",
+        format!("PATH={}", std::env::var("PATH").unwrap_or_default()),
+    );
 }
 
 pub fn create_window(app: &AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
-    let dev = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
+    let dev = if cfg!(dev) {
+        app.config().build.dev_url.clone()
+    } else {
+        None
+    };
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Work")
         .inner_size(1600.0, 980.0)
@@ -272,8 +304,20 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         true,
         &[
             &P::about(app, None, None)?,
-            &tauri::menu::MenuItem::with_id(app, "check-update", "Controlla aggiornamenti…", true, None::<&str>)?,
-            &tauri::menu::MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?,
+            &tauri::menu::MenuItem::with_id(
+                app,
+                "check-update",
+                "Controlla aggiornamenti…",
+                true,
+                None::<&str>,
+            )?,
+            &tauri::menu::MenuItem::with_id(
+                app,
+                "settings",
+                "Settings…",
+                true,
+                Some("CmdOrCtrl+,"),
+            )?,
             &tauri::menu::MenuItem::with_id(app, "plugins", "Plugins…", true, None::<&str>)?,
             &P::separator(app)?,
             &P::services(app, None)?,
@@ -284,17 +328,42 @@ pub fn mac_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
             &P::separator(app)?,
             // Not the predefined Quit: that one ends the app without asking
             // (tao has no applicationShouldTerminate), unsaved edits included.
-            &tauri::menu::MenuItem::with_id(app, "quit", "Esci da Work", true, Some("CmdOrCtrl+Q"))?,
+            &tauri::menu::MenuItem::with_id(
+                app,
+                "quit",
+                "Esci da Work",
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?,
         ],
     )?;
     let edit = Submenu::with_items(
         app,
         "Modifica",
         true,
-        &[&P::undo(app, None)?, &P::redo(app, None)?, &P::separator(app)?, &P::cut(app, None)?, &P::copy(app, None)?, &P::paste(app, None)?, &P::select_all(app, None)?],
+        &[
+            &P::undo(app, None)?,
+            &P::redo(app, None)?,
+            &P::separator(app)?,
+            &P::cut(app, None)?,
+            &P::copy(app, None)?,
+            &P::paste(app, None)?,
+            &P::select_all(app, None)?,
+        ],
     )?;
-    let window = Submenu::with_items(app, "Finestra", true, &[&P::minimize(app, None)?, &P::maximize(app, None)?, &P::separator(app)?, &P::bring_all_to_front(app, None)?])?;
-    let export = tauri::menu::MenuItem::with_id(app, "export-log", "Esporta log…", true, None::<&str>)?;
+    let window = Submenu::with_items(
+        app,
+        "Finestra",
+        true,
+        &[
+            &P::minimize(app, None)?,
+            &P::maximize(app, None)?,
+            &P::separator(app)?,
+            &P::bring_all_to_front(app, None)?,
+        ],
+    )?;
+    let export =
+        tauri::menu::MenuItem::with_id(app, "export-log", "Esporta log…", true, None::<&str>)?;
     let help = Submenu::with_items(app, "Aiuto", true, &[&export])?;
     Menu::with_items(app, &[&app_menu, &edit, &window, &help])
 }
@@ -367,20 +436,41 @@ fn can_install(os: &str, appimage: Option<&std::ffi::OsStr>) -> bool {
     os != "linux" || appimage.is_some_and(|a| !a.is_empty())
 }
 
-fn update_json(version: &str, notes: Option<&str>, date_ms: Option<i64>, can_install: bool) -> Value {
+fn update_json(
+    version: &str,
+    notes: Option<&str>,
+    date_ms: Option<i64>,
+    can_install: bool,
+) -> Value {
     json!({ "version": version, "notes": notes.unwrap_or(""), "date": date_ms, "canInstall": can_install })
 }
 
 // null when this is the newest version. Development runs never check: they have no release to compare with.
 #[tauri::command]
-pub async fn app_update_check(app: AppHandle, pending: tauri::State<'_, PendingUpdate>) -> Result<Option<Value>, String> {
+pub async fn app_update_check(
+    app: AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<Option<Value>, String> {
     if cfg!(debug_assertions) {
         return Ok(None);
     }
-    let found = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let found = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
     let info = found.as_ref().map(|u| {
-        let can = can_install(std::env::consts::OS, std::env::var_os("APPIMAGE").as_deref());
-        update_json(&u.version, u.body.as_deref(), u.date.map(|d| d.unix_timestamp() * 1000), can)
+        let can = can_install(
+            std::env::consts::OS,
+            std::env::var_os("APPIMAGE").as_deref(),
+        );
+        update_json(
+            &u.version,
+            u.body.as_deref(),
+            u.date.map(|d| d.unix_timestamp() * 1000),
+            can,
+        )
     });
     *pending.0.lock().unwrap() = found;
     Ok(info)
@@ -390,9 +480,20 @@ pub async fn app_update_check(app: AppHandle, pending: tauri::State<'_, PendingU
 // page how far it got as [downloaded, total] bytes (total 0 when unknown).
 // It does not restart: that is the person's call (app_update_restart).
 #[tauri::command]
-pub async fn app_update_install(app: AppHandle, pending: tauri::State<'_, PendingUpdate>) -> Result<(), String> {
-    let update = pending.0.lock().unwrap().clone().ok_or("Nessun aggiornamento da installare: controlla di nuovo.")?;
-    if !can_install(std::env::consts::OS, std::env::var_os("APPIMAGE").as_deref()) {
+pub async fn app_update_install(
+    app: AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    let update = pending
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Nessun aggiornamento da installare: controlla di nuovo.")?;
+    if !can_install(
+        std::env::consts::OS,
+        std::env::var_os("APPIMAGE").as_deref(),
+    ) {
         return Err("Questa installazione non può aggiornarsi da sola: scarica la nuova versione dalla pagina della release.".into());
     }
     let mut done = 0u64;
@@ -418,7 +519,8 @@ pub fn app_update_restart(app: AppHandle) -> Result<(), String> {
     }
     app.state::<crate::pty::PtyState>().mgr.kill_all();
     app.state::<crate::agents::AgentWatcher>().stop();
-    app.state::<std::sync::Arc<crate::ngrok::Tunnels>>().stop_all();
+    app.state::<std::sync::Arc<crate::ngrok::Tunnels>>()
+        .stop_all();
     app.restart()
 }
 
@@ -428,8 +530,13 @@ pub fn app_update_restart(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn app_info(app: AppHandle) -> Value {
     let home = app.path().home_dir().unwrap_or_default();
-    let cwd = std::env::var("WORK_CWD").map(PathBuf::from).or_else(|_| std::env::current_dir()).unwrap_or_else(|_| home.clone());
-    let open = std::env::current_dir().ok().and_then(|d| open_arg(std::env::args(), &d).ok().flatten());
+    let cwd = std::env::var("WORK_CWD")
+        .map(PathBuf::from)
+        .or_else(|_| std::env::current_dir())
+        .unwrap_or_else(|_| home.clone());
+    let open = std::env::current_dir()
+        .ok()
+        .and_then(|d| open_arg(std::env::args(), &d).ok().flatten());
     let platform = match std::env::consts::OS {
         "macos" => "darwin",
         os => os,
@@ -457,20 +564,34 @@ pub fn app_stats(stats: tauri::State<Mutex<sysinfo::System>>) -> Value {
 
 #[tauri::command]
 pub async fn app_pick_folder(app: AppHandle) -> Option<String> {
-    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_can_create_directories(true).blocking_pick_folder()).await.ok()??;
-    picked.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_can_create_directories(true)
+            .blocking_pick_folder()
+    })
+    .await
+    .ok()??;
+    picked
+        .into_path()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
 pub async fn app_export_log(app: AppHandle) -> Result<Option<String>, String> {
-    let to = tauri::async_runtime::spawn_blocking(move || crate::diag::export(&app)).await.map_err(|e| e.to_string())??;
+    let to = tauri::async_runtime::spawn_blocking(move || crate::diag::export(&app))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(to.map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 pub fn app_reveal_export(app: AppHandle) -> Result<(), String> {
     let path = crate::diag::last_export().ok_or("Nessun log esportato")?;
-    app.opener().reveal_item_in_dir(path).map_err(|e| e.to_string())
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -506,9 +627,16 @@ fn drag_paths() -> Vec<String> {
     use objc2_app_kit::{NSFilenamesPboardType, NSPasteboard, NSPasteboardNameDrag};
     use objc2_foundation::{NSArray, NSString};
     let pb = unsafe { NSPasteboard::pasteboardWithName(NSPasteboardNameDrag) };
-    let Some(list) = (unsafe { pb.propertyListForType(NSFilenamesPboardType) }) else { return vec![] };
-    let Ok(list) = list.downcast::<NSArray>() else { return vec![] };
-    list.iter().filter_map(|p| p.downcast::<NSString>().ok()).map(|p| p.to_string()).collect()
+    let Some(list) = (unsafe { pb.propertyListForType(NSFilenamesPboardType) }) else {
+        return vec![];
+    };
+    let Ok(list) = list.downcast::<NSArray>() else {
+        return vec![];
+    };
+    list.iter()
+        .filter_map(|p| p.downcast::<NSString>().ok())
+        .map(|p| p.to_string())
+        .collect()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -536,17 +664,33 @@ mod tests {
     fn only_an_appimage_or_the_mac_app_can_install_an_update() {
         use std::ffi::OsStr;
         assert!(can_install("macos", None));
-        assert!(can_install("linux", Some(OsStr::new("/home/u/Work.AppImage"))));
+        assert!(can_install(
+            "linux",
+            Some(OsStr::new("/home/u/Work.AppImage"))
+        ));
         assert!(!can_install("linux", None), "a .deb or .rpm");
-        assert!(!can_install("linux", Some(OsStr::new(""))), "an empty variable is not an AppImage");
+        assert!(
+            !can_install("linux", Some(OsStr::new(""))),
+            "an empty variable is not an AppImage"
+        );
     }
 
     #[test]
     fn the_update_info_has_what_the_page_shows() {
         let v = update_json("1.2.0", Some("- nuovo"), Some(1_790_000_000_000), true);
-        assert_eq!(v, json!({ "version": "1.2.0", "notes": "- nuovo", "date": 1_790_000_000_000i64, "canInstall": true }));
+        assert_eq!(
+            v,
+            json!({ "version": "1.2.0", "notes": "- nuovo", "date": 1_790_000_000_000i64, "canInstall": true })
+        );
         let v = update_json("1.2.0", None, None, false);
-        assert_eq!((v["notes"].as_str(), v["date"].is_null(), v["canInstall"].as_bool()), (Some(""), true, Some(false)));
+        assert_eq!(
+            (
+                v["notes"].as_str(),
+                v["date"].is_null(),
+                v["canInstall"].as_bool()
+            ),
+            (Some(""), true, Some(false))
+        );
     }
     use super::*;
 
@@ -560,7 +704,10 @@ mod tests {
         unsafe {
             let pb = NSPasteboard::pasteboardWithName(NSPasteboardNameDrag);
             pb.clearContents();
-            assert!(pb.setPropertyList_forType(&NSArray::from_retained_slice(&files), NSFilenamesPboardType));
+            assert!(pb.setPropertyList_forType(
+                &NSArray::from_retained_slice(&files),
+                NSFilenamesPboardType
+            ));
         }
         assert_eq!(drag_paths(), ["/tmp/a b.txt", "/tmp/cartella"]);
     }
@@ -568,7 +715,10 @@ mod tests {
     #[test]
     fn the_login_shell_gives_its_path() {
         let path = login_path("/bin/sh").0.expect("sh prints its PATH");
-        assert!(path.split(':').any(|d| d == "/usr/bin" || d == "/bin"), "{path}");
+        assert!(
+            path.split(':').any(|d| d == "/usr/bin" || d == "/bin"),
+            "{path}"
+        );
         assert_eq!(login_path("/percorso/vuoto/shell").0, None);
     }
 
@@ -599,7 +749,11 @@ mod tests {
         let (path, outcome) = login_path(&fake_shell(dir.path(), "sleep 30 &"));
         assert!(path.is_some(), "{outcome}");
         assert!(outcome.starts_with("-lic ok in "), "{outcome}");
-        assert!(start.elapsed() < std::time::Duration::from_secs(2), "{:?}", start.elapsed());
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
@@ -618,15 +772,26 @@ mod tests {
         std::fs::create_dir_all(root.join("repo/sub")).unwrap();
         std::fs::write(root.join("file.txt"), "").unwrap();
         let sub = root.join("repo/sub");
-        let open = |args: &[&str]| open_arg(["work"].iter().chain(args).map(|a| a.to_string()), &sub);
+        let open =
+            |args: &[&str]| open_arg(["work"].iter().chain(args).map(|a| a.to_string()), &sub);
 
         assert_eq!(open(&[]), Ok(None), "no folder: restore the saved projects");
         assert_eq!(open(&["."]), Ok(Some(sub.clone())));
         assert_eq!(open(&["../"]), Ok(Some(root.join("repo"))));
         assert_eq!(open(&[root.to_str().unwrap()]), Ok(Some(root.clone())));
-        assert_eq!(open(&["-psn_0_12345", "."]), Ok(Some(sub.clone())), "flags are skipped");
-        assert_eq!(open(&["nope"]), Err("work: non è una cartella: nope".into()));
-        assert_eq!(open(&["../../file.txt"]), Err("work: non è una cartella: ../../file.txt".into()));
+        assert_eq!(
+            open(&["-psn_0_12345", "."]),
+            Ok(Some(sub.clone())),
+            "flags are skipped"
+        );
+        assert_eq!(
+            open(&["nope"]),
+            Err("work: non è una cartella: nope".into())
+        );
+        assert_eq!(
+            open(&["../../file.txt"]),
+            Err("work: non è una cartella: ../../file.txt".into())
+        );
     }
 
     #[test]
@@ -643,12 +808,24 @@ mod tests {
     fn a_dropped_file_or_a_link_does_not_replace_the_ui_regression() {
         let dev = Url::parse("http://localhost:1430").unwrap();
         let page = |u: &str| is_own_page(&Url::parse(u).unwrap(), Some(&dev));
-        assert!(page("tauri://localhost/index.html"), "reloading Work itself is fine");
-        assert!(page("http://tauri.localhost/index.html"), "Linux and Windows serve it over http");
-        assert!(page("asset://localhost/%2Fp/pagina.html"), "an HTML preview");
+        assert!(
+            page("tauri://localhost/index.html"),
+            "reloading Work itself is fine"
+        );
+        assert!(
+            page("http://tauri.localhost/index.html"),
+            "Linux and Windows serve it over http"
+        );
+        assert!(
+            page("asset://localhost/%2Fp/pagina.html"),
+            "an HTML preview"
+        );
         assert!(!page("file:///home/u/foto.png"), "a dropped file");
         assert!(!page("https://example.com/"));
         assert!(page("http://localhost:1430/index.html"), "the dev server");
-        assert!(!page("http://localhost:3000/"), "another local server is not Work");
+        assert!(
+            !page("http://localhost:3000/"),
+            "another local server is not Work"
+        );
     }
 }

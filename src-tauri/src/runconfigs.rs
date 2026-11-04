@@ -16,9 +16,15 @@ pub struct Config {
 // The "packageManager" field (Corepack) wins, then the lockfile. Only known
 // names are trusted: the value ends up in a shell command.
 fn package_manager(dir: &Path, pkg: &Value) -> &'static str {
-    let declared = pkg.get("packageManager").and_then(Value::as_str).unwrap_or("");
+    let declared = pkg
+        .get("packageManager")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let declared = declared.split('@').next().unwrap_or("");
-    if let Some(pm) = ["npm", "pnpm", "yarn", "bun"].into_iter().find(|&pm| pm == declared) {
+    if let Some(pm) = ["npm", "pnpm", "yarn", "bun"]
+        .into_iter()
+        .find(|&pm| pm == declared)
+    {
         return pm;
     }
     if dir.join("pnpm-lock.yaml").exists() {
@@ -36,13 +42,18 @@ fn package_manager(dir: &Path, pkg: &Value) -> &'static str {
 const PRIORITY: [&str; 7] = ["dev", "start", "serve", "watch", "build", "test", "lint"];
 
 fn rank(name: &str) -> usize {
-    PRIORITY.iter().position(|&p| p == name).unwrap_or(PRIORITY.len())
+    PRIORITY
+        .iter()
+        .position(|&p| p == name)
+        .unwrap_or(PRIORITY.len())
 }
 
 // Script names may contain spaces or shell characters ("e2e test"): quote
 // anything that isn't a plain word so the shell passes it as one argument.
 fn shell_arg(s: &str) -> String {
-    let plain = !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "_:.@/+=-".contains(c));
+    let plain = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_:.@/+=-".contains(c));
     if plain {
         s.to_string()
     } else {
@@ -51,7 +62,9 @@ fn shell_arg(s: &str) -> String {
 }
 
 fn read(p: PathBuf) -> Option<String> {
-    fs::read(p).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
+    fs::read(p)
+        .ok()
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
 }
 
 fn is_name_char(c: char) -> bool {
@@ -76,7 +89,11 @@ fn rule_targets(line: &str) -> Vec<&str> {
             let tail = after_colon.trim_start_matches(':');
             // At most two more colons before "=" make an assignment.
             let colons = after_colon.len() - tail.len();
-            return if colons <= 2 && tail.starts_with('=') { vec![] } else { names };
+            return if colons <= 2 && tail.starts_with('=') {
+                vec![]
+            } else {
+                names
+            };
         }
         if rest.len() == after.len() {
             return vec![]; // a character that is neither a name, blank nor ':'
@@ -87,15 +104,31 @@ fn rule_targets(line: &str) -> Vec<&str> {
 pub fn detect(dir: &Path) -> Vec<Config> {
     let mut configs = vec![];
     let mut add = |group: &str, name: &str, command: String| {
-        configs.push(Config { id: format!("{group}:{name}"), group: group.into(), name: name.into(), command });
+        configs.push(Config {
+            id: format!("{group}:{name}"),
+            group: group.into(),
+            name: name.into(),
+            command,
+        });
     };
 
-    if let Some(pkg) = read(dir.join("package.json")).and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+    if let Some(pkg) =
+        read(dir.join("package.json")).and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    {
         if pkg.is_object() {
             let pm = package_manager(dir, &pkg);
-            let mut names: Vec<&String> = pkg.get("scripts").and_then(Value::as_object).map(|s| s.keys().collect()).unwrap_or_default();
+            let mut names: Vec<&String> = pkg
+                .get("scripts")
+                .and_then(Value::as_object)
+                .map(|s| s.keys().collect())
+                .unwrap_or_default();
             // ponytail: case-insensitive byte order stands in for localeCompare; ICU collation if non-ASCII names matter.
-            names.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.to_lowercase().cmp(&b.to_lowercase())).then_with(|| a.cmp(b)));
+            names.sort_by(|a, b| {
+                rank(a)
+                    .cmp(&rank(b))
+                    .then_with(|| a.to_lowercase().cmp(&b.to_lowercase()))
+                    .then_with(|| a.cmp(b))
+            });
             for name in names {
                 add(pm, name, format!("{pm} run {}", shell_arg(name)));
             }
@@ -103,7 +136,10 @@ pub fn detect(dir: &Path) -> Vec<Config> {
     }
 
     // The first of these make reads, in its own order.
-    if let Some(make) = ["GNUmakefile", "makefile", "Makefile"].iter().find_map(|f| read(dir.join(f))) {
+    if let Some(make) = ["GNUmakefile", "makefile", "Makefile"]
+        .iter()
+        .find_map(|f| read(dir.join(f)))
+    {
         let mut seen: Vec<&str> = vec![];
         for line in make.split(['\n', '\r', '\u{2028}', '\u{2029}']) {
             for t in rule_targets(line) {
@@ -127,7 +163,15 @@ pub fn detect(dir: &Path) -> Vec<Config> {
         add("go", "run", "go run .".into());
         add("go", "test", "go test ./...".into());
     }
-    if ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"].iter().any(|f| dir.join(f).exists()) {
+    if [
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+    ]
+    .iter()
+    .any(|f| dir.join(f).exists())
+    {
         add("docker", "compose up", "docker compose up".into());
     }
     configs
@@ -135,7 +179,9 @@ pub fn detect(dir: &Path) -> Vec<Config> {
 
 #[tauri::command]
 pub async fn run_detect(dir: String) -> Result<Vec<Config>, String> {
-    tauri::async_runtime::spawn_blocking(move || detect(Path::new(&dir))).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || detect(Path::new(&dir)))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -161,19 +207,28 @@ mod tests {
 
     #[test]
     fn most_used_scripts_first_then_alphabetical() {
-        let d = folder(&[("package.json", r#"{"scripts":{"lint":"x","zeta":"x","build":"x","dev":"x","alpha":"x"}}"#)]);
+        let d = folder(&[(
+            "package.json",
+            r#"{"scripts":{"lint":"x","zeta":"x","build":"x","dev":"x","alpha":"x"}}"#,
+        )]);
         assert_eq!(names(&d), ["dev", "build", "lint", "alpha", "zeta"]);
     }
 
     #[test]
     fn package_manager_from_lockfile() {
-        let d = folder(&[("package.json", r#"{"scripts":{"dev":"x"}}"#), ("pnpm-lock.yaml", "")]);
+        let d = folder(&[
+            ("package.json", r#"{"scripts":{"dev":"x"}}"#),
+            ("pnpm-lock.yaml", ""),
+        ]);
         assert_eq!(commands(&d), ["pnpm run dev"]);
     }
 
     #[test]
     fn makefile_targets_skip_variable_assignments() {
-        let d = folder(&[("Makefile", "CC := gcc\nbuild:\n\tgo build\ntest: build\n\tgo test\n.PHONY: build\n")]);
+        let d = folder(&[(
+            "Makefile",
+            "CC := gcc\nbuild:\n\tgo build\ntest: build\n\tgo test\n.PHONY: build\n",
+        )]);
         assert_eq!(commands(&d), ["make build", "make test"]);
     }
 
@@ -192,31 +247,56 @@ mod tests {
     #[test]
     fn script_names_with_shell_characters_arrive_as_one_argument() {
         let list = ["e2e test", "it's", "a;touch PWNED", "$(id)", "build:prod"];
-        let scripts: serde_json::Map<String, Value> = list.iter().map(|n| (n.to_string(), json!("x"))).collect();
+        let scripts: serde_json::Map<String, Value> =
+            list.iter().map(|n| (n.to_string(), json!("x"))).collect();
         let d = folder(&[("package.json", &json!({ "scripts": scripts }).to_string())]);
         let configs = detect(d.path());
         assert_eq!(configs.len(), list.len());
         for c in &configs {
             // Replace the package manager with printf: the shell must hand over the name unchanged, as one word.
             let cmd = c.command.replacen("npm run ", "printf '%s\\n' ", 1);
-            let out = std::process::Command::new("sh").args(["-c", &cmd]).current_dir(d.path()).output().unwrap();
-            assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{}\n", c.name), "{}", c.command);
+            let out = std::process::Command::new("sh")
+                .args(["-c", &cmd])
+                .current_dir(d.path())
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8(out.stdout).unwrap(),
+                format!("{}\n", c.name),
+                "{}",
+                c.command
+            );
         }
         assert!(!d.path().join("PWNED").exists());
         let prod = configs.iter().find(|c| c.name == "build:prod").unwrap();
-        assert_eq!(prod.command, "npm run build:prod", "plain names stay unquoted");
+        assert_eq!(
+            prod.command, "npm run build:prod",
+            "plain names stay unquoted"
+        );
     }
 
     #[test]
     fn posix_assignments_are_not_targets_double_colon_rules_are() {
-        let d = folder(&[("Makefile", "CC ::= gcc\nFLAGS :::= -O2\nclean::\n\trm -f *.o\nbuild: deps\n\tcc main.c\n")]);
+        let d = folder(&[(
+            "Makefile",
+            "CC ::= gcc\nFLAGS :::= -O2\nclean::\n\trm -f *.o\nbuild: deps\n\tcc main.c\n",
+        )]);
         assert_eq!(names(&d), ["clean", "build"]);
     }
 
     #[test]
     fn cargo_django_go_and_one_compose() {
-        let d = folder(&[("Cargo.toml", ""), ("manage.py", ""), ("go.mod", "module x\n"), ("compose.yaml", ""), ("docker-compose.yml", "")]);
-        let got: Vec<(String, String)> = detect(d.path()).into_iter().map(|c| (c.id, c.command)).collect();
+        let d = folder(&[
+            ("Cargo.toml", ""),
+            ("manage.py", ""),
+            ("go.mod", "module x\n"),
+            ("compose.yaml", ""),
+            ("docker-compose.yml", ""),
+        ]);
+        let got: Vec<(String, String)> = detect(d.path())
+            .into_iter()
+            .map(|c| (c.id, c.command))
+            .collect();
         let want = [
             ("cargo:run", "cargo run"),
             ("cargo:test", "cargo test"),
@@ -232,19 +312,39 @@ mod tests {
 
     #[test]
     fn declared_package_manager_without_lockfile() {
-        let d = folder(&[("package.json", r#"{"packageManager":"pnpm@9.1.0","scripts":{"dev":"x"}}"#)]);
+        let d = folder(&[(
+            "package.json",
+            r#"{"packageManager":"pnpm@9.1.0","scripts":{"dev":"x"}}"#,
+        )]);
         assert_eq!(commands(&d), ["pnpm run dev"]);
-        let yarn = folder(&[("package.json", r#"{"packageManager":"yarn@4.0.2+sha256.abc","scripts":{"dev":"x"}}"#)]);
+        let yarn = folder(&[(
+            "package.json",
+            r#"{"packageManager":"yarn@4.0.2+sha256.abc","scripts":{"dev":"x"}}"#,
+        )]);
         assert_eq!(commands(&yarn), ["yarn run dev"]);
-        let weird = folder(&[("package.json", r#"{"packageManager":"rm -rf /@1","scripts":{"dev":"x"}}"#)]);
-        assert_eq!(commands(&weird), ["npm run dev"], "only known managers are trusted");
+        let weird = folder(&[(
+            "package.json",
+            r#"{"packageManager":"rm -rf /@1","scripts":{"dev":"x"}}"#,
+        )]);
+        assert_eq!(
+            commands(&weird),
+            ["npm run dev"],
+            "only known managers are trusted"
+        );
     }
 
     #[test]
     fn make_reads_makefile_and_gnumakefile_and_every_target_on_a_line() {
         let lower = folder(&[("makefile", "build test: deps\n\tgo build\ndeps:\n\ttrue\n")]);
         assert_eq!(commands(&lower), ["make build", "make test", "make deps"]);
-        let gnu = folder(&[("GNUmakefile", "all:\n\ttrue\n"), ("Makefile", "ignored:\n")]);
-        assert_eq!(commands(&gnu), ["make all"], "GNUmakefile wins, as in make itself");
+        let gnu = folder(&[
+            ("GNUmakefile", "all:\n\ttrue\n"),
+            ("Makefile", "ignored:\n"),
+        ]);
+        assert_eq!(
+            commands(&gnu),
+            ["make all"],
+            "GNUmakefile wins, as in make itself"
+        );
     }
 }
