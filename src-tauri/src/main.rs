@@ -80,6 +80,9 @@ fn main() {
     // Release only: `npm run dev` must not hand its launch to the installed Work.
     #[cfg(not(debug_assertions))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(app::open_again));
+    // Embedded WebDriver server for `npm run test:e2e`; never in a normal build.
+    #[cfg(feature = "e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

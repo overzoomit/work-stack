@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "build:e2e": "tauri build --debug --no-bundle --features e2e --config src-tauri/tauri.e2e.conf.json",
+    "test:e2e": "npm run build:e2e && node --test \"test/e2e/*.e2e.mjs\"",
     "install:linux": "scripts/install-linux.sh",
     "test": "node --test \"test/*.test.{js,mjs}\" && cargo test --manifest-path src-tauri/Cargo.toml",
     "postinstall": "node scripts/vendor.mjs"
