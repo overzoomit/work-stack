@@ -49,7 +49,7 @@ export class El {
   getBoundingClientRect() { return this.rect || { left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }; }
   setAttribute() {}
   insertAdjacentHTML(_where, html) { const el = new El(); el.innerHTML = html; this.appendChild(el); }
-  focus() {}
+  focus() { this.focused = true; globalThis.document.activeElement = this; }
   setSelectionRange(a, b) { this.selection = [a, b]; }
   scrollIntoView() {}
   contains() { return false; }
@@ -90,8 +90,8 @@ globalThis.innerHeight = 800;
 globalThis.matchMedia = () => ({ matches: true }); // reduced motion: no FLIP animations to wait for
 
 export class FakeTerminal {
-  constructor(options) { this.options = options; this.cols = 80; this.rows = 24; this.textarea = new El(); this.written = ''; }
-  loadAddon() {}
+  constructor(options) { this.options = options; this.cols = 80; this.rows = 24; this.textarea = new El(); this.written = ''; this.addons = []; }
+  loadAddon(addon) { this.addons.push(addon); addon.activate?.(this); }
   open() {}
   onData() {}
   onResize() {}
@@ -101,14 +101,33 @@ export class FakeTerminal {
   paste(text) { this.pasted = text; }
   clear() { this.written = ''; }
   focus() { FakeTerminal.focused = this; }
+  dispose() { this.disposed = true; for (const a of this.addons) a.dispose?.(); }
+}
+
+// The search addon answers the calls the bar makes and lets a test say how
+// many matches the buffer holds (emit).
+export class FakeSearchAddon {
+  constructor(options) { this.options = options; this.calls = []; this.listeners = []; FakeSearchAddon.instances.push(this); }
+  activate(term) { this.term = term; }
+  findNext(query, options) { this.calls.push(['next', query, options]); return this.found ?? true; }
+  findPrevious(query, options) { this.calls.push(['previous', query, options]); return this.found ?? true; }
+  clearDecorations() { this.cleared = (this.cleared || 0) + 1; }
+  onDidChangeResults(fn) {
+    this.listeners.push(fn);
+    return { dispose: () => { this.listeners = this.listeners.filter((x) => x !== fn); } };
+  }
+  emit(resultIndex, resultCount) {
+    for (const fn of [...this.listeners]) fn({ resultIndex, resultCount });
+  }
   dispose() { this.disposed = true; }
 }
+FakeSearchAddon.instances = [];
 // DOMPurify needs a real DOM: tests stand in with a function of their own.
 globalThis.__purify = { sanitize: (html) => html };
-globalThis.__xterm = { Terminal: FakeTerminal, FitAddon: class { fit() {} }, WebLinksAddon: class {} };
+globalThis.__xterm = { Terminal: FakeTerminal, FitAddon: class { fit() {} }, WebLinksAddon: class {}, SearchAddon: FakeSearchAddon };
 const stub = (name) => `data:text/javascript,export const ${name} = globalThis.__xterm.${name};`;
 register(`data:text/javascript,${encodeURIComponent(`
-  const stubs = { 'xterm.mjs': ${JSON.stringify(stub('Terminal'))}, 'addon-fit.mjs': ${JSON.stringify(stub('FitAddon'))}, 'addon-web-links.mjs': ${JSON.stringify(stub('WebLinksAddon'))}, 'purify.es.mjs': 'data:text/javascript,export default globalThis.__purify' };
+  const stubs = { 'xterm.mjs': ${JSON.stringify(stub('Terminal'))}, 'addon-fit.mjs': ${JSON.stringify(stub('FitAddon'))}, 'addon-web-links.mjs': ${JSON.stringify(stub('WebLinksAddon'))}, 'addon-search.mjs': ${JSON.stringify(stub('SearchAddon'))}, 'purify.es.mjs': 'data:text/javascript,export default globalThis.__purify' };
   export async function resolve(spec, ctx, next) {
     const hit = Object.keys(stubs).find((k) => spec.endsWith('/' + k));
     return hit ? { url: stubs[hit], shortCircuit: true } : next(spec, ctx);
@@ -136,6 +155,11 @@ export const env = {
   key(key, mods = {}) {
     const e = { key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, target: document.body, ...mods, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
     for (const fn of winListeners.keydown || []) fn(e);
+  },
+  resize(width = globalThis.innerWidth, height = globalThis.innerHeight) {
+    globalThis.innerWidth = width;
+    globalThis.innerHeight = height;
+    for (const fn of [...(winListeners.resize || [])]) fn({});
   },
   exit(id, code) { env.onExit(id, code); },
   // ngrok: calls in order; `status` is what ngrok.status answers, `start` what
