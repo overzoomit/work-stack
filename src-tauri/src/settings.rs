@@ -3,6 +3,7 @@
 // config dir, readable by the user only: these are secrets.
 use crate::plane_dogwatch::{safe_segment, trusted_url};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -236,6 +237,144 @@ pub async fn settings_test_plane(
         .map_err(|e| e.to_string())?
 }
 
+/// Portable configuration bundle for export/import between machines.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExportBundle {
+    pub version: u32,
+    pub exported_at: String,
+    pub settings: AppSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telegram: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projects: Vec<String>,
+}
+
+pub fn create_export_bundle(
+    settings: AppSettings,
+    telegram: Option<Value>,
+    projects: Vec<String>,
+) -> ExportBundle {
+    let exported_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+    ExportBundle {
+        version: 1,
+        exported_at,
+        settings: normalize(settings),
+        telegram,
+        projects,
+    }
+}
+
+pub fn parse_import_bundle(text: &str) -> Result<ExportBundle, String> {
+    let bundle: ExportBundle = serde_json::from_str(text)
+        .map_err(|e| format!("Invalid configuration bundle JSON: {e}"))?;
+    if bundle.version == 0 || bundle.version > 2 {
+        return Err(format!(
+            "Unsupported configuration bundle version: {}",
+            bundle.version
+        ));
+    }
+    Ok(bundle)
+}
+
+#[tauri::command]
+pub fn settings_is_configured() -> bool {
+    let s = load(&file());
+    !s.plane_api_key.trim().is_empty() || !s.jev_api_key.trim().is_empty()
+}
+
+#[tauri::command]
+pub fn settings_export(
+    app: tauri::AppHandle,
+    state: tauri::State<crate::AppState>,
+) -> Result<String, String> {
+    let s = load(&file());
+
+    // Read telegram config if present
+    let telegram = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("telegram.json"))
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+
+    // Read project paths
+    let projects = {
+        let lock = state.state.lock().unwrap();
+        crate::project_paths(&lock)
+    };
+
+    let bundle = create_export_bundle(s, telegram, projects);
+    serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn settings_import(
+    app: tauri::AppHandle,
+    state: tauri::State<crate::AppState>,
+    bundle_json: String,
+) -> Result<AppSettings, String> {
+    let bundle = parse_import_bundle(&bundle_json)?;
+    let normalized = normalize(bundle.settings);
+    save(&file(), &normalized).map_err(|e| format!("cannot save settings: {e}"))?;
+    apply_env();
+
+    // Restore telegram if present
+    if let Some(tg) = bundle.telegram {
+        if let Ok(dir) = app.path().app_config_dir() {
+            let tg_file = dir.join("telegram.json");
+            let _ = fs::create_dir_all(&dir);
+            let tmp = tg_file.with_extension("json.tmp");
+            if let Ok(body) = serde_json::to_string_pretty(&tg) {
+                if fs::write(&tmp, body).is_ok() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+                    }
+                    let _ = fs::rename(&tmp, &tg_file);
+                }
+            }
+        }
+    }
+
+    // Restore projects if present
+    if !bundle.projects.is_empty() {
+        let mut app_state = state.state.lock().unwrap();
+        let mut existing_projects: Vec<Value> = app_state
+            .get("projects")
+            .and_then(|p| p.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let existing_paths: std::collections::HashSet<String> = existing_projects
+            .iter()
+            .filter_map(|p| p.get("path").and_then(|x| x.as_str()).map(String::from))
+            .collect();
+
+        for path_str in bundle.projects {
+            let p = std::path::Path::new(&path_str);
+            // Add if path exists on this system and isn't already in list
+            if p.exists() && !existing_paths.contains(&path_str) {
+                existing_projects.push(serde_json::json!({ "path": path_str }));
+            }
+        }
+
+        app_state["projects"] = Value::Array(existing_projects);
+        crate::allow_projects(&app, &app_state);
+        let _ = crate::store::save(&state.file, &app_state);
+    }
+
+    if let Some(tg) = app.try_state::<std::sync::Arc<crate::telegram::TelegramState>>() {
+        crate::telegram::emit_status(&app, &tg);
+    }
+
+    Ok(normalized)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,5 +559,46 @@ mod tests {
         let c = crate::plane_dogwatch::load_config_with(d.path(), &env, "", Some(&saved)).unwrap();
         assert_eq!(c.api_key, "from-settings");
         assert_eq!(c.base_url, "https://plane.settings.it");
+    }
+
+    #[test]
+    fn export_bundle_creates_valid_json_and_roundtrips() {
+        let s = AppSettings {
+            plane_api_key: "my-key".into(),
+            plane_base_url: "https://plane.oz.it".into(),
+            plane_workspace: "oz".into(),
+            jev_api_key: "jev-key".into(),
+            jev_endpoint: "https://jev.oz.it".into(),
+            custom_env: BTreeMap::from([("ENV_VAR".into(), "val".into())]),
+        };
+        let tg = Some(json!({
+            "token": "bot:secret",
+            "chat_id": "12345"
+        }));
+        let projects = vec!["/home/user/workspace/p1".to_string()];
+
+        let bundle = create_export_bundle(s.clone(), tg.clone(), projects.clone());
+        assert_eq!(bundle.version, 1);
+        assert_eq!(bundle.settings.plane_api_key, "my-key");
+        assert_eq!(bundle.telegram, tg);
+        assert_eq!(bundle.projects, projects);
+
+        let json_text = serde_json::to_string(&bundle).unwrap();
+        let parsed = parse_import_bundle(&json_text).unwrap();
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.settings.plane_api_key, "my-key");
+        assert_eq!(parsed.settings.jev_api_key, "jev-key");
+        assert_eq!(parsed.telegram, tg);
+        assert_eq!(parsed.projects, projects);
+    }
+
+    #[test]
+    fn parse_import_bundle_validates_json_and_version() {
+        assert!(parse_import_bundle("broken json").is_err());
+        assert!(parse_import_bundle(r#"{"version":0,"exported_at":"","settings":{}}"#).is_err());
+        assert!(parse_import_bundle(r#"{"version":99,"exported_at":"","settings":{}}"#).is_err());
+        let valid =
+            parse_import_bundle(r#"{"version":1,"exported_at":"123","settings":{}}"#).unwrap();
+        assert_eq!(valid.version, 1);
     }
 }

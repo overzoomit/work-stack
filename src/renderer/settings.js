@@ -60,11 +60,12 @@ export function fillSettings(root, s = {}) {
 
 function showTab(name) {
   if (!sheet) return;
-  for (const b of ['.st-tab-plane', '.st-tab-jev', '.st-tab-env']) {
-    q(b).classList.toggle('active', b === `.st-tab-${name}`);
+  for (const b of ['.st-tab-plane', '.st-tab-jev', '.st-tab-env', '.st-tab-backup']) {
+    q(b)?.classList.toggle('active', b === `.st-tab-${name}`);
   }
-  for (const p of ['.st-panel-plane', '.st-panel-jev', '.st-panel-env']) {
-    q(p).hidden = p !== `.st-panel-${name}`;
+  for (const p of ['.st-panel-plane', '.st-panel-jev', '.st-panel-env', '.st-panel-backup']) {
+    const el = q(p);
+    if (el) el.hidden = p !== `.st-panel-${name}`;
   }
 }
 
@@ -131,11 +132,44 @@ async function save() {
   }
 }
 
+async function exportConfig() {
+  if (!sheet) return;
+  try {
+    const bundleText = await work.settings.exportConfig();
+    const blob = new Blob([bundleText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `work-config-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Configuration exported successfully');
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+async function importConfigFile(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const updated = await work.settings.importConfig(text);
+    if (sheet) fillSettings(sheet, updated);
+    toast('Configuration imported successfully!');
+  } catch (e) {
+    toastError(e);
+  } finally {
+    input.value = '';
+  }
+}
+
 const acts = {
   close: () => closeSettingsDialog(),
   cancel: () => closeSettingsDialog(),
   save: () => save(),
   test: () => testConnection(),
+  export: () => exportConfig(),
   reveal: ({ target }) => reveal(target),
   tab: ({ tab }) => showTab(tab),
 };
@@ -180,6 +214,7 @@ export async function openSettingsDialog() {
         <button type="button" class="st-tab st-tab-plane active" data-act="tab" data-tab="plane">✈️ Plane</button>
         <button type="button" class="st-tab st-tab-jev" data-act="tab" data-tab="jev">⚡ Jev</button>
         <button type="button" class="st-tab st-tab-env" data-act="tab" data-tab="env">Environment</button>
+        <button type="button" class="st-tab st-tab-backup" data-act="tab" data-tab="backup">📦 Portability</button>
       </nav>
       <form class="st-form" autocomplete="off">
         <section class="st-panel st-panel-plane">
@@ -224,6 +259,16 @@ export async function openSettingsDialog() {
           </label>
           <p class="st-note">One <code>KEY=value</code> per line. Comments with <code>#</code> are ignored.</p>
         </section>
+        <section class="st-panel st-panel-backup" hidden>
+          <p class="st-note">Export or import credentials, settings and project references to migrate Work Stack to another machine.</p>
+          <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+            <button type="button" class="btn" data-act="export">📥 Export Configuration</button>
+            <label class="btn" style="cursor:pointer;display:inline-flex;align-items:center;">
+              📤 Import Configuration
+              <input type="file" accept=".json,application/json" class="st-import-file" style="display:none">
+            </label>
+          </div>
+        </section>
       </form>
       <footer class="st-foot">
         <button type="button" class="btn" data-act="cancel">Cancel</button>
@@ -235,6 +280,10 @@ export async function openSettingsDialog() {
     if (e.target === sheet) closeSettingsDialog();
   };
   sheet.onclick = onClick;
+  const importInput = sheet.querySelector('.st-import-file');
+  if (importInput) {
+    importInput.onchange = () => importConfigFile(importInput);
+  }
   sheet.querySelector('.st-form').onsubmit = (e) => {
     e.preventDefault();
     save();

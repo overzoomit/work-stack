@@ -94,12 +94,45 @@ class ConfigError(Exception):
 
 
 def plane_cli_defaults() -> dict[str, str]:
-    path = Path(os.environ.get("PLANE_CLI") or DEFAULT_PLANE_CLI).expanduser()
+    if "PLANE_CLI" in os.environ:
+        path = Path(os.environ["PLANE_CLI"]).expanduser()
+        if not path.is_file():
+            return {}
+        try:
+            cli = load_module("plane_cli", path)
+        except Exception:
+            return {}
+        return {
+            "api_key": getattr(cli, "API_KEY", "") or "",
+            "base_url": getattr(cli, "PLANE_BASE_URL", "") or "",
+            "workspace": getattr(cli, "WORKSPACE_SLUG", "") or "",
+        }
+
+    # 1. Read Work Stack settings (~/.config/it.overzoom.work/settings.json)
+    cfg_base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    cfg_path = Path(cfg_base) / "it.overzoom.work" / "settings.json"
+    if cfg_path.is_file():
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            api_key = data.get("plane_api_key", "").strip()
+            base_url = data.get("plane_base_url", "").strip()
+            workspace = data.get("plane_workspace", "").strip()
+            if api_key:
+                return {
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "workspace": workspace,
+                }
+        except Exception:
+            pass
+
+    # 2. Fallback to default plane_cli location
+    path = DEFAULT_PLANE_CLI.expanduser()
     if not path.is_file():
         return {}
     try:
         cli = load_module("plane_cli", path)
-    except Exception:  # a broken global CLI only means no defaults
+    except Exception:
         return {}
     return {
         "api_key": getattr(cli, "API_KEY", "") or "",
@@ -116,7 +149,7 @@ def load_config(root: Path) -> dict[str, str]:
     if not local.get("project_id"):
         raise ConfigError(f"{path} has no project_id")
     cli = plane_cli_defaults()
-    api_key = os.environ.get("PLANE_API_KEY") or cli.get("api_key")
+    api_key = os.environ.get("PLANE_API_KEY") if "PLANE_API_KEY" in os.environ else cli.get("api_key")
     if not api_key:
         raise ConfigError("no Plane API key: set PLANE_API_KEY")
     return {

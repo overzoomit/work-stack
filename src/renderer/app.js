@@ -27,6 +27,7 @@ import { isRefreshKey, isCloseTerminalKey, isSettingsKey } from './keys.js';
 import { initAccordion, revealSection } from './accordion.js';
 import { remotePathFor, remoteLabel, remoteHostBadge } from './remoteproject.js';
 import { openRemoteProjectDialog } from './remotedialog.js';
+import { checkOnboarding } from './onboarding.js';
 
 const { work } = window;
 
@@ -893,6 +894,7 @@ more.onclick = (e) => {
     },
   });
   performance.mark('work:ready'); // boot finished: read with performance.getEntriesByName
+  checkOnboarding({ onDone: () => window.location.reload() });
 
   // Safety-net polling only: real updates are event-driven (.git watcher + terminal activity).
   setInterval(() => refreshGit(active), 20000);

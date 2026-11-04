@@ -211,6 +211,9 @@
       get: call('settings_get'),
       save: call('settings_save', 'settings'),
       testPlane: call('settings_test_plane', 'baseUrl', 'apiKey', 'workspace'),
+      exportConfig: call('settings_export'),
+      importConfig: call('settings_import', 'bundleJson'),
+      isConfigured: call('settings_is_configured'),
     },
     tmux: {
       isAvailable: call('tmux_is_available'),

@@ -35,7 +35,7 @@ struct AppState {
 // The open projects are also what authorizes file access (see fsops).
 // Remote projects have a synthetic ssh:// identity and no local folder: they
 // must not become filesystem roots nor start a local tmux/dogwatch session.
-fn project_paths(state: &Value) -> Vec<String> {
+pub fn project_paths(state: &Value) -> Vec<String> {
     state["projects"]
         .as_array()
         .into_iter()
@@ -47,7 +47,7 @@ fn project_paths(state: &Value) -> Vec<String> {
 
 // ponytail: a closed project stays previewable (asset protocol) until restart;
 // forbid_directory is permanent, so a rebuilt scope would be needed to drop it.
-fn allow_projects(app: &tauri::AppHandle, state: &Value) {
+pub fn allow_projects(app: &tauri::AppHandle, state: &Value) {
     let paths = project_paths(state);
     for p in &paths {
         let _ = app.asset_protocol_scope().allow_directory(p, true);
@@ -315,6 +315,9 @@ fn main() {
             settings::settings_get,
             settings::settings_save,
             settings::settings_test_plane,
+            settings::settings_is_configured,
+            settings::settings_export,
+            settings::settings_import,
             telegram::telegram_status,
             telegram::telegram_connect,
             telegram::telegram_disconnect,

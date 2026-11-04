@@ -35,6 +35,19 @@ window.work.settings = {
     if (backend.test instanceof Error) throw backend.test;
     return backend.test ?? 'Connected';
   },
+  exportConfig: async () => {
+    calls.push(['exportConfig']);
+    return JSON.stringify({ version: 1, settings: backend.stored });
+  },
+  importConfig: async (json) => {
+    calls.push(['importConfig', json]);
+    const parsed = JSON.parse(json);
+    backend.stored = parsed.settings || parsed;
+    return backend.stored;
+  },
+  isConfigured: async () => {
+    return !!backend.stored?.plane_api_key;
+  },
 };
 $('#modal').hidden = true; // as in index.html
 
@@ -251,4 +264,16 @@ test('settingsFrom reads the form without touching the backend', async () => {
     custom_env: { K: 'v' },
   });
   assert.deepEqual(calls.filter((c) => c[0] !== 'get'), []);
+});
+
+test('portability tab exposes export and import actions', async () => {
+  await reset();
+  await openSettingsDialog();
+  await tick();
+  click('tab', { tab: 'backup' });
+  assert.equal(field('.st-panel-backup').hidden, false);
+  assert.equal(field('.st-tab-backup').classList.contains('active'), true);
+  click('export');
+  await tick();
+  assert.ok(calls.some((c) => c[0] === 'exportConfig'), 'exportConfig called');
 });
