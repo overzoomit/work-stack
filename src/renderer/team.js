@@ -21,6 +21,10 @@ let getProject = () => null;
 let pop = null;
 const waitingByProject = new Map();
 const liveByProject = new Map();
+// Pending dogwatch prompts per project, as last announced by the watcher:
+// project path -> { session, pending }. The "Needs You" card reads this so it
+// disappears as soon as an agent resumes, without waiting for another render.
+const pendingByProject = new Map();
 let viewState = { mode: 'main', targetRoleName: null, targetRoleLabel: null };
 
 export function hasPm(existingNames = []) {
@@ -342,6 +346,85 @@ function showWaiting(project, count) {
   if (btn) btn.title = total > 0 ? `${total} agent(s) waiting for an answer` : 'Manage the agent team (PM, Dev1, Dev2, QA, Doc, Generic)';
 }
 
+// ── Needs You: pending dogwatch prompts ──────────────────────
+// The watcher reports a flat { target, prompt_type, question, options } entry;
+// an inspection reports the prompt on its own. Both shapes feed the same card.
+
+export function needsYouEntries(pending = []) {
+  return (pending || [])
+    .map((entry) => (entry?.prompt ? { target: entry.target, ...entry.prompt } : entry))
+    .filter((entry) => entry?.target);
+}
+
+function roleBadgeClass(name) {
+  const family = skillFamily(name);
+  return `tp-role-${family || 'generic'}`;
+}
+
+function isYesNoPrompt(entry) {
+  if (entry.prompt_type === 'confirmation' || entry.prompt_type === 'permission') return true;
+  const options = (entry.options || []).map((o) => String(o).toLowerCase());
+  return options.includes('yes') && options.includes('no');
+}
+
+function needsYouCard(entry) {
+  const target = entry.target;
+  const question = entry.question || 'Waiting for answer';
+  const quick = isYesNoPrompt(entry)
+    ? `<button class="tp-needs-btn yes" data-act="dw-answer" data-target="${esc(target)}" data-answer="y">✓ Procedi (Sì)</button>
+       <button class="tp-needs-btn no" data-act="dw-answer" data-target="${esc(target)}" data-answer="n">✕ Annulla (No)</button>`
+    : '';
+  return `
+    <div class="tp-needs-card" data-needs-target="${esc(target)}">
+      <div class="tp-needs-head">
+        <span class="tp-status-dot waiting"></span>
+        <span class="tp-role-badge ${roleBadgeClass(target)}">[${esc(String(target).toUpperCase())}]</span>
+        <span class="tp-needs-type">${esc(entry.prompt_type || 'question')}</span>
+        <div class="spacer"></div>
+        <button class="icon-btn tp-act-btn" data-act="dw-focus" data-target="${esc(target)}" title="Open the ${esc(target)} terminal">→</button>
+      </div>
+      <div class="tp-needs-question">${esc(question)}</div>
+      <div class="tp-needs-actions">
+        ${quick}
+        <form class="tp-needs-form" data-dw-form data-target="${esc(target)}">
+          <input class="tp-input tp-needs-input" data-dw-input name="answer" type="text" autocomplete="off" spellcheck="false" placeholder="Custom answer…" aria-label="Custom answer for ${esc(target)}">
+          <button type="submit" class="tp-needs-btn send">Invia</button>
+        </form>
+      </div>
+    </div>`;
+}
+
+export function needsYouHtml(pending = []) {
+  const entries = needsYouEntries(pending);
+  if (!entries.length) return '';
+  return `
+    <div class="tp-section tp-needs-you" data-needs-you>
+      <div class="tp-section-head">
+        <span>🔔 Richiede Attenzione / Needs You</span>
+        <span class="tp-needs-count">${entries.length}</span>
+      </div>
+      ${entries.map(needsYouCard).join('')}
+    </div>`;
+}
+
+// The quick buttons and the custom form share this path: the answer is typed
+// literally into the target window, then the card is dropped at once instead
+// of waiting for the next watcher tick.
+export async function answerNeedsYou(project, target, text) {
+  if (!project?.path || !target) return null;
+  const known = pendingByProject.get(project.path);
+  const session = known?.session || (await tmuxSessionFor(project).catch(() => null));
+  if (!session) throw new Error('No tmux session for this project.');
+  await work.dogwatch.answer(session, target, text);
+  const current = pendingByProject.get(project.path) || { session, pending: [] };
+  pendingByProject.set(project.path, {
+    session,
+    pending: current.pending.filter((p) => p.target !== target),
+  });
+  showWaiting(project.path, pendingByProject.get(project.path).pending.length);
+  return session;
+}
+
 export function ledState(live, waiting) {
   if (!live) return 'off';
   return waiting > 0 ? 'escalation' : 'live';
@@ -538,8 +621,9 @@ async function launchBrowser(id) {
 export function initTeam({ activeProject, saveProjects = null }) {
   getProject = activeProject;
   persistProjects = saveProjects;
-  work?.dogwatch?.onUpdate((project, _session, pending, live, windows = []) => {
+  work?.dogwatch?.onUpdate((project, session, pending = [], live, windows = []) => {
     liveByProject.set(project, live === true);
+    pendingByProject.set(project, { session, pending: pending || [] });
     showWaiting(project, pending.length);
     // The real agent detected in each pane wins over the static role default.
     for (const win of windows || []) updateTerminalAgentBadge(win.name, win.agent, project);
@@ -803,6 +887,11 @@ async function renderPopContent(probeMcp = true) {
 
   // Main squad view
   const { isTmux, session, tmuxWindows, prompts, states, agents, names } = await getExistingNames(p);
+  const pending = pendingByProject.get(p.path)?.pending
+    ?? [...prompts].map(([target, prompt]) => ({ target, ...prompt }));
+  // The first render can happen before the watcher ticks: remember what the
+  // inspection saw so answerNeedsYou has a session and the card is reactive.
+  if (!pendingByProject.has(p.path)) pendingByProject.set(p.path, { session, pending });
 
   const pmActive = hasPm(names);
   const devList = getDevMembers(names);
@@ -825,11 +914,12 @@ async function renderPopContent(probeMcp = true) {
         <button class="icon-btn" data-act="close" title="Close (Esc)">✕</button>
       </div>
       <div class="tp-sub">
-        ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows${prompts.size ? ` · <b class="tp-waiting">${prompts.size} waiting for an answer</b>` : ''}` : 'Standard terminal mode (tmux not available)'}
+        ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows${pending.length ? ` · <b class="tp-waiting">${pending.length} waiting for an answer</b>` : ''}` : 'Standard terminal mode (tmux not available)'}
       </div>
     </header>
 
     <div class="tp-list">
+      ${needsYouHtml(pending)}
       <!-- PM section: only one -->
       <div class="tp-section">
         <div class="tp-section-head">
@@ -1036,6 +1126,28 @@ export async function openTeamMenu() {
       return;
     }
 
+    if (act === 'dw-answer') {
+      const data = e.target.closest('[data-target]')?.dataset;
+      const target = data?.target;
+      if (!target) return;
+      try {
+        await answerNeedsYou(p, target, data.answer ?? '');
+        await renderPopContent(false);
+        toast(`Answer sent to ${target}.`);
+      } catch (err) {
+        toast(err?.message || String(err), { error: true });
+      }
+      return;
+    }
+
+    if (act === 'dw-focus') {
+      const target = e.target.closest('[data-target]')?.dataset.target;
+      if (!target) return;
+      closeTeamMenu();
+      await openOrFocusRole(p, target);
+      return;
+    }
+
     if (act === 'telegram-info') {
       await ask({ text: telegramGuide(), input: false, okLabel: 'Close' });
       return;
@@ -1177,8 +1289,27 @@ export async function openTeamMenu() {
   addEventListener('keydown', onKey, true);
   addEventListener('pointerdown', onOutside, true);
 
-  // The PM connection form submits with the button or Enter.
+  // The Needs You custom form and the PM connection form both submit here.
   pop.addEventListener('submit', async (e) => {
+    const needsForm = e.target.closest?.('[data-dw-form]');
+    if (needsForm) {
+      e.preventDefault();
+      const target = needsForm.dataset.target;
+      const input = e.target.querySelector('[data-dw-input]');
+      const text = String(input?.value ?? '').trim();
+      if (!text) {
+        input?.focus?.();
+        return;
+      }
+      try {
+        await answerNeedsYou(p, target, text);
+        await renderPopContent(false);
+        toast(`Answer sent to ${target}.`);
+      } catch (err) {
+        toast(err?.message || String(err), { error: true });
+      }
+      return;
+    }
     if (!e.target.closest?.('[data-telegram-form]')) return;
     e.preventDefault();
     if (!work?.telegram?.connect) {

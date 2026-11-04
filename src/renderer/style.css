@@ -1287,6 +1287,48 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 }
 .tp-chip:hover { background: rgba(255, 255, 255, .15); border-color: rgba(255, 255, 255, .2); }
 
+/* Needs You: the prompts holding an agent, first in the squad list. */
+.tp-needs-you {
+  margin: 2px 4px 12px; padding: 10px; border-radius: 12px;
+  border: 1px solid rgba(255, 159, 10, .42);
+  background: linear-gradient(180deg, rgba(255, 159, 10, .13), rgba(255, 159, 10, .04));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), 0 4px 16px rgba(0, 0, 0, .18);
+}
+.tp-needs-you .tp-section-head { padding: 0 2px 8px; color: var(--orange); }
+.tp-needs-count {
+  min-width: 18px; padding: 1px 6px; border-radius: 999px; text-align: center;
+  font: 700 10.5px var(--mono); color: #1b1206; background: var(--orange);
+}
+.tp-needs-card {
+  padding: 9px 10px; border-radius: 10px;
+  background: rgba(0, 0, 0, .24); border: 1px solid rgba(255, 159, 10, .24);
+}
+.tp-needs-card + .tp-needs-card { margin-top: 8px; }
+.tp-needs-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.tp-needs-type {
+  font: 600 9.5px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--orange);
+}
+.tp-needs-question {
+  margin-bottom: 8px; padding: 6px 8px; border-left: 3px solid var(--orange); border-radius: 4px;
+  background: rgba(255, 159, 10, .08); color: var(--text);
+  font: 500 12px/1.4 var(--mono); overflow-wrap: anywhere;
+}
+.tp-needs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tp-needs-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 5px 10px; border-radius: 7px; cursor: pointer; font: 600 11.5px var(--sans);
+  border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .07); color: var(--text);
+  transition: background 120ms ease, border-color 120ms ease, filter 120ms ease;
+}
+.tp-needs-btn:hover { filter: brightness(1.12); background: rgba(255, 255, 255, .13); }
+.tp-needs-btn:active { transform: scale(.97); }
+.tp-needs-btn.yes { border-color: rgba(48, 209, 88, .45); background: rgba(48, 209, 88, .16); color: #7cf29b; }
+.tp-needs-btn.no { border-color: rgba(255, 69, 58, .45); background: rgba(255, 69, 58, .14); color: #ff8d86; }
+.tp-needs-btn.send { border-color: rgba(10, 132, 255, .45); background: rgba(10, 132, 255, .18); color: #7fc0ff; }
+.tp-needs-form { display: flex; align-items: center; gap: 6px; flex: 1 1 180px; min-width: 150px; }
+.tp-needs-input { flex: 1; min-width: 0; }
+.tp-needs-you + .tp-section { margin-top: 4px; }
+
 /* Sections for PM, Dev, QA in Team popover */
 .tp-section { margin-bottom: 10px; }
 .tp-section-head {
