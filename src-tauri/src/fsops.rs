@@ -392,6 +392,18 @@ fn files(roots: &[PathBuf], root: &str) -> Result<Value, String> {
     Ok(json!({ "files": list, "truncated": truncated }))
 }
 
+// The command palette wants the bare relative paths, in one quick call. The
+// same walkers as the file search keep node_modules, .git and target out.
+const MAX_QUICK_FILES: usize = 20_000;
+
+fn quick_files(roots: &[PathBuf], root: &str, max: usize) -> Result<Vec<String>, String> {
+    let abs = guard(roots, Path::new(root), true)?;
+    let mut list = git_files(&abs).unwrap_or_else(|| walk_files(&abs));
+    list.sort_by(|a, b| a.path.cmp(&b.path));
+    list.truncate(max.clamp(1, MAX_QUICK_FILES));
+    Ok(list.into_iter().map(|f| f.path).collect())
+}
+
 const MAX_HITS: usize = 2000;
 const MAX_LINE: usize = 300;
 const GREP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -792,6 +804,16 @@ pub async fn fs_files(roots: State<'_, Roots>, root: String) -> Result<Value, St
 }
 
 #[tauri::command]
+pub async fn project_files_quick(
+    roots: State<'_, Roots>,
+    root: String,
+    max: usize,
+) -> Result<Vec<String>, String> {
+    let r = roots.get();
+    blocking(move || quick_files(&r, &root, max)).await
+}
+
+#[tauri::command]
 pub async fn fs_grep(
     roots: State<'_, Roots>,
     root: String,
@@ -1032,6 +1054,26 @@ mod tests {
             got,
             [".env", "link-file", "src/a.txt"],
             "the link to a folder is not followed"
+        );
+    }
+
+    #[test]
+    fn i_file_rapidi_escludono_node_modules_git_e_target() {
+        let f = fx();
+        for d in ["node_modules/lib", ".git/objects", "target/debug"] {
+            fs::create_dir_all(f.project.join(d)).unwrap();
+            fs::write(f.project.join(d).join("f"), "").unwrap();
+        }
+        let got = quick_files(&f.roots, &s(&f.project), 100).unwrap();
+        assert_eq!(got, ["link-file", "src/a.txt"]);
+        assert_eq!(
+            quick_files(&f.roots, &s(&f.project), 1).unwrap().len(),
+            1,
+            "max caps the index"
+        );
+        rejects(
+            quick_files(&f.roots, &s(&f.outside), 10),
+            "fuori dai progetti",
         );
     }
 

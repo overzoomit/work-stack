@@ -152,6 +152,7 @@
       read: call('fs_read', 'file'),
       write: call('fs_write', 'file', 'text', 'mtime', 'force', 'size'),
       files: call('fs_files', 'root'),
+      quickFiles: call('project_files_quick', 'root', 'max'),
       grep: call('fs_grep', 'root', 'query'),
       create: call('fs_create', 'parent', 'name', 'dir'),
       rename: call('fs_rename', 'from', 'name'),

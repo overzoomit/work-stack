@@ -288,6 +288,7 @@ fn main() {
             fsops::fs_list,
             fsops::fs_read,
             fsops::fs_files,
+            fsops::project_files_quick,
             fsops::fs_write,
             fsops::fs_grep,
             fsops::fs_create,

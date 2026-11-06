@@ -211,3 +211,13 @@ test('the tmux bridge forwards the remote settings to every remote-aware command
   ]);
   assert.ok(seen.every(([, args]) => args.remote === remote), 'every call carries the remote object');
 });
+
+test('work.fs.quickFiles asks the backend for the palette file index', async () => {
+  const seen = [];
+  const { work } = load((cmd, _wait, args) => {
+    seen.push([cmd, { ...args }]);
+    return ['src/app.js'];
+  });
+  assert.deepEqual(await work.fs.quickFiles('/proj', 5000), ['src/app.js']);
+  assert.deepEqual(seen, [['project_files_quick', { root: '/proj', max: 5000 }]]);
+});

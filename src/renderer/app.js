@@ -8,14 +8,14 @@ import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
-  syncProjectTerminals, ensureInitialTerminal, terminalLayout, splitTerminal,
+  syncProjectTerminals, ensureInitialTerminal, terminalLayout, splitTerminal, focus as focusTerminal,
 } from './terminals.js';
-import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible } from './gitpanel.js';
+import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible, runGit } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
 import { initUpdate, check as checkUpdate } from './update.js';
 import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
-import { initLauncher, launchDefault, resumeClaude } from './launcher.js';
+import { initLauncher, launchDefault, resumeClaude, launchWithPrompt, lastUsedAgent, AGENTS } from './launcher.js';
 import { initTeam, showLiveLed } from './team.js';
 import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
@@ -23,11 +23,13 @@ import { openPluginsDialog } from './plugins.js';
 import { openSettingsDialog } from './settings.js';
 import { openSearch, setSearchHooks } from './search.js';
 import { tildify } from './paths.js';
-import { isRefreshKey, isCloseTerminalKey, isSettingsKey, isTerminalSearchKey, inTerminal } from './keys.js';
+import { isRefreshKey, isCloseTerminalKey, isSettingsKey, isTerminalSearchKey, inTerminal, isPaletteKey } from './keys.js';
 import { initAccordion, revealSection } from './accordion.js';
 import { remotePathFor, remoteLabel, remoteHostBadge } from './remoteproject.js';
 import { openRemoteProjectDialog } from './remotedialog.js';
 import { checkOnboarding } from './onboarding.js';
+import { initPalette, openPalette, closePalette, paletteOpen } from './palette.js';
+import { openNgrokPanel } from './ngrok.js';
 
 const { work } = window;
 
@@ -600,6 +602,92 @@ for (const side of Object.keys(PANELS)) {
   setPanel(side, open, false);
 }
 
+// ── Command palette ─────────────────────────────────────────
+// The palette is project-aware: app.js supplies files, branches, windows and
+// tickets; palette.js owns ranking, rendering and keyboard navigation.
+
+function paletteWindows(project) {
+  const out = terminalsOf(project)
+    .filter((t) => !t.console)
+    .map((t) => ({
+      paneId: t.id,
+      name: t.tmuxName || t.title,
+      detail: t.kind === 'agent' ? 'agent window' : t.kind === 'shell' ? 'terminal' : t.kind,
+      kind: t.kind,
+    }));
+  const ready = project.remote ? Promise.resolve(true) : work.tmux.isAvailable().catch(() => false);
+  return ready
+    .then((ok) => (ok ? work.tmux.sessionForProject(project.path, project.remote || null) : null))
+    .then((session) => {
+      if (!session) return out;
+      return work.tmux.listWindows(session, project.remote || null).then((windows) => {
+        for (const w of windows || []) {
+          if (out.some((x) => x.name === w.name)) continue;
+          out.push({ name: w.name, detail: 'tmux window', tmuxWindow: w.id, session, cwd: w.path || project.path });
+        }
+        return out;
+      });
+    })
+    .catch(() => out);
+}
+
+async function paletteTickets(project) {
+  if (project.remote) return [];
+  const report = (await work.planeDogwatch.status())?.projects?.find((r) => r.project === project.path);
+  return report?.issues || [];
+}
+
+async function openPlaneTicket(project, ticket) {
+  try {
+    const [settings, meta] = await Promise.all([
+      work.settings.get(),
+      work.fs.read(`${project.path}/.plane.json`),
+    ]);
+    const base = String(settings.plane_base_url || '').replace(/\/+$/, '');
+    const workspace = settings.plane_workspace || '';
+    const projectId = JSON.parse(meta.text || '{}').project_id;
+    if (!base || !workspace || !projectId || !ticket.id) throw new Error('Plane is not configured');
+    work.app.openExternal(`${base}/${workspace}/projects/${projectId}/issues/${ticket.id}`);
+  } catch {
+    work.app.copy(`#${ticket.issue ?? '?'} ${ticket.name || ''}`.trim());
+    toast('Ticket reference copied');
+  }
+}
+
+initPalette({
+  defaultAgent: lastUsedAgent,
+  files: (project) => work.fs.quickFiles(project.path, 5000),
+  branches: (project) => (project.root ? work.git.branches(project.root) : []),
+  windows: paletteWindows,
+  tickets: paletteTickets,
+  openFile: (project, path) => previewFile(`${project.path}/${path}`),
+  checkout: (_project, branch) => runGit('checkout', { branch }),
+  gitAction: (_project, name) => runGit(name),
+  focusWindow: async (project, win) => {
+    if (win.paneId) {
+      focusTerminal(win.paneId);
+      return;
+    }
+    if (win.tmuxWindow) {
+      await openTerminal(project, {
+        cwd: win.cwd || project.path,
+        title: win.name,
+        tmuxSession: win.session,
+        tmuxWindow: win.tmuxWindow,
+        tmuxName: win.name,
+      });
+    }
+  },
+  newTerminal: (project) => openTerminal(project),
+  launchAgent: (project, prompt, agentId) => {
+    const agent = (agentId && AGENTS.find((a) => a.id === agentId)) || lastUsedAgent();
+    if (agent) launchWithPrompt(agent, project, prompt);
+  },
+  split: (project) => (project?.focusedId ? splitTerminal(project.focusedId, 'horizontal') : openTerminal(project)),
+  ngrok: (project) => openNgrokPanel(project),
+  openTicket: openPlaneTicket,
+});
+
 // ── Commands & shortcuts ────────────────────────────────────
 
 const newTerminal = () => (active ? openTerminal(active) : pickProject());
@@ -608,6 +696,7 @@ $('#new-project').onclick = () => newProjectMenu($('#new-project'));
 $('#refresh').onclick = refreshAll;
 $('#new-term').onclick = newTerminal;
 $('#search-field').onclick = () => openSearch(active);
+$('#palette-open').onclick = () => active && openPalette(active);
 $('#empty-new-term').onclick = newTerminal;
 $('#tree-new-file').onclick = () => active?.tree?.create(active.tree.selected || active.path, false);
 $('#tree-new-dir').onclick = () => active?.tree?.create(active.tree.selected || active.path, true);
@@ -618,6 +707,16 @@ $('#tree-collapse').onclick = () => {
 };
 
 addEventListener('keydown', (e) => {
+  // Ctrl/Cmd+K is the palette's, even from a terminal. While it is open the
+  // other global shortcuts stay out of the way: the palette owns the keys.
+  if (isPaletteKey(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (paletteOpen()) closePalette();
+    else if (active) openPalette(active);
+    return;
+  }
+  if (paletteOpen()) return;
   // The in-terminal search bar owns the keys typed in its field.
   if (e.target?.closest?.('.term-search')) return;
   // ⌘, on macOS, Ctrl+, elsewhere: the same item as in the ⋯ menu.
@@ -692,6 +791,7 @@ const pct = (x) => `${Math.round(x * 100)}%`;
 let stats = null;
 
 const SHORTCUTS = [
+  ['Command palette', 'Ctrl+K'],
   ['New terminal', 'Ctrl+Shift+T'],
   ['New agent', 'Ctrl+Shift+A'],
   ['Split right', 'Ctrl+Shift+O'],
@@ -788,6 +888,8 @@ more.onclick = (e) => {
   if (info.platform === 'darwin') document.body.classList.add('mac');
   else $('#more').hidden = false;
   $('#search-kbd').textContent = info.platform === 'darwin' ? '⌘P' : 'Ctrl+Shift+P';
+  $('#palette-open').textContent = info.platform === 'darwin' ? '⌘K' : 'Ctrl K';
+  $('#palette-open').title = `Command palette (${info.platform === 'darwin' ? '⌘K' : 'Ctrl+K'})`;
 
   initTerminals({
     homeDir: info.home,

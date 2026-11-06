@@ -20,6 +20,17 @@ test('un target senza closest (window) non rompe il controllo', () => {
   assert.equal(isRefreshKey({ key: 'F5', ctrlKey: false, metaKey: false, target: {} }), true);
 });
 
+test('Ctrl/⌘+K apre la command palette e ignora Shift o Alt', async () => {
+  const { isPaletteKey } = await import('../src/renderer/keys.js');
+  const k = (key, m = {}) => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...m });
+  assert.equal(isPaletteKey(k('k', { ctrlKey: true })), true);
+  assert.equal(isPaletteKey(k('K', { metaKey: true })), true);
+  assert.equal(isPaletteKey(k('k', { ctrlKey: true, shiftKey: true })), false);
+  assert.equal(isPaletteKey(k('k', { metaKey: true, altKey: true })), false);
+  assert.equal(isPaletteKey(k('j', { ctrlKey: true })), false);
+  assert.equal(isPaletteKey(k('k')), false);
+});
+
 test('chiudi terminale: Ctrl/⌘+Shift+W ovunque, e su Mac anche ⌘W come in Terminal.app', async () => {
   const { isCloseTerminalKey } = await import('../src/renderer/keys.js');
   const k = (key, m = {}) => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...m });

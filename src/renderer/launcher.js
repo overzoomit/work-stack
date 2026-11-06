@@ -1,5 +1,5 @@
 // Agent menu: launch any installed agent CLI in the active project.
-import { $, esc, leave } from './ui.js';
+import { $, esc, leave, clip } from './ui.js';
 import { openTerminal, sendInput } from './terminals.js';
 import { AGENTS } from './agentcatalog.js';
 
@@ -60,6 +60,11 @@ function remember(id) {
   }
 }
 
+// The agent Ctrl+Shift+A (and the palette's bare @agent) starts.
+export function lastUsedAgent() {
+  return AGENTS.find((x) => x.id === lastUsed()) || AGENTS[0];
+}
+
 // The menu must open instantly: start from the last known list (cached) and
 // refresh it in the background through a login shell (~1 s).
 try {
@@ -107,9 +112,22 @@ export function launch(agent, project = getProject(), extra = {}) {
 
 // Ctrl+Shift+A: start the agent used last time without opening the menu.
 export function launchDefault() {
-  const a = AGENTS.find((x) => x.id === lastUsed()) || AGENTS[0];
+  const a = lastUsedAgent();
   if (installed && !installed.has(a.bin)) return openMenu();
   launch(a);
+}
+
+// Quote a prompt for the shell the PTY starts.
+const shellQuote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+
+// Start an agent with the prompt as its first message (the palette's @agent).
+export function launchWithPrompt(agent, project = getProject(), prompt = '') {
+  const text = String(prompt || '').trim();
+  if (!text) return launch(agent, project);
+  return launch(agent, project, {
+    command: `${commandFor(agent)} ${shellQuote(text)}`,
+    title: `${agent.name}: ${clip(text, 28)}`,
+  });
 }
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
