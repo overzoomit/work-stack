@@ -127,6 +127,8 @@
       commit: call('git_commit', 'repo', 'hash'),
       containing: call('git_containing', 'repo', 'hash'),
       fileDiff: call('git_file_diff', 'repo', 'spec'),
+      generateCommitMessage: call('git_generate_commit_message', 'projectPath'),
+      explainDiff: call('git_explain_diff', 'projectPath', 'filePath'),
       action: call('git_action', 'repo', 'name', 'params'),
       watch: send('git_watch', 'repo'),
       unwatch: send('git_unwatch', 'repo'),

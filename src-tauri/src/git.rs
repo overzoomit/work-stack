@@ -707,6 +707,319 @@ pub async fn file_diff(repo: &str, spec: &Value) -> Result<String, String> {
     git_with(repo, &args, DIFF_LIMIT).await
 }
 
+// ── Smart Diff Lens: the synthetic diff handed to the analysis ────────────
+// Only the facts the synthesis needs: which files changed, how much, and the
+// added lines used to recognise symbols, secrets and conflicts. The diff is
+// capped so a huge change is analysed quickly instead of freezing the viewer.
+const LENS_LIMIT: Opts<'static> = Opts {
+    max_buffer: 4 * 1024 * 1024,
+    too_big: Some("Differenze troppo grandi da analizzare (oltre 4 MB)."),
+    ..DEFAULT
+};
+const LENS_MAX_LINES: usize = 4000;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DiffFile {
+    pub file: String,
+    pub old_file: Option<String>,
+    pub code: String,
+    pub added: u64,
+    pub deleted: u64,
+    pub binary: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DiffSummary {
+    pub files: Vec<DiffFile>,
+    pub added: u64,
+    pub deleted: u64,
+    pub staged: bool,
+    pub added_lines: Vec<String>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Copy)]
+enum DiffBase {
+    Cached,
+    Worktree,
+    Head,
+}
+
+fn base_arg(base: DiffBase, args: &mut Vec<&str>) {
+    match base {
+        DiffBase::Cached => args.push("--cached"),
+        DiffBase::Worktree => {}
+        DiffBase::Head => args.push("HEAD"),
+    }
+}
+
+struct RawStat {
+    file: String,
+    old_file: Option<String>,
+    added: Option<u64>,
+    deleted: Option<u64>,
+}
+
+// -z keeps file names verbatim. A rename record has an empty path column and
+// puts the old and new name in the two following NUL-separated fields.
+fn parse_numstat(out: &str) -> Vec<RawStat> {
+    let mut it = out.split('\0');
+    let mut stats = Vec::new();
+    while let Some(rec) = it.next() {
+        if rec.is_empty() {
+            continue;
+        }
+        let mut cols = rec.splitn(3, '\t');
+        let added = cols.next().unwrap_or("");
+        let deleted = cols.next().unwrap_or("");
+        let path = cols.next().unwrap_or("");
+        let (file, old_file) = if path.is_empty() {
+            let old = it.next().unwrap_or("").to_string();
+            let new = it.next().unwrap_or("").to_string();
+            (new, Some(old))
+        } else {
+            (path.to_string(), None)
+        };
+        stats.push(RawStat {
+            file,
+            old_file,
+            added: added.parse().ok(),
+            deleted: deleted.parse().ok(),
+        });
+    }
+    stats
+}
+
+// `git diff --name-status -z`: "M\0file\0" or "R100\0old\0new\0".
+fn parse_name_status(out: &str) -> Vec<(char, String, Option<String>)> {
+    let mut it = out.split('\0').filter(|s| !s.is_empty());
+    let mut files = Vec::new();
+    while let Some(status) = it.next() {
+        let code = status.chars().next().unwrap_or('M');
+        if code == 'R' || code == 'C' {
+            let (Some(old), Some(new)) = (it.next(), it.next()) else {
+                break;
+            };
+            files.push((code, new.to_string(), Some(old.to_string())));
+        } else {
+            let Some(path) = it.next() else {
+                break;
+            };
+            files.push((code, path.to_string(), None));
+        }
+    }
+    files
+}
+
+async fn name_status(
+    repo: &str,
+    base: DiffBase,
+    file: Option<&str>,
+) -> Result<Vec<(char, String, Option<String>)>, String> {
+    let mut args = vec!["diff", "--name-status", "-M", "-z", PLAIN[0], PLAIN[1]];
+    base_arg(base, &mut args);
+    if let Some(f) = file {
+        args.push("--");
+        args.push(f);
+    }
+    let out = git_with(repo, &args, LENS_LIMIT).await?;
+    Ok(parse_name_status(&out))
+}
+
+async fn numstat(repo: &str, base: DiffBase, file: Option<&str>) -> Result<Vec<RawStat>, String> {
+    let mut args = vec!["diff", "--numstat", "-z", "-M", PLAIN[0], PLAIN[1]];
+    base_arg(base, &mut args);
+    if let Some(f) = file {
+        args.push("--");
+        args.push(f);
+    }
+    let out = git_with(repo, &args, LENS_LIMIT).await?;
+    Ok(parse_numstat(&out))
+}
+
+fn join_files(names: Vec<(char, String, Option<String>)>, stats: &[RawStat]) -> Vec<DiffFile> {
+    names
+        .into_iter()
+        .map(|(code, file, old_file)| {
+            let stat = stats
+                .iter()
+                .find(|s| s.file == file)
+                .or_else(|| stats.iter().find(|s| s.old_file.as_deref() == Some(&file)));
+            DiffFile {
+                file,
+                old_file,
+                code: code.to_string(),
+                added: stat.and_then(|s| s.added).unwrap_or(0),
+                deleted: stat.and_then(|s| s.deleted).unwrap_or(0),
+                binary: stat.is_some_and(|s| s.added.is_none() || s.deleted.is_none()),
+            }
+        })
+        .collect()
+}
+
+fn merge_files(files: &mut Vec<DiffFile>, incoming: Vec<DiffFile>) {
+    for f in incoming {
+        if let Some(existing) = files.iter_mut().find(|x| x.file == f.file) {
+            existing.added += f.added;
+            existing.deleted += f.deleted;
+            existing.binary |= f.binary;
+            if existing.code != "A" && f.code == "A" {
+                existing.code = "A".into();
+            }
+            if existing.old_file.is_none() {
+                existing.old_file = f.old_file;
+            }
+        } else {
+            files.push(f);
+        }
+    }
+}
+
+// Added lines only: the synthesis reads them to find new symbols, secrets and
+// conflict markers. A diff over the cap yields no lines rather than an error.
+async fn added_lines(repo: &str, base: DiffBase, file: Option<&str>) -> (Vec<String>, bool) {
+    let mut args = vec!["diff", "-U0", "-M", PLAIN[0], PLAIN[1]];
+    base_arg(base, &mut args);
+    if let Some(f) = file {
+        args.push("--");
+        args.push(f);
+    }
+    let Ok(out) = git_with(repo, &args, LENS_LIMIT).await else {
+        return (Vec::new(), true);
+    };
+    let lines: Vec<String> = out
+        .lines()
+        .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+        .map(|l| l[1..].to_string())
+        .take(LENS_MAX_LINES)
+        .collect();
+    let truncated = lines.len() == LENS_MAX_LINES;
+    (lines, truncated)
+}
+
+struct Untracked {
+    file: DiffFile,
+    lines: Vec<String>,
+    truncated: bool,
+}
+
+// Untracked files are not in `git diff`: read them for line counts and
+// content, skipping symlinks (they could point outside the repository).
+fn read_untracked(repo: &str, file: &str) -> Option<Untracked> {
+    let path = std::path::Path::new(repo).join(file);
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let truncated = meta.len() > LENS_LIMIT.max_buffer as u64;
+    let bytes = if truncated {
+        Vec::new()
+    } else {
+        std::fs::read(&path).ok()?
+    };
+    let binary = bytes.iter().take(8192).any(|b| *b == 0);
+    let text = String::from_utf8_lossy(&bytes);
+    let lines: Vec<String> = if binary {
+        Vec::new()
+    } else {
+        text.lines()
+            .take(LENS_MAX_LINES)
+            .map(String::from)
+            .collect()
+    };
+    let added = if binary {
+        0
+    } else {
+        text.lines().count() as u64
+    };
+    Some(Untracked {
+        file: DiffFile {
+            file: file.into(),
+            old_file: None,
+            code: "A".into(),
+            added,
+            deleted: 0,
+            binary,
+        },
+        lines,
+        truncated,
+    })
+}
+
+async fn untracked_files(repo: &str, file: Option<&str>) -> Vec<Untracked> {
+    let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z"];
+    if let Some(f) = file {
+        args.push("--");
+        args.push(f);
+    }
+    let Ok(out) = git_with(repo, &args, LENS_LIMIT).await else {
+        return Vec::new();
+    };
+    out.split('\0')
+        .filter(|s| !s.is_empty())
+        .filter_map(|f| read_untracked(repo, f))
+        .collect()
+}
+
+async fn add_base(
+    summary: &mut DiffSummary,
+    repo: &str,
+    base: DiffBase,
+    names: Vec<(char, String, Option<String>)>,
+    file: Option<&str>,
+) -> Result<(), String> {
+    let stats = numstat(repo, base, file).await?;
+    merge_files(&mut summary.files, join_files(names, &stats));
+    let (lines, truncated) = added_lines(repo, base, file).await;
+    let room = LENS_MAX_LINES.saturating_sub(summary.added_lines.len());
+    summary.truncated |= truncated || lines.len() > room;
+    summary.added_lines.extend(lines.into_iter().take(room));
+    Ok(())
+}
+
+/// What Smart Diff Lens analyses: the staged changes when there are any (the
+/// next commit), otherwise the working copy. `file` limits the view to one
+/// path, which is what the viewer asks for the selected diff.
+pub async fn summarize(repo: &str, file: Option<&str>) -> Result<DiffSummary, String> {
+    let staged = name_status(repo, DiffBase::Cached, file).await?;
+    let has_head = is_ref(repo, "HEAD").await;
+    let mut summary = DiffSummary::default();
+    if file.is_none() && !staged.is_empty() {
+        summary.staged = true;
+        add_base(&mut summary, repo, DiffBase::Cached, staged, file).await?;
+    } else if has_head {
+        // HEAD gives the file's whole change (staged + unstaged) in one diff.
+        let names = name_status(repo, DiffBase::Head, file).await?;
+        add_base(&mut summary, repo, DiffBase::Head, names, file).await?;
+    } else if !staged.is_empty() {
+        summary.staged = true;
+        add_base(&mut summary, repo, DiffBase::Cached, staged, file).await?;
+        if file.is_some() {
+            let names = name_status(repo, DiffBase::Worktree, file).await?;
+            add_base(&mut summary, repo, DiffBase::Worktree, names, file).await?;
+        }
+    } else {
+        let names = name_status(repo, DiffBase::Worktree, file).await?;
+        add_base(&mut summary, repo, DiffBase::Worktree, names, file).await?;
+    }
+
+    // Untracked files only when the next commit is not already defined by the
+    // stage, or when the viewer asked for that specific file.
+    if !summary.staged || file.is_some() {
+        for u in untracked_files(repo, file).await {
+            summary.truncated |= u.truncated;
+            let room = LENS_MAX_LINES.saturating_sub(summary.added_lines.len());
+            summary.added_lines.extend(u.lines.into_iter().take(room));
+            merge_files(&mut summary.files, vec![u.file]);
+        }
+    }
+
+    summary.files.sort_by(|a, b| a.file.cmp(&b.file));
+    summary.added = summary.files.iter().map(|f| f.added).sum();
+    summary.deleted = summary.files.iter().map(|f| f.deleted).sum();
+    Ok(summary)
+}
+
 async fn is_ref(repo: &str, r: &str) -> bool {
     git(repo, &["rev-parse", "--verify", "--quiet", r])
         .await
@@ -941,6 +1254,27 @@ pub async fn git_containing(repo: String, hash: String) -> Vec<Containing> {
 #[tauri::command]
 pub async fn git_file_diff(repo: String, spec: Value) -> Result<String, String> {
     file_diff(&repo, &spec).await
+}
+
+// Smart Diff Lens: a Conventional Commit message for the staged changes.
+#[tauri::command]
+pub async fn git_generate_commit_message(project_path: String) -> Result<String, String> {
+    let summary = summarize(&project_path, None).await?;
+    if summary.files.is_empty() {
+        return Err("Nessuna modifica da analizzare: stage o modifica almeno un file.".into());
+    }
+    Ok(crate::agents::commit_message(&summary))
+}
+
+// Smart Diff Lens: the Italian summary of the selected file (or of all the
+// pending changes) plus the pre-commit safety checks.
+#[tauri::command]
+pub async fn git_explain_diff(
+    project_path: String,
+    file_path: Option<String>,
+) -> Result<String, String> {
+    let summary = summarize(&project_path, file_path.as_deref()).await?;
+    Ok(crate::agents::explain_diff(&summary))
 }
 
 #[tauri::command]
@@ -1898,5 +2232,80 @@ mod tests {
             .await
             .unwrap_err()
             .contains("Nessuno stash da ripristinare"));
+    }
+
+    // ── Smart Diff Lens ──
+    #[tokio::test]
+    async fn smart_lens_genera_un_messaggio_conventional_dalle_modifiche_in_stage() {
+        let r = Repo::new();
+        r.write("README.md", "readme\n");
+        r.commit("init");
+        r.write(
+            "src/renderer/diff.js",
+            "export function renderSmartLens() {\n  return 1;\n}\n",
+        );
+        r.run(&["add", "-A"]);
+        let s = summarize(r.dir(), None).await.unwrap();
+        assert!(s.staged);
+        assert_eq!(s.files.len(), 1, "{:?}", s.files);
+        let msg = crate::agents::commit_message(&s);
+        assert!(msg.starts_with("feat(diff): add renderSmartLens"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn smart_lens_spiega_solo_il_file_selezionato_in_italiano() {
+        let r = Repo::new();
+        r.write("src/a.js", "export function alpha() {}\n");
+        r.write("src/b.js", "export function beta() {}\n");
+        r.commit("init");
+        r.write("src/a.js", "export function alpha() {\n  return 1;\n}\n");
+        r.write("src/b.js", "export function beta() {\n  return 2;\n}\n");
+        let s = summarize(r.dir(), Some("src/a.js")).await.unwrap();
+        assert_eq!(s.files.len(), 1, "{:?}", s.files);
+        assert_eq!(s.files[0].file, "src/a.js");
+        let text = crate::agents::explain_diff(&s);
+        assert!(text.contains("src/a.js"), "{text}");
+        assert!(!text.contains("src/b.js"), "{text}");
+        assert!(text.contains("Controlli di sicurezza pre-commit"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn smart_lens_segnala_file_sensibili_e_segreti_in_chiaro() {
+        let r = Repo::new();
+        r.write("a.txt", "1\n");
+        r.commit("init");
+        r.write(".env", "API_KEY=supersecretvalue123\n");
+        r.run(&["add", ".env"]);
+        let s = summarize(r.dir(), None).await.unwrap();
+        let text = crate::agents::explain_diff(&s);
+        assert!(
+            text.contains("File sensibile nel changeset: .env"),
+            "{text}"
+        );
+        assert!(text.contains("segreti in chiaro"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn smart_lens_senza_modifiche_non_inventa_un_messaggio() {
+        let r = Repo::new();
+        r.write("a.txt", "1\n");
+        r.commit("init");
+        let s = summarize(r.dir(), None).await.unwrap();
+        assert!(s.files.is_empty());
+        assert!(crate::agents::explain_diff(&s).contains("Nessuna modifica"));
+        assert!(git_generate_commit_message(r.dir().into()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn smart_lens_tronca_un_diff_enorme_invece_di_bloccare_il_viewer() {
+        let r = Repo::new();
+        r.write("a.txt", "1\n");
+        r.commit("init");
+        let body: String = (0..5000).map(|i| format!("riga {i}\n")).collect();
+        r.write("src/big.txt", &body);
+        r.run(&["add", "-A"]);
+        let s = summarize(r.dir(), None).await.unwrap();
+        assert!(s.truncated);
+        assert!(s.added_lines.len() <= 4000, "{}", s.added_lines.len());
     }
 }

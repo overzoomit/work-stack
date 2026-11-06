@@ -270,6 +270,8 @@ fn main() {
             git::git_commit,
             git::git_containing,
             git::git_file_diff,
+            git::git_generate_commit_message,
+            git::git_explain_diff,
             git::git_action,
             github::gh_status,
             github::gh_runs,

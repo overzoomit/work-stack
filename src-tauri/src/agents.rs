@@ -3,6 +3,7 @@
 // live picture of what each agent is doing.
 use crate::claudeprocs;
 use crate::diag::{log, Level};
+use crate::git::{DiffFile, DiffSummary};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -1076,6 +1077,606 @@ pub async fn available(commands: Vec<String>) -> Vec<String> {
         ),
     );
     found
+}
+
+// ── Smart Diff Lens: diff synthesis ──────────────────────────────────────
+// git.rs extracts the facts; here they become the Italian summary and the
+// Conventional Commit message. Keeping the synthesis in one place leaves a
+// single seam for an external provider, while today it runs locally: instant,
+// offline and with no API key to configure.
+
+const LENS_GENERIC_SYMBOLS: &[&str] = &[
+    "new", "main", "init", "default", "run", "update", "render", "setup", "index", "app", "mod",
+    "lib", "get", "set", "add", "test",
+];
+const LENS_GENERIC_SCOPES: &[&str] = &[
+    "index",
+    "main",
+    "mod",
+    "lib",
+    "app",
+    "src",
+    "test",
+    "tests",
+    "package",
+    "cargo",
+    "readme",
+    "license",
+    "changelog",
+    "docs",
+    "doc",
+];
+
+fn lens_lower(path: &str) -> String {
+    path.replace('\\', "/").to_ascii_lowercase()
+}
+
+fn lens_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+fn is_test_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    p.starts_with("test/")
+        || p.starts_with("tests/")
+        || p.contains("/test/")
+        || p.contains("/tests/")
+        || p.contains("/__tests__/")
+        || [
+            ".test.js",
+            ".test.mjs",
+            ".test.ts",
+            ".test.tsx",
+            ".spec.js",
+            ".spec.mjs",
+            ".spec.ts",
+            ".spec.tsx",
+            "_test.rs",
+        ]
+        .iter()
+        .any(|s| p.ends_with(s))
+}
+
+fn is_docs_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    let name = lens_name(&p);
+    p.starts_with("docs/")
+        || p.starts_with("doc/")
+        || name.ends_with(".md")
+        || name.ends_with(".mdx")
+        || name.starts_with("readme")
+        || name.starts_with("license")
+        || name.starts_with("changelog")
+}
+
+fn is_ci_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    let name = lens_name(&p);
+    p.starts_with(".github/")
+        || p.starts_with(".gitlab/")
+        || p.starts_with(".circleci/")
+        || matches!(
+            name,
+            "jenkinsfile" | ".gitlab-ci.yml" | ".travis.yml" | "azure-pipelines.yml"
+        )
+}
+
+fn is_style_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    [".css", ".scss", ".sass", ".less"]
+        .iter()
+        .any(|s| p.ends_with(s))
+}
+
+fn is_build_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    let name = lens_name(&p);
+    matches!(
+        name,
+        "package.json"
+            | "package-lock.json"
+            | "pnpm-lock.yaml"
+            | "yarn.lock"
+            | "cargo.toml"
+            | "cargo.lock"
+            | "tsconfig.json"
+            | "vite.config.js"
+            | "vite.config.ts"
+            | "webpack.config.js"
+            | "rollup.config.js"
+            | "tauri.conf.json"
+    )
+}
+
+fn is_chore_path(path: &str) -> bool {
+    let p = lens_lower(path);
+    let name = lens_name(&p);
+    name == ".gitignore"
+        || name == ".gitattributes"
+        || name == ".editorconfig"
+        || name == ".nvmrc"
+        || name == ".tool-versions"
+        || name == "rustfmt.toml"
+        || name == "clippy.toml"
+        || name.starts_with(".eslintrc")
+        || name.starts_with(".prettierrc")
+}
+
+fn is_sensitive_file(path: &str) -> bool {
+    let p = lens_lower(path);
+    let name = lens_name(&p);
+    name == ".env"
+        || name.starts_with(".env.")
+        || name == ".npmrc"
+        || name == ".netrc"
+        || name == "id_rsa"
+        || name == "id_ed25519"
+        || name.contains("credential")
+        || name.starts_with("secrets.")
+        || [".pem", ".key", ".p12", ".pfx", ".keystore"]
+            .iter()
+            .any(|s| name.ends_with(s))
+}
+
+fn sanitize_word(raw: &str) -> Option<String> {
+    let mut out = String::new();
+    for c in raw.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.is_empty() && !out.ends_with('-') && matches!(c, '-' | '_' | '.') {
+            out.push('-');
+        }
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    let out = out.trim_matches('-');
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.to_string())
+    }
+}
+
+fn sanitize_scope(raw: &str) -> Option<String> {
+    sanitize_word(raw).filter(|scope| !LENS_GENERIC_SCOPES.contains(&scope.as_str()))
+}
+
+fn file_scope(path: &str) -> Option<String> {
+    let name = lens_name(path);
+    let stem = name.split('.').next().unwrap_or("");
+    sanitize_scope(stem).or_else(|| {
+        path.rsplit_once('/')
+            .and_then(|(dir, _)| dir.rsplit('/').next().and_then(sanitize_scope))
+    })
+}
+
+// The subject keeps the file name even when it is too generic to be a scope:
+// "docs: update readme" reads better than "docs: update the changes".
+fn subject_stem(path: &str) -> Option<String> {
+    let name = lens_name(path);
+    let stem = name.split('.').next().unwrap_or("");
+    sanitize_word(stem).or_else(|| {
+        path.rsplit_once('/')
+            .and_then(|(dir, _)| dir.rsplit('/').next().and_then(sanitize_word))
+    })
+}
+
+fn added_symbols(lines: &[String]) -> Vec<String> {
+    const PREFIXES: &[&str] = &[
+        "pub(crate) async fn ",
+        "pub(super) async fn ",
+        "pub async fn ",
+        "pub(crate) fn ",
+        "pub(super) fn ",
+        "pub fn ",
+        "async fn ",
+        "fn ",
+        "export default async function ",
+        "export async function ",
+        "export default function ",
+        "export function ",
+        "function ",
+        "export class ",
+        "class ",
+        "pub struct ",
+        "struct ",
+        "pub enum ",
+        "enum ",
+        "export const ",
+        "pub const ",
+    ];
+    let mut found = Vec::new();
+    for line in lines {
+        let line = line.trim_start();
+        for prefix in PREFIXES {
+            let Some(rest) = line.strip_prefix(prefix) else {
+                continue;
+            };
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+                .collect();
+            let test_symbol = name.starts_with("test") || name.starts_with("should");
+            if name.len() >= 4
+                && !test_symbol
+                && !LENS_GENERIC_SYMBOLS.contains(&name.as_str())
+                && !found.contains(&name)
+            {
+                found.push(name);
+            }
+        }
+        if found.len() >= 6 {
+            break;
+        }
+    }
+    found
+}
+
+fn path_area(path: &str) -> &'static str {
+    let p = lens_lower(path);
+    if p.starts_with("src-tauri/") {
+        "backend"
+    } else if p.starts_with("src/renderer/") {
+        "renderer"
+    } else if p.starts_with("test/") || p.starts_with("tests/") {
+        "test"
+    } else if p.starts_with("docs/") {
+        "documentazione"
+    } else if p.starts_with("scripts/") {
+        "script"
+    } else if p.starts_with(".github/") {
+        "CI"
+    } else {
+        "radice"
+    }
+}
+
+fn classify(summary: &DiffSummary) -> &'static str {
+    let files = &summary.files;
+    let all = |pred: fn(&str) -> bool| !files.is_empty() && files.iter().all(|f| pred(&f.file));
+    if all(is_test_path) {
+        return "test";
+    }
+    if all(is_docs_path) {
+        return "docs";
+    }
+    if all(is_ci_path) {
+        return "ci";
+    }
+    if all(is_style_path) {
+        return "style";
+    }
+    if all(is_build_path) {
+        return "build";
+    }
+    // Only explicit fix markers: a stray "fix" in source or docs must not turn
+    // every feature into a fix commit.
+    let fix_marker = summary.added_lines.iter().any(|line| {
+        let line = line.trim_start().to_ascii_lowercase();
+        line.starts_with("// fix")
+            || line.starts_with("# fix")
+            || line.starts_with("/* fix")
+            || line.starts_with("fixes #")
+            || line.starts_with("fix #")
+            || line.starts_with("bugfix")
+            || line.starts_with("hotfix")
+            || line.contains("regression test")
+    });
+    if fix_marker {
+        return "fix";
+    }
+    if files.iter().all(|f| f.code == "D") {
+        return "chore";
+    }
+    if files.iter().all(|f| f.code == "R") {
+        return "refactor";
+    }
+    if all(is_chore_path) {
+        return "chore";
+    }
+    if summary.added == 0 && files.iter().all(|f| f.code != "A") {
+        return "refactor";
+    }
+    "feat"
+}
+
+fn scope_of(summary: &DiffSummary) -> Option<String> {
+    let mut order: Vec<(String, usize)> = Vec::new();
+    for file in summary.files.iter().filter(|f| !is_test_path(&f.file)) {
+        let Some(scope) = file_scope(&file.file) else {
+            continue;
+        };
+        if let Some(entry) = order.iter_mut().find(|(s, _)| *s == scope) {
+            entry.1 += 1;
+        } else {
+            order.push((scope, 1));
+        }
+    }
+    let mut best: Option<(String, usize)> = None;
+    for (scope, count) in order {
+        if best.as_ref().is_none_or(|(_, best)| count > *best) {
+            best = Some((scope, count));
+        }
+    }
+    best.map(|(scope, _)| scope)
+}
+
+fn verb_of(summary: &DiffSummary) -> &'static str {
+    let files = &summary.files;
+    if files.iter().all(|f| f.code == "D") {
+        "remove"
+    } else if files.iter().all(|f| f.code == "R") {
+        "rename"
+    } else if files.iter().any(|f| f.code == "A") {
+        "add"
+    } else {
+        "update"
+    }
+}
+
+fn subject_stems(summary: &DiffSummary) -> Vec<String> {
+    let mut stems = Vec::new();
+    for file in summary
+        .files
+        .iter()
+        .filter(|f| !is_test_path(&f.file))
+        .chain(summary.files.iter().filter(|f| is_test_path(&f.file)))
+    {
+        if let Some(stem) = subject_stem(&file.file) {
+            if !stems.contains(&stem) {
+                stems.push(stem);
+            }
+        }
+        if stems.len() == 3 {
+            break;
+        }
+    }
+    stems
+}
+
+fn subject_of(summary: &DiffSummary) -> String {
+    let verb = verb_of(summary);
+    if let Some(symbol) = added_symbols(&summary.added_lines).into_iter().next() {
+        return format!("{verb} {symbol}");
+    }
+    let stems = subject_stems(summary);
+    match stems.as_slice() {
+        [] => format!("{verb} the changes"),
+        [one] => format!("{verb} {one}"),
+        [a, b] => format!("{verb} {a} and {b}"),
+        [a, b, c] => format!("{verb} {a}, {b} and {c}"),
+        _ => unreachable!(),
+    }
+}
+
+fn truncate_subject(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end())
+}
+
+/// A Conventional Commit for the extracted changes: type and scope from the
+/// paths, subject from the first new symbol (or from the touched modules).
+pub fn commit_message(summary: &DiffSummary) -> String {
+    let kind = classify(summary);
+    let scope = scope_of(summary);
+    let prefix = match &scope {
+        Some(scope) => format!("{kind}({scope})"),
+        None => kind.to_string(),
+    };
+    let room = 72usize.saturating_sub(prefix.chars().count() + 2).max(20);
+    let subject = truncate_subject(&subject_of(summary), room);
+    let mut message = format!("{prefix}: {subject}");
+    if summary.files.len() > 1 {
+        message.push_str("\n\n");
+        for file in summary.files.iter().take(8) {
+            message.push_str(&format!(
+                "- {} (+{}/-{})\n",
+                file.file, file.added, file.deleted
+            ));
+        }
+        if summary.files.len() > 8 {
+            message.push_str(&format!("- … and {} more files\n", summary.files.len() - 8));
+        }
+        while message.ends_with('\n') {
+            message.pop();
+        }
+    }
+    message
+}
+
+fn file_kind(file: &DiffFile) -> String {
+    if file.binary {
+        return "file binario".into();
+    }
+    match file.code.as_str() {
+        "A" => "nuovo file".into(),
+        "D" => "file eliminato".into(),
+        "R" => "rinominato".into(),
+        "C" => "copiato".into(),
+        _ => "modificato".into(),
+    }
+}
+
+fn looks_like_secret(line: &str) -> bool {
+    let low = line.to_ascii_lowercase();
+    if low.contains("begin") && low.contains("private key") {
+        return true;
+    }
+    if low
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|token| token.len() == 20 && token.starts_with("AKIA"))
+    {
+        return true;
+    }
+    const KEYS: &[&str] = &[
+        "api_key",
+        "apikey",
+        "api-key",
+        "secret",
+        "password",
+        "passwd",
+        "access_token",
+        "auth_token",
+        "private_key",
+    ];
+    for key in KEYS {
+        let Some(pos) = low.find(key) else {
+            continue;
+        };
+        let rest = low[pos + key.len()..].trim_start();
+        let Some(value) = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':')) else {
+            continue;
+        };
+        let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+        if value.len() >= 12
+            && !value.starts_with('$')
+            && !value.contains("...")
+            && !value.contains("process.env")
+            && value.chars().any(|c| c.is_ascii_alphanumeric())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn security_notes(summary: &DiffSummary) -> Vec<String> {
+    let mut notes = Vec::new();
+    let sensitive: Vec<&str> = summary
+        .files
+        .iter()
+        .map(|f| f.file.as_str())
+        .filter(|f| is_sensitive_file(f))
+        .take(3)
+        .collect();
+    if !sensitive.is_empty() {
+        notes.push(format!(
+            "File sensibile nel changeset: {}.",
+            sensitive.join(", ")
+        ));
+    }
+    if summary
+        .added_lines
+        .iter()
+        .any(|line| looks_like_secret(line))
+    {
+        notes.push(
+            "Possibili segreti in chiaro nelle righe aggiunte (chiave, token o password).".into(),
+        );
+    }
+    let conflicts = summary
+        .added_lines
+        .iter()
+        .filter(|line| {
+            let line = line.trim_start();
+            line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>")
+        })
+        .count();
+    if conflicts > 0 {
+        notes.push(format!(
+            "Marcatori di conflitto aggiunti ({conflicts} righe): risolvi il merge prima del commit."
+        ));
+    }
+    let debug = summary
+        .added_lines
+        .iter()
+        .filter(|line| {
+            let line = line.trim_start();
+            line.starts_with("console.log(")
+                || line == "debugger;"
+                || line.starts_with("dbg!(")
+                || line.contains("pdb.set_trace()")
+                || line.contains("binding.pry")
+        })
+        .count();
+    if debug > 0 {
+        notes.push(format!(
+            "{debug} riga/e di debug aggiunte: rimuovile prima del commit."
+        ));
+    }
+    let binaries: Vec<&str> = summary
+        .files
+        .iter()
+        .filter(|f| f.binary)
+        .map(|f| f.file.as_str())
+        .take(3)
+        .collect();
+    if !binaries.is_empty() {
+        notes.push(format!("File binario modificato: {}.", binaries.join(", ")));
+    }
+    if summary.truncated {
+        notes.push(
+            "Analisi troncata: il diff supera il limite di 4 MB o 4000 righe aggiunte.".into(),
+        );
+    }
+    if notes.is_empty() {
+        notes.push(
+            "Nessun indicatore di rischio rilevato (segreti, conflitti, codice di debug).".into(),
+        );
+    }
+    notes
+}
+
+/// The readable Italian summary shown under the Smart Lens toolbar.
+pub fn explain_diff(summary: &DiffSummary) -> String {
+    if summary.files.is_empty() {
+        return "Nessuna modifica da spiegare: stage o modifica almeno un file.".into();
+    }
+    let where_ = if summary.staged {
+        "in stage"
+    } else {
+        "nella copia di lavoro"
+    };
+    let mut out = format!(
+        "Modifiche {where_}: {} file, +{} −{}.\n\n",
+        summary.files.len(),
+        summary.added,
+        summary.deleted
+    );
+    for file in &summary.files {
+        let mut kind = file_kind(file);
+        if let Some(old) = &file.old_file {
+            if file.code == "R" {
+                kind = format!("rinominato da {old}");
+            }
+        }
+        out.push_str(&format!(
+            "- {} ({}): +{} −{}\n",
+            file.file, kind, file.added, file.deleted
+        ));
+    }
+    let symbols = added_symbols(&summary.added_lines);
+    if !symbols.is_empty() {
+        out.push_str(&format!("\nSimboli aggiunti: {}.\n", symbols.join(", ")));
+    }
+    let mut areas: Vec<(&str, usize)> = Vec::new();
+    for file in &summary.files {
+        let area = path_area(&file.file);
+        if let Some(entry) = areas.iter_mut().find(|(name, _)| *name == area) {
+            entry.1 += 1;
+        } else {
+            areas.push((area, 1));
+        }
+    }
+    areas.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    out.push_str(&format!(
+        "Aree coinvolte: {}.\n",
+        areas
+            .iter()
+            .map(|(name, count)| format!("{name} ({count})"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push_str("\nControlli di sicurezza pre-commit:\n");
+    for note in security_notes(summary) {
+        out.push_str(&format!("- {note}\n"));
+    }
+    out.trim_end().to_string()
 }
 
 #[cfg(test)]
