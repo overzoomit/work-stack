@@ -396,9 +396,19 @@ fn files(roots: &[PathBuf], root: &str) -> Result<Value, String> {
 // same walkers as the file search keep node_modules, .git and target out.
 const MAX_QUICK_FILES: usize = 20_000;
 
+// Git knows nothing about SKIP_DIRS: a tracked file inside node_modules/ or
+// target/ still comes back from ls-files. Drop it by directory component so
+// the exclusions do not depend on the project's .gitignore.
+fn in_skipped_dir(path: &str) -> bool {
+    let mut parts: Vec<&str> = path.split('/').collect();
+    parts.pop(); // the last component is the file itself, never a skipped directory
+    parts.iter().any(|part| SKIP_DIRS.contains(part))
+}
+
 fn quick_files(roots: &[PathBuf], root: &str, max: usize) -> Result<Vec<String>, String> {
     let abs = guard(roots, Path::new(root), true)?;
     let mut list = git_files(&abs).unwrap_or_else(|| walk_files(&abs));
+    list.retain(|f| !in_skipped_dir(&f.path));
     list.sort_by(|a, b| a.path.cmp(&b.path));
     list.truncate(max.clamp(1, MAX_QUICK_FILES));
     Ok(list.into_iter().map(|f| f.path).collect())
@@ -1074,6 +1084,42 @@ mod tests {
         rejects(
             quick_files(&f.roots, &s(&f.outside), 10),
             "fuori dai progetti",
+        );
+    }
+
+    #[test]
+    fn i_file_rapidi_escludono_le_cartelle_anche_se_sono_tracciate_in_git() {
+        let f = fx();
+        let p = &f.project;
+        git(p, &["init", "-q"]);
+        // No .gitignore on purpose: the exclusions must come from SKIP_DIRS,
+        // not from what the project chose to ignore.
+        fs::create_dir_all(p.join("node_modules/lib")).unwrap();
+        fs::create_dir_all(p.join("target/debug")).unwrap();
+        fs::write(p.join("AlphaPaletteFile.txt"), "").unwrap();
+        fs::write(p.join("node_modules/lib/excluded.txt"), "").unwrap();
+        fs::write(p.join("target/debug/excluded.txt"), "").unwrap();
+        git(
+            p,
+            &[
+                "add",
+                "-f",
+                "AlphaPaletteFile.txt",
+                "node_modules/lib/excluded.txt",
+                "target/debug/excluded.txt",
+            ],
+        );
+
+        let got = quick_files(&f.roots, &s(p), 100).unwrap();
+        let has = |path: &str| got.iter().any(|p| p == path);
+        assert!(has("AlphaPaletteFile.txt"), "{got:?}");
+        assert!(has("src/a.txt"), "tracked files still count: {got:?}");
+        assert!(!has("node_modules/lib/excluded.txt"), "{got:?}");
+        assert!(!has("target/debug/excluded.txt"), "{got:?}");
+        assert!(
+            !got.iter()
+                .any(|p| p.starts_with("node_modules/") || p.starts_with("target/")),
+            "{got:?}"
         );
     }
 
