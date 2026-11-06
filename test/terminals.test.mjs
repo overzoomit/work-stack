@@ -28,6 +28,45 @@ test('chiudendo il terminale con il focus, il focus passa a un altro terminale r
   await new Promise((r) => setTimeout(r, 700));
 });
 
+test('focus porta davvero il caret di xterm nel pane, anche se era già quello attivo (regressione)', async () => {
+  const p = { path: '/focus', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const a = await T.openTerminal(p);
+  const b = await T.openTerminal(p);
+  assert.equal(p.focusedId, b.id);
+  FakeTerminal.focused = null;
+  document.activeElement = null;
+
+  T.focus(b.id); // same focusedId as before: the old code stopped here
+  assert.equal(FakeTerminal.focused, b.term, 'xterm gets the focus back');
+  assert.equal(document.activeElement, b.term.textarea, 'the DOM caret is on the pane textarea');
+  b.term.data('echo palette\r');
+  assert.deepEqual(env.input.at(-1), [b.id, 'echo palette\r'], 'typing reaches the right PTY');
+
+  T.closeTerminal(a.id);
+  T.closeTerminal(b.id);
+  await tick(700);
+});
+
+test('focus su un pane nascosto da maximize lo riporta visibile e attivo (regressione)', async () => {
+  const p = { path: '/max', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const a = await T.openTerminal(p);
+  const b = await T.openTerminal(p);
+  T.toggleMax(a.id);
+  assert.equal(p.maximizedId, a.id);
+
+  T.focus(b.id); // b was hidden behind a's maximize
+  assert.equal(p.maximizedId, b.id, 'the focused pane becomes the maximized one');
+  assert.ok(b.el.classList.contains('maximized'));
+  assert.ok(!a.el.classList.contains('maximized'));
+  assert.equal(FakeTerminal.focused, b.term);
+
+  T.closeTerminal(a.id);
+  T.closeTerminal(b.id);
+  await tick(700);
+});
+
 test('spostando il terminale con il focus in un altro progetto, il focus resta visibile in entrambi (regressione)', async () => {
   const p = { path: '/p', focusedId: null, maximizedId: null };
   const q = { path: '/q', focusedId: null, maximizedId: null };

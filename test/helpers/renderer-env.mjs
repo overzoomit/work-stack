@@ -93,14 +93,14 @@ export class FakeTerminal {
   constructor(options) { this.options = options; this.cols = 80; this.rows = 24; this.textarea = new El(); this.written = ''; this.addons = []; }
   loadAddon(addon) { this.addons.push(addon); addon.activate?.(this); }
   open() {}
-  onData() {}
+  onData(fn) { this.data = fn; }
   onResize() {}
   onTitleChange() {}
   write(d, cb) { this.written += d; cb?.(); }
   getSelection() { return this.selection || ''; }
   paste(text) { this.pasted = text; }
   clear() { this.written = ''; }
-  focus() { FakeTerminal.focused = this; }
+  focus() { FakeTerminal.focused = this; this.textarea.focus(); }
   dispose() { this.disposed = true; for (const a of this.addons) a.dispose?.(); }
 }
 

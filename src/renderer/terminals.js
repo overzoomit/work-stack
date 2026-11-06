@@ -701,10 +701,20 @@ export function flash(id) {
 
 export function focus(id) {
   const t = all.get(id);
-  if (!t || t.console || t.project.focusedId === id) return;
-  t.project.focusedId = id;
-  for (const x of terminalsOf(t.project)) x.el.classList.toggle('focused', x.id === id);
-  onChange();
+  if (!t || t.console) return;
+  const p = t.project;
+  if (p.focusedId !== id) {
+    p.focusedId = id;
+    for (const x of terminalsOf(p)) x.el.classList.toggle('focused', x.id === id);
+    onChange();
+  }
+  if (p !== active) return;
+  // A pane hidden by maximize has no visible caret: bring it back first.
+  if (p.maximizedId && p.maximizedId !== id) toggleMax(id);
+  // Move the real caret into xterm even when this pane already had the
+  // highlight: the palette closes without restoring focus, so typing must land
+  // on the pane's textarea without another click or Tab.
+  t.term.focus();
 }
 
 export function closeTerminal(id) {
