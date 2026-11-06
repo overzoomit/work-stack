@@ -257,24 +257,48 @@ pub fn kill_session(session: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Creates an isolated grouped session linked to base_session and focused on window_id.
+// Creates an isolated client session that links exactly one window of
+// base_session. A grouped session (`new-session -t base`) shares the whole
+// window list: when the selected window dies tmux falls back to another one of
+// the group, so two rectangles would end up driving the same shell and the PTY
+// would never report the exit. A standalone session with a single linked window
+// has no fallback: when that window goes away the session loses its last window
+// and tmux detaches the client, which ends the PTY and lets the renderer
+// collapse the rectangle.
 pub fn attach_client_session(
     base_session: &str,
     client_session: &str,
     window_id: &str,
 ) -> Result<(), String> {
+    check_pane_target(window_id)?;
     let _ = kill_session(client_session);
-    run_tmux(&[
+    // A session cannot be created without a window: keep the throwaway one only
+    // until the real window is linked in, then drop it.
+    let initial = run_tmux(&[
         "new-session",
         "-d",
-        "-t",
-        base_session,
+        "-P",
+        "-F",
+        "#{window_id}",
         "-s",
         client_session,
     ])?;
-    let _ = run_tmux(&["set-option", "-t", client_session, "status", "off"]);
+    let initial = initial.trim();
+    if !initial.starts_with('@') {
+        let _ = kill_session(client_session);
+        return Err(format!(
+            "tmux non ha creato la sessione client {client_session}: {initial}"
+        ));
+    }
+    let source = format!("{base_session}:{window_id}");
+    if let Err(err) = run_tmux(&["link-window", "-s", &source, "-t", client_session]) {
+        let _ = kill_session(client_session);
+        return Err(err);
+    }
+    let _ = run_tmux(&["kill-window", "-t", &format!("{client_session}:{initial}")]);
     let target = format!("{client_session}:{window_id}");
     let _ = run_tmux(&["select-window", "-t", &target]);
+    let _ = run_tmux(&["set-option", "-t", client_session, "status", "off"]);
     Ok(())
 }
 
@@ -722,7 +746,8 @@ mod tests {
         let base = unique("wsstatus_");
         let client = format!("{base}_client");
         ensure_session(&base, Path::new("/tmp")).unwrap();
-        let attached = attach_client_session(&base, &client, "0");
+        let window = list_windows(&base).unwrap().remove(0).id;
+        let attached = attach_client_session(&base, &client, &window);
 
         let client_status = run_tmux(&["show-options", "-v", "-t", &client, "status"]);
         let base_status = run_tmux(&["show-options", "-v", "-t", &base, "status"]);
@@ -872,6 +897,77 @@ mod tests {
         assert_eq!(pane_target("work_x", "%5").unwrap(), "%5");
         assert!(pane_target("work_x", "-h").is_err());
         assert!(pane_target("work_x", "").is_err());
+    }
+
+    fn client_windows(client: &str) -> Vec<String> {
+        run_tmux(&["list-windows", "-t", client, "-F", "#{window_id}"])
+            .unwrap_or_default()
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    fn current_window(client: &str) -> String {
+        run_tmux(&["display-message", "-p", "-t", client, "#{window_id}"])
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn a_client_session_links_only_its_window_and_ends_when_it_exits_regression() {
+        // QA regression: a grouped client stayed attached to the group and
+        // switched to another window when its shell exited, so the rectangle
+        // never collapsed and two terminals drove the same shell.
+        if !is_available() {
+            return;
+        }
+        let base = unique("wsclient_");
+        ensure_session(&base, Path::new("/tmp")).unwrap();
+        let first = list_windows(&base).unwrap().remove(0).id;
+        let second = new_window(&base, Some("probe"), Path::new("/tmp"), Some("sh")).unwrap();
+        let (c0, c1) = (format!("{base}_c0"), format!("{base}_c1"));
+
+        attach_client_session(&base, &c0, &first).unwrap();
+        attach_client_session(&base, &c1, &second).unwrap();
+
+        assert_eq!(
+            client_windows(&c0),
+            vec![first.clone()],
+            "no leftover window"
+        );
+        assert_eq!(
+            client_windows(&c1),
+            vec![second.clone()],
+            "the client links one window only"
+        );
+        assert_eq!(current_window(&c0), first);
+        assert_eq!(current_window(&c1), second);
+
+        send_keys(&base, &second, "exit").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while has_session(&c1) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert!(
+            !has_session(&c1),
+            "the client session ends with its only window instead of switching"
+        );
+        assert!(has_session(&c0), "the other terminal stays isolated");
+        assert_eq!(
+            current_window(&c0),
+            first,
+            "it never follows another window"
+        );
+        assert!(
+            !list_windows(&base).unwrap().iter().any(|w| w.id == second),
+            "the shell's window is gone"
+        );
+
+        let _ = kill_session(&c0);
+        let _ = kill_session(&base);
     }
 
     #[test]

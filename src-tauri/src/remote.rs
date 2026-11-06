@@ -522,59 +522,52 @@ pub fn attach_script(
         quote(cwd),
         session
     );
-    script.push_str(&format!(
-        "tmux kill-session -t {} 2>/dev/null; tmux new-session -d -t {} -s {} 2>/dev/null; ",
-        quote(&format!("={client}")),
-        quote(session),
-        quote(client)
-    ));
+
+    // Resolve the single window this client will link: the requested one, the
+    // session's only shell, or a new window created in the base session.
     if let Some(window) = window {
-        script.push_str(&format!(
-            "tmux select-window -t {} 2>/dev/null; ",
-            quote(&format!("{client}:{window}"))
-        ));
+        script.push_str(&format!("win={}; ", quote(window)));
     } else {
         let name = window_name.unwrap_or("shell");
-        if name == "shell" {
+        if name == "shell" && command.is_none() {
             // Reuse the single shell window the session was created with,
             // exactly as the local tmux path does.
             script.push_str(&format!(
                 "win=; set -- $(tmux list-windows -t {} -F '#{{window_id}}|#{{window_name}}' 2>/dev/null); if [ \"$#\" -eq 1 ] && [ \"${{1#*|}}\" = 'shell' ]; then win=\"${{1%%|*}}\"; fi; ",
-                quote(client)
-            ));
-            script.push_str(&format!(
-                "if [ -z \"$win\" ]; then tmux new-window -t {} -n {} -c {}",
-                quote(client),
-                quote(name),
-                quote(cwd)
-            ));
-            if let Some(command) = command {
-                script.push(' ');
-                script.push_str(&quote(command));
-            }
-            script.push_str(&format!(" 2>/dev/null; win={}; fi; ", quote(name)));
-            script.push_str(&format!(
-                "tmux select-window -t {}:\"$win\" 2>/dev/null; ",
-                quote(client)
+                quote(session)
             ));
         } else {
-            script.push_str(&format!(
-                "tmux new-window -t {} -n {} -c {}",
-                quote(client),
-                quote(name),
-                quote(cwd)
-            ));
-            if let Some(command) = command {
-                script.push(' ');
-                script.push_str(&quote(command));
-            }
-            script.push_str(" 2>/dev/null; ");
-            script.push_str(&format!(
-                "tmux select-window -t {} 2>/dev/null; ",
-                quote(&format!("{client}:{name}"))
-            ));
+            script.push_str("win=; ");
         }
+        script.push_str(&format!(
+            "if [ -z \"$win\" ]; then win=$(tmux new-window -P -F '#{{window_id}}' -t {} -n {} -c {}",
+            quote(session),
+            quote(name),
+            quote(cwd)
+        ));
+        if let Some(command) = command {
+            script.push(' ');
+            script.push_str(&quote(command));
+        }
+        script.push_str(" 2>/dev/null); fi; ");
     }
+
+    // Mirror the local path: a standalone client session that links exactly one
+    // window. A grouped session would switch to another window when this one
+    // dies, leaving two rectangles on the same shell and no exit to report.
+    script.push_str(&format!(
+        "tmux kill-session -t {} 2>/dev/null; init=$(tmux new-session -d -P -F '#{{window_id}}' -s {} -c {} 2>/dev/null); ",
+        quote(&format!("={client}")),
+        quote(client),
+        quote(cwd)
+    ));
+    script.push_str(&format!(
+        "tmux link-window -s {}:\"$win\" -t {} 2>/dev/null; tmux kill-window -t {}:\"$init\" 2>/dev/null; tmux select-window -t {}:\"$win\" 2>/dev/null; ",
+        quote(session),
+        quote(client),
+        quote(client),
+        quote(client)
+    ));
     script.push_str(&format!(
         "tmux set-option -t {} status off 2>/dev/null; ",
         quote(client)
@@ -674,14 +667,56 @@ mod tests {
         )
         .unwrap();
         assert!(
-            script.contains("win=; set -- $(tmux list-windows"),
+            script.contains("win=; set -- $(tmux list-windows -t 'work_app_123456'"),
             "{script}"
+        );
+        assert!(
+            script.contains(
+                "tmux link-window -s 'work_app_123456':\"$win\" -t 'work_app_123456_pty_1'"
+            ),
+            "{script}"
+        );
+        assert!(
+            script.contains("tmux kill-window -t 'work_app_123456_pty_1':\"$init\""),
+            "the throwaway window must not stay in the client session: {script}"
         );
         assert!(
             script.contains("tmux select-window -t 'work_app_123456_pty_1':\"$win\""),
             "{script}"
         );
         assert!(script.contains("tmux attach-session -t 'work_app_123456_pty_1'"));
+    }
+
+    #[test]
+    fn a_remote_client_links_one_window_so_exit_cannot_fall_back_regression() {
+        // QA regression: the grouped client survived its window and selected
+        // another one. The remote script now links a single window into a
+        // standalone session, just like the local path.
+        let r = remote();
+        let script = attach_script(
+            &r,
+            "work_app_123456",
+            Some("@4"),
+            None,
+            "/srv/app",
+            None,
+            "work_app_123456_pty_2",
+        )
+        .unwrap();
+        assert!(script.contains("win='@4'"), "{script}");
+        assert!(
+            script.contains("tmux link-window -s 'work_app_123456':\"$win\""),
+            "{script}"
+        );
+        assert!(
+            !script.contains("new-session -d -t"),
+            "no grouped session: {script}"
+        );
+        let status = Command::new("sh")
+            .args(["-n", "-c", &script])
+            .status()
+            .unwrap();
+        assert!(status.success(), "{script}");
     }
 
     #[test]

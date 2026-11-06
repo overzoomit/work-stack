@@ -637,6 +637,7 @@ fn process_cwd(pid: i32) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::sync::mpsc::{channel, Sender};
 
     enum Ev {
@@ -885,6 +886,96 @@ mod tests {
             names.contains(&"pm".into()) && names.contains(&"dev1".into()),
             "{names:?}"
         );
+    }
+
+    #[test]
+    fn a_shell_exit_ends_only_its_tmux_pane_and_reports_the_exit_regression() {
+        // QA regression: `exit` in a tmux pane must close that rectangle, and
+        // the other rectangle must keep its own isolated shell.
+        if !crate::tmux::is_available() {
+            return;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let session = format!("test_pane_exit_{nanos:x}");
+        crate::tmux::ensure_session(&session, Path::new("/tmp")).unwrap();
+        let alive_window = crate::tmux::list_windows(&session).unwrap().remove(0).id;
+        let dying_window =
+            crate::tmux::new_window(&session, Some("probe"), Path::new("/tmp"), Some("sh"))
+                .unwrap();
+
+        let (m, rx) = manager();
+        let open = |window: &str| {
+            m.create(CreateOpts {
+                cwd: Some("/tmp".into()),
+                cols: 80,
+                rows: 24,
+                tmux_session: Some(session.clone()),
+                tmux_window: Some(window.into()),
+                ..Default::default()
+            })
+        };
+        let alive = open(&alive_window);
+        let dying = open(&dying_window);
+        let client_of = |id: u32| format!("{session}_pty_{id}");
+
+        // Both attach clients are up; each one links only its own window.
+        let ready_by = Instant::now() + Duration::from_secs(5);
+        while (!crate::tmux::has_session(&client_of(alive))
+            || !crate::tmux::has_session(&client_of(dying)))
+            && Instant::now() < ready_by
+        {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(crate::tmux::has_session(&client_of(alive)));
+        assert!(crate::tmux::has_session(&client_of(dying)));
+
+        // The shell in the second window exits, as the user would type it.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut ended = false;
+        while !ended && Instant::now() < deadline {
+            m.write(dying, "exit\r");
+            match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(Ev::Exit(id, _)) => {
+                    assert_eq!(id, dying, "only the exited pane reports the exit");
+                    ended = true;
+                }
+                Ok(Ev::Data(id, s)) => m.ack(id, s.encode_utf16().count()),
+                Err(_) => {}
+            }
+        }
+
+        assert!(ended, "the PTY must report the exit, not stay attached");
+        assert!(
+            !crate::tmux::has_session(&client_of(dying)),
+            "its client session went away with the window"
+        );
+        assert!(
+            crate::tmux::has_session(&client_of(alive)),
+            "the other terminal is still attached"
+        );
+        let current = crate::tmux::run_tmux(&[
+            "display-message",
+            "-p",
+            "-t",
+            &client_of(alive),
+            "#{window_id}",
+        ])
+        .unwrap();
+        assert_eq!(
+            current.trim(),
+            alive_window,
+            "the survivor never follows the dead window"
+        );
+        assert!(!crate::tmux::list_windows(&session)
+            .unwrap()
+            .iter()
+            .any(|w| w.id == dying_window));
+
+        m.kill_all();
+        let _ = crate::tmux::kill_session(&session);
     }
 
     #[test]
