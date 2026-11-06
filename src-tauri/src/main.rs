@@ -1,5 +1,6 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
 mod agents;
+mod analytics;
 mod app;
 mod claudeprocs;
 mod diag;
@@ -306,6 +307,7 @@ fn main() {
             agents::agents_has_history,
             agents::agents_stop,
             agents::agents_available,
+            analytics::analytics_get_summary,
             dogwatch::dogwatch_inspect,
             dogwatch::dogwatch_explain,
             dogwatch::dogwatch_answer,

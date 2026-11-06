@@ -18,6 +18,7 @@ import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot,
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude, launchWithPrompt, lastUsedAgent, AGENTS } from './launcher.js';
 import { initTeam, showLiveLed } from './team.js';
+import { initAnalytics, openAnalytics } from './analytics.js';
 import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
 import { openPluginsDialog } from './plugins.js';
@@ -902,6 +903,7 @@ work.app.onOpenSettings(openSettingsDialog);
 const more = $('#more');
 const moreItems = [
   { label: 'Check for updates…', run: () => checkUpdate({ manual: true }) },
+  { label: 'Fleet Analytics…', run: () => openAnalytics(active) },
   { label: 'Settings…', run: openSettingsDialog },
   { label: 'Plugins…', run: openPluginsDialog },
 ];
@@ -968,6 +970,7 @@ more.onclick = (e) => {
   });
   initLauncher({ activeProject: () => active });
   initTeam({ activeProject: () => active, saveProjects: save });
+  initAnalytics({ activeProject: () => active });
   initGithub({
     activeProject: () => active,
     login: (p) => openTerminal(p, { command: 'gh auth login', title: 'Sign in to GitHub' }),

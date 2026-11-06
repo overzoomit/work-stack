@@ -11,4 +11,6 @@ src-tauri/gen/
 .claude/plane_dogwatch.lock
 .claude/opencode_cleanup.json
 .claude/work-agent_prompts.json
+.claude/analytics_cache.json
+.claude/analytics_history.json
 log/

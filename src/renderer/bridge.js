@@ -174,6 +174,9 @@
       available: call('agents_available', 'commands'),
       onUpdate: listen('agents:update'),
     },
+    analytics: {
+      summary: call('analytics_get_summary', 'projectPath'),
+    },
     dogwatch: {
       inspect: call('dogwatch_inspect', 'session'),
       explain: call('dogwatch_explain', 'session', 'window'),
