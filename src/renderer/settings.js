@@ -2,6 +2,7 @@
 // for the external services (backend: settings.rs). The keys are secrets:
 // they are written to a file only the user can read, never to the app state.
 import { $, esc, toast, toastError, leave } from './ui.js';
+import { fillSoundSettings, playSound, setSoundSettings, soundSettingsFrom } from './sound.js';
 
 const { work } = window;
 
@@ -56,14 +57,15 @@ export function fillSettings(root, s = {}) {
   jevKey.type = 'password';
   root.querySelector('.st-jev-url').value = s.jev_endpoint || '';
   root.querySelector('.st-env').value = formatEnv(s.custom_env);
+  fillSoundSettings(root);
 }
 
 function showTab(name) {
   if (!sheet) return;
-  for (const b of ['.st-tab-plane', '.st-tab-jev', '.st-tab-env', '.st-tab-backup']) {
+  for (const b of ['.st-tab-plane', '.st-tab-jev', '.st-tab-env', '.st-tab-sound', '.st-tab-backup']) {
     q(b)?.classList.toggle('active', b === `.st-tab-${name}`);
   }
-  for (const p of ['.st-panel-plane', '.st-panel-jev', '.st-panel-env', '.st-panel-backup']) {
+  for (const p of ['.st-panel-plane', '.st-panel-jev', '.st-panel-env', '.st-panel-sound', '.st-panel-backup']) {
     const el = q(p);
     if (el) el.hidden = p !== `.st-panel-${name}`;
   }
@@ -117,6 +119,9 @@ async function save() {
   button.textContent = 'Saving…';
   try {
     const saved = await work.settings.save(settingsFrom(sheet));
+    // Sound feedback is a UI preference, not a secret: it stays with the other
+    // look-and-feel choices and is only committed when the dialog is saved.
+    setSoundSettings(soundSettingsFrom(sheet));
     toast('Settings saved');
     // The backend may have filled in defaults: show what was actually saved.
     if (sheet) fillSettings(sheet, saved);
@@ -172,6 +177,11 @@ const acts = {
   export: () => exportConfig(),
   reveal: ({ target }) => reveal(target),
   tab: ({ tab }) => showTab(tab),
+  'sound-test': () => {
+    if (!sheet) return;
+    // Preview the selected profile even while the toggle is off.
+    playSound('ticketDone', { settings: { ...soundSettingsFrom(sheet), enabled: true } });
+  },
 };
 
 function onClick(e) {
@@ -214,6 +224,7 @@ export async function openSettingsDialog() {
         <button type="button" class="st-tab st-tab-plane active" data-act="tab" data-tab="plane">✈️ Plane</button>
         <button type="button" class="st-tab st-tab-jev" data-act="tab" data-tab="jev">⚡ Jev</button>
         <button type="button" class="st-tab st-tab-env" data-act="tab" data-tab="env">Environment</button>
+        <button type="button" class="st-tab st-tab-sound" data-act="tab" data-tab="sound">🔊 Audio</button>
         <button type="button" class="st-tab st-tab-backup" data-act="tab" data-tab="backup">📦 Portability</button>
       </nav>
       <form class="st-form" autocomplete="off">
@@ -258,6 +269,25 @@ export async function openSettingsDialog() {
             <textarea class="st-env" spellcheck="false" rows="8" placeholder="OPENAI_API_KEY=sk-…"></textarea>
           </label>
           <p class="st-note">One <code>KEY=value</code> per line. Comments with <code>#</code> are ignored.</p>
+        </section>
+        <section class="st-panel st-panel-sound" hidden>
+          <label class="st-check">
+            <input type="checkbox" class="st-sound-enabled">
+            <span>Enable sound feedback</span>
+          </label>
+          <label class="st-field">
+            <span>Sound profile</span>
+            <select class="st-sound-profile">
+              <option value="cyberpunk">Cyberpunk</option>
+              <option value="minimal">Minimal</option>
+              <option value="silent">Silent</option>
+            </select>
+          </label>
+          <div class="st-test-row">
+            <button type="button" class="btn st-sound-preview" data-act="sound-test">Preview</button>
+            <span class="st-note">Short synthesized cues for Needs You, Done, releases and errors. No audio files.</span>
+          </div>
+          <p class="st-note">Sounds are off by default. They play only while Work is open.</p>
         </section>
         <section class="st-panel st-panel-backup" hidden>
           <p class="st-note">Export or import credentials, settings and project references to migrate Work Stack to another machine.</p>

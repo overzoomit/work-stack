@@ -1,5 +1,6 @@
 // Shared UI primitives: helpers, toasts, prompt modal, context menu, sheets.
 import { esc } from './escape.js';
+import { playSound } from './sound.js';
 
 export { esc };
 export const $ = (s, root = document) => root.querySelector(s);
@@ -79,6 +80,8 @@ export function leave(el, done) {
 // ── Toasts ───────────────────────────────────────────────────
 // action: { label, run } adds an inline button (e.g. "Undo").
 export function toast(message, { error = false, action = null } = {}) {
+  // Every error toast carries the same cue, whichever module raised it.
+  if (error) playSound('error');
   const el = document.createElement('div');
   el.className = `toast${error ? ' error' : ''}`;
   el.innerHTML = `<span class="toast-text"></span>`;

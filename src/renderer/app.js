@@ -18,6 +18,7 @@ import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot,
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude, launchWithPrompt, lastUsedAgent, AGENTS } from './launcher.js';
 import { initTeam, showLiveLed } from './team.js';
+import { createSoundWatcher } from './sound.js';
 import { initAnalytics, openAnalytics } from './analytics.js';
 import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
@@ -970,6 +971,11 @@ more.onclick = (e) => {
   });
   initLauncher({ activeProject: () => active });
   initTeam({ activeProject: () => active, saveProjects: save });
+  // Audio cues read the same live events as the UI: a new blocked prompt and a
+  // ticket reaching Done. The watcher remembers what was already announced.
+  const sounds = createSoundWatcher();
+  work.dogwatch.onUpdate((_project, _session, pending) => sounds.dogwatch(pending));
+  work.planeDogwatch.onUpdate((report) => sounds.plane(report));
   initAnalytics({ activeProject: () => active });
   initGithub({
     activeProject: () => active,

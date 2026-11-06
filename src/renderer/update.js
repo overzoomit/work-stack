@@ -1,6 +1,7 @@
 // App updates: look for a newer release, say so in the status bar and in one
 // toast, and let the person decide. Nothing is installed on its own.
 import { $, esc, ask, toast, toastError, leave, hideTip } from './ui.js';
+import { playSound } from './sound.js';
 import { marked } from './vendor/marked.esm.js';
 import DOMPurify from './vendor/purify.es.mjs';
 
@@ -139,6 +140,8 @@ async function installNow() {
   try {
     await work.app.updateInstall();
     install = { ...install, phase: 'ready' };
+    // The release is on disk and waiting for a restart.
+    playSound('release');
   } catch (e) {
     install = { phase: 'idle', done: 0, total: 0, error: e?.message ?? String(e) };
     toastError(e);

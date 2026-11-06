@@ -1967,11 +1967,13 @@ body.pane-dragging, body.pane-dragging * { cursor: grabbing !important; }
 .st-panel { display: flex; flex-direction: column; gap: 12px; }
 .st-panel[hidden] { display: none; }
 .st-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
-.st-field input, .st-field textarea {
+.st-field input, .st-field textarea, .st-field select {
   background: rgba(0, 0, 0, .3); color: var(--text); border: 1px solid var(--line);
   border-radius: 8px; padding: 6px 10px; font: 12px var(--mono); resize: vertical;
 }
-.st-field input:focus, .st-field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, .22); }
+.st-field input:focus, .st-field textarea:focus, .st-field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 132, 255, .22); }
+.st-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); }
+.st-check input { accent-color: var(--accent); }
 .st-secret { display: flex; gap: 6px; }
 .st-secret input { flex: 1; min-width: 0; }
 .st-eye {
