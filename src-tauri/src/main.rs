@@ -20,6 +20,7 @@ mod store;
 mod sysstats;
 mod telegram;
 mod tmux;
+mod webview;
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -313,6 +314,8 @@ fn main() {
             ngrok::ngrok_start,
             ngrok::ngrok_stop,
             ngrok::ngrok_status,
+            webview::webview_capture_screenshot,
+            webview::webview_reveal_snapshot,
             plugins::plugins_list,
             plugins::plugins_check_updates,
             plugins::plugins_install,

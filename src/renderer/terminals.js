@@ -9,6 +9,7 @@ import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js
 import { tildify } from './paths.js';
 import { roleFor } from './teamroles.js';
 import { agentBadgeFor, agentIdFromCommand } from './agentcatalog.js';
+import { createWebviewPane } from './webview_pane.js';
 
 const { work } = window;
 
@@ -193,6 +194,7 @@ export function layoutSnapshot(project) {
 function writeOutput(t, data) {
   t.term.write(data, () => work.pty.ack(t.id, data.length));
   t.onOutput?.(data);
+  onOutput(t, data);
 }
 let home = '';
 let active = null; // active project
@@ -203,14 +205,16 @@ let onLook = () => {};
 let onActivity = () => {};
 let onMenu = () => {};
 let onDropOnTab = () => false;
+let onOutput = () => {};
 
-export function initTerminals({ homeDir, changed, openAppearance, activity, menu, dropOnTab }) {
+export function initTerminals({ homeDir, changed, openAppearance, activity, menu, dropOnTab, output }) {
   home = homeDir;
   onChange = changed;
   onLook = openAppearance || onLook;
   onActivity = activity || onActivity;
   onMenu = menu || onMenu;
   onDropOnTab = dropOnTab || onDropOnTab;
+  onOutput = output || onOutput;
   // Refit once the grid stops changing size: a splitter drag or a panel
   // transition resizes it every frame, and each fit reflows the scrollback.
   let fitTimer = 0;
@@ -266,7 +270,7 @@ export function showProject(project) {
   }
   relayout();
   const f = focused();
-  if (f) requestAnimationFrame(() => f.term.focus());
+  if (f) requestAnimationFrame(() => (f.term ? f.term.focus() : f.focus?.()));
 }
 
 export function focused() {
@@ -395,7 +399,8 @@ function relayout() {
 
 function fitAll() {
   for (const t of all.values()) {
-    if (t.el.offsetParent === null) continue;
+    // Webview panes have no xterm to measure: their iframe follows the tile.
+    if (!t.fit || t.el.offsetParent === null) continue;
     try {
       t.fit.fit();
     } catch {
@@ -612,6 +617,31 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   return t;
 }
 
+// A docked browser preview: a webview pane in the same split tree as the
+// terminals, so it can sit beside one, be dragged and maximized like any pane.
+export function openWebview(project, { url = null, title = 'Browser preview', splitDirection = 'horizontal', splitFrom = null } = {}) {
+  if (!project) return null;
+  const pane = createWebviewPane(project, { url, title });
+  pane.onClose = () => closeTerminal(pane.id);
+  pane.onMaximize = () => toggleMax(pane.id);
+  pane.onChange = () => onChange();
+  // The iframe swallows its own pointer events; its toolbar and head still
+  // select the pane, so Ctrl+Shift+M/W act on the preview being looked at.
+  pane.el.addEventListener('pointerdown', () => focus(pane.id));
+  pane.el.querySelector('.pane-head').addEventListener('pointerdown', (e) => startPaneDrag(pane, e));
+  all.set(pane.id, pane);
+  if (project.maximizedId) {
+    project.maximizedId = null;
+    for (const x of terminalsOf(project)) x.el.classList.remove('maximized');
+  }
+  const after = splitFrom && splitFrom.project === project ? splitFrom : currentPaneOf(project);
+  insertLeaf(project, pane, { after, direction: splitDirection });
+  relayout();
+  if (project === active) focus(pane.id);
+  onChange();
+  return pane;
+}
+
 // Splits the pane in place: a new tmux window (its own PTY) in the same
 // folder, laid out to the right or below. Works for plain shells too.
 export async function splitTerminal(id, direction = 'horizontal') {
@@ -679,7 +709,7 @@ export function updateTerminalAgentBadge(tmuxNameOrId, agentId, projectPath = nu
 
 const shellQuote = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 
-const dotClass = (t) => (t.exited ? 'exited' : t.kind === 'agent' ? 'working' : t.kind === 'run' ? 'running' : 'shell');
+const dotClass = (t) => (t.kind === 'webview' ? 'web' : t.exited ? 'exited' : t.kind === 'agent' ? 'working' : t.kind === 'run' ? 'running' : 'shell');
 
 export function sendInput(id, data) {
   if (all.has(id)) work.pty.write(id, data);
@@ -714,13 +744,14 @@ export function focus(id) {
   // Move the real caret into xterm even when this pane already had the
   // highlight: the palette closes without restoring focus, so typing must land
   // on the pane's textarea without another click or Tab.
-  t.term.focus();
+  if (t.term) t.term.focus();
+  else t.focus?.();
 }
 
 export function closeTerminal(id) {
   const t = all.get(id);
   if (!t) return;
-  if (!t.exited) work.pty.kill(id);
+  if (t.kind !== 'webview' && !t.exited) work.pty.kill(id);
   all.delete(id);
   closedIds.add(id);
   const p = t.project;
@@ -729,10 +760,11 @@ export function closeTerminal(id) {
   // closing pane plays its exit animation in the space it last occupied.
   removeLeaf(p, t);
   t.search?.dispose();
+  t.dispose?.();
   t.el.classList.add('closing');
   relayout();
   afterExit(t.el, () => {
-    t.term.dispose();
+    t.term?.dispose();
     t.el.remove();
     relayout();
   });
@@ -741,7 +773,7 @@ export function closeTerminal(id) {
     const next = terminalsOf(p).pop();
     if (next) {
       focus(next.id);
-      if (p === active) next.term.focus();
+      if (p === active) (next.term ? next.term.focus() : next.focus?.());
     }
   }
   onChange();
@@ -760,7 +792,8 @@ export function toggleMax(id) {
   for (const x of terminalsOf(p)) x.el.classList.toggle('maximized', x.id === p.maximizedId);
   relayout();
   requestAnimationFrame(fitAll);
-  t.term.focus();
+  if (t.term) t.term.focus();
+  else t.focus?.();
 }
 
 export function renderTermList(project) {
@@ -772,7 +805,7 @@ export function renderTermList(project) {
       <span class="dot ${dotClass(t)}"></span>
       <div class="li-main">
         <div class="li-title">${esc(t.title)}</div>
-        <div class="li-sub"><code>${esc(tildify(t.cwd, home))}</code></div>
+        <div class="li-sub"><code>${esc(t.kind === 'webview' ? t.url || 'No address' : tildify(t.cwd, home))}</code></div>
       </div>
     </li>`).join(''));
   if (changed) for (const li of list.children) {
@@ -786,7 +819,7 @@ export function renderTermList(project) {
       const t = all.get(Number(li.dataset.id));
       focus(t.id);
       if (project.maximizedId && project.maximizedId !== t.id) toggleMax(t.id);
-      requestAnimationFrame(() => t.term.focus());
+      requestAnimationFrame(() => (t.term ? t.term.focus() : t.focus?.()));
     };
   }
 }
@@ -982,7 +1015,9 @@ function savedTerminal(t) {
 // not let a state.json write erase them). A project not shown yet this session
 // keeps the list it was saved with.
 export function terminalLayout(project) {
-  const open = terminalsOf(project);
+  // A docked preview is not a tmux window: restoring it from state.json would
+  // make the next launch ask tmux for a window that never existed.
+  const open = terminalsOf(project).filter((t) => t.kind !== 'webview');
   if (!open.length) return project.savedTerminals ?? null;
   const saved = Array.isArray(project.savedTerminals) ? project.savedTerminals : [];
   const pending = saved.filter((s) => !open.some((t) =>

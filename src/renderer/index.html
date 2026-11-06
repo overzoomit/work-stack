@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' file: asset: http://asset.localhost data: https:; frame-src file: asset: http://asset.localhost">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' file: asset: http://asset.localhost data: https:; frame-src file: asset: http://asset.localhost http: https:">
   <title>Work</title>
   <link rel="stylesheet" href="vendor/xterm.css">
   <link rel="stylesheet" href="style.css">
@@ -39,6 +39,7 @@
       <button class="run-btn run-start" id="run-start"></button>
       <button class="run-btn run-stop" id="run-stop" title="Stop (Ctrl+F2)"><span class="i-stop"></span></button>
       <button class="run-url" id="run-url" hidden></button>
+      <button class="run-url run-preview" id="run-preview" hidden title="Open in the docked preview">◱ Preview</button>
       <button class="run-url run-ngrok" id="run-ngrok" hidden></button>
     </div>
     <button class="icon-btn refresh" id="refresh" title="Refresh tree and git (F5)">↻</button>

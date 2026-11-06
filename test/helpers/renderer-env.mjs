@@ -165,6 +165,9 @@ export const env = {
   // ngrok: calls in order; `status` is what ngrok.status answers, `start` what
   // ngrok.start answers (an Error rejects), `gate` holds the next start.
   ngrok: { calls: [], status: { active: false }, start: null, gate: null, onUpdate: null },
+  // Docked preview snapshots: `path` is what the backend returns, `error`
+  // rejects the capture.
+  webview: { calls: [], path: '/home/u/.local/share/work/snapshots/webview-localhost-5173-1.png', error: null },
   // tmux calls in order, and injected transient failures (undefined: none).
   tmuxCalls: [],
   tmuxEnsureError: null,
@@ -196,6 +199,14 @@ globalThis.window = {
     },
     agents: { available: () => env.agentsReply, hasHistory: async (dir) => env.history.has(dir) },
     run: { detect: async () => env.detected || [] },
+    webview: {
+      capture: async (target) => {
+        env.webview.calls.push(['capture', target]);
+        if (env.webview.error) throw env.webview.error;
+        return env.webview.path;
+      },
+      reveal: async (path) => env.webview.calls.push(['reveal', path]),
+    },
     ngrok: {
       status: async (project) => { env.ngrok.calls.push(['status', project]); return env.ngrok.status; },
       start: async (...args) => {

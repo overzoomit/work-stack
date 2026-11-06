@@ -8,7 +8,7 @@ import { initNgrok, openNgrokPanel, refreshTunnel, copyTunnelUrl } from './ngrok
 const { work } = window;
 
 let active = null;
-let hooks = { save() {}, changed() {}, reveal() {} };
+let hooks = { save() {}, changed() {}, reveal() {}, preview() {} };
 let shown = null; // run whose console is visible in the Run tab
 
 
@@ -23,6 +23,11 @@ export function initRun(opts) {
   $('#run-url').onclick = () => {
     const r = current();
     if (r?.url) work.app.openExternal(r.url);
+  };
+  // The docked preview keeps the dev server beside the code, for QA checks.
+  $('#run-preview').onclick = () => {
+    const r = current();
+    if (r?.url) hooks.preview(r.url);
   };
   $('#run-ngrok').onclick = () => active && copyTunnelUrl(active);
   initNgrok({ save: () => hooks.save(), changed: () => render(), suggestPort: livePort });
@@ -213,6 +218,7 @@ function openMenu() {
   items.push('-');
   const r = current();
   if (r?.t) items.push({ label: 'Show output', run: () => showOutput(p, r) });
+  if (r?.url) items.push({ label: 'Open in Preview', detail: r.url, run: () => hooks.preview(r.url) });
   items.push({ label: 'ngrok Tunnel…', hint: p.tunnel?.active ? '● active' : '', run: () => openNgrokPanel(p) });
   items.push({ label: 'Add command…', run: addCustom });
   if (sel?.custom) {
@@ -334,9 +340,11 @@ export function render() {
   $('#run-stop').disabled = !running;
   const url = $('#run-url');
   url.hidden = !r?.url;
+  $('#run-preview').hidden = !r?.url;
   if (r?.url) {
     url.innerHTML = `${esc(r.url.replace(/^https?:\/\//, ''))}<span>↗</span>`;
     url.title = `Open ${r.url} in the browser`;
+    $('#run-preview').title = `Open ${r.url} in the docked preview`;
   }
   const t = active.tunnel;
   const tunnel = $('#run-ngrok');

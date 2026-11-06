@@ -8,8 +8,9 @@ import { closeReview } from './review.js';
 import {
   initTerminals, openTerminal, closeTerminal, closeProjectTerminals, toggleMax, showProject,
   terminalsOf, renderTermList, pollCwd, focused, copySelection, pasteInto, renameTerminal, moveToProject,
-  syncProjectTerminals, ensureInitialTerminal, terminalLayout, splitTerminal, focus as focusTerminal,
+  syncProjectTerminals, ensureInitialTerminal, terminalLayout, splitTerminal, openWebview, focus as focusTerminal,
 } from './terminals.js';
+import { createPortWatcher } from './webview_pane.js';
 import { initGit, showGit, refreshGit, showWorkingDiff, setGitHooks, setGraphVisible, runGit } from './gitpanel.js';
 import { initAgents, renderAgentList, agentStateFor, inside } from './agentsview.js';
 import { initUpdate, check as checkUpdate } from './update.js';
@@ -36,6 +37,19 @@ const { work } = window;
 let info = { cwd: '/', home: '/', platform: 'linux' };
 const projects = [];
 let active = null;
+
+// A docked browser preview beside the terminals of `project`, on `url` when a
+// dev server printed one.
+const openPreview = (project = active, url = null) =>
+  project ? openWebview(project, { url: url || null }) : null;
+
+// Dev servers announce themselves in a terminal's output: offer the pane once.
+const watchPorts = createPortWatcher((t, url) => {
+  if (t.kind === 'run') return; // the Run bar already has its Preview button
+  toast(`Web server detected: ${url}`, {
+    action: { label: 'Open in Preview', run: () => openPreview(t.project, url) },
+  });
+});
 
 // ── Projects ─────────────────────────────────────────────────
 
@@ -335,6 +349,18 @@ function startTabDrag(el, e, onTap) {
 // first, destructive ones last and separated.
 
 function terminalMenu(t, x, y) {
+  if (t.kind === 'webview') {
+    contextMenu(x, y, [
+      { label: 'Reload', run: () => t.reload() },
+      { label: 'Open in the default browser', disabled: !t.url, run: () => t.url && work.app.openExternal(t.url) },
+      { label: 'Snapshot for QA', disabled: !t.url, run: () => t.snapshot() },
+      { label: 'Mobile viewport', checked: t.viewport === 'mobile', run: () => t.setViewport(t.viewport === 'mobile' ? 'desktop' : 'mobile') },
+      '-',
+      { label: 'Maximize / restore', hint: 'Ctrl+Shift+M', run: () => toggleMax(t.id) },
+      { label: 'Close preview', hint: 'Ctrl+Shift+W', run: () => closeTerminal(t.id) },
+    ]);
+    return;
+  }
   if (t.console) {
     // Run console: output only.
     contextMenu(x, y, [
@@ -356,6 +382,11 @@ function terminalMenu(t, x, y) {
     { label: 'New terminal in the same folder', run: () => openTerminal(t.project, { cwd: t.cwd }) },
     { label: 'Split right', hint: 'Ctrl+Shift+O', run: () => splitTerminal(t.id, 'horizontal') },
     { label: 'Split down', hint: 'Ctrl+Shift+E', run: () => splitTerminal(t.id, 'vertical') },
+    ...(t.kind === 'webview' ? [] : [{
+      label: 'Open in Preview',
+      detail: t.previewUrl || '',
+      run: () => openPreview(t.project, t.previewUrl || null),
+    }]),
     {
       label: 'Rename…',
       run: async () => {
@@ -388,6 +419,7 @@ function projectMenu(p, x, y) {
   };
   contextMenu(x, y, [
     { label: 'New terminal', run: async () => { await open(); openTerminal(p); } },
+    { label: 'New browser preview', run: async () => { await open(); openPreview(p); } },
     { label: 'New agent (last used)', hint: 'Ctrl+Shift+A', run: async () => { await open(); launchDefault(); } },
     '-',
     { label: 'Refresh', hint: 'F5', run: async () => { await open(); refreshAll(); } },
@@ -423,6 +455,7 @@ $('#terminals').addEventListener('contextmenu', (e) => {
   e.preventDefault();
   contextMenu(e.clientX, e.clientY, [
     { label: 'New terminal', hint: 'Ctrl+Shift+T', run: () => openTerminal(active) },
+    { label: 'New browser preview', run: () => openPreview(active) },
     { label: 'New agent (last used)', hint: 'Ctrl+Shift+A', run: () => launchDefault() },
     '-',
     { label: 'Open another project…', hint: 'Ctrl+Shift+O', run: pickProject },
@@ -900,6 +933,8 @@ more.onclick = (e) => {
     openAppearance,
     activity: onTerminalActivity,
     menu: terminalMenu,
+    // Every terminal's output, for the "Open in Preview" offer (web URLs).
+    output: (t, data) => watchPorts(t, data),
     // Dropping a pane on another project's tab moves it there.
     dropOnTab: (t, tabEl) => {
       const p = projects[Number(tabEl.dataset.i)];
@@ -929,6 +964,7 @@ more.onclick = (e) => {
     reveal: () => {
       revealSection('run');
     },
+    preview: (url) => openPreview(active, url),
   });
   initLauncher({ activeProject: () => active });
   initTeam({ activeProject: () => active, saveProjects: save });

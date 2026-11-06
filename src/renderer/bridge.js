@@ -195,6 +195,12 @@
       status: call('mcp_status'),
       launchBrowser: call('mcp_launch_browser', 'browser'),
     },
+    webview: {
+      // QA snapshot of the docked preview: the backend writes a PNG and returns
+      // its path; reveal opens it in the file manager.
+      capture: call('webview_capture_screenshot', 'urlOrId'),
+      reveal: call('webview_reveal_snapshot', 'path'),
+    },
     ngrok: {
       start: call('ngrok_start', 'project', 'port', 'protocol', 'customDomain'),
       stop: call('ngrok_stop', 'project'),

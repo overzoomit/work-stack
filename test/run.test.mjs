@@ -9,7 +9,13 @@ const R = await import('../src/renderer/run.js');
 T.initTerminals({ homeDir: '/home/u', changed() {} });
 const revealed = [];
 const saves = [];
-R.initRun({ save: () => saves.push(1), changed() {}, reveal: () => revealed.push(1) });
+const previewed = [];
+R.initRun({
+  save: () => saves.push(1),
+  changed() {},
+  reveal: () => revealed.push(1),
+  preview: (url) => previewed.push(url),
+});
 
 env.detected = [
   { id: 'npm:dev', name: 'dev', command: 'npm run dev', group: 'npm' },
@@ -190,5 +196,25 @@ test('ngrok Tunnel… nel menu Run: suggerisce la porta del server avviato; il c
   R.forgetProject(project);
   assert.deepEqual(env.ngrok.calls.at(-1), ['stop', '/p']);
   assert.equal(project.tunnel, null);
+  await tick(700);
+});
+
+test('il pulsante Preview del server avviato apre il pannello dockato con il suo URL', async () => {
+  await R.showRun(project);
+  project.run.selected = 'npm:dev';
+  previewed.length = 0;
+  const id = await start();
+  env.output(id, '  ➜  Local:   http://localhost:5173/\r\n');
+  await tick();
+  assert.equal($('#run-preview').hidden, false, 'the chip appears with the address');
+
+  $('#run-preview').onclick();
+  assert.deepEqual(previewed, ['http://localhost:5173']);
+
+  $('#run-config').onpointerdown({ button: 0 });
+  openMenuItems()['Open in Preview'].onclick();
+  assert.deepEqual(previewed, ['http://localhost:5173', 'http://localhost:5173']);
+
+  R.forgetProject(project);
   await tick(700);
 });
