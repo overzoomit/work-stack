@@ -20,6 +20,9 @@ const POLL_TIMEOUT_SECS: u64 = 25;
 const HTTP_TIMEOUT_SECS: u64 = 40;
 const MAX_TEXT: usize = 4000;
 const MAX_RECENT_MESSAGES: usize = 200;
+// Voice notes are short by nature; the cap keeps a bad file from filling the
+// cache or holding the polling thread.
+const MAX_VOICE_BYTES: u64 = 20 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -383,6 +386,49 @@ pub fn parse_inbound(update: &Value, chat_id: &str) -> Option<InboundMessage> {
         text: text.to_string(),
         reply_to_id,
         reply_to_text,
+    })
+}
+
+// A voice note from the authorized chat: the file id is what getFile needs.
+// Parsed separately so a non-text message can never crash the text path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboundVoice {
+    pub file_id: String,
+    pub message_id: i64,
+    pub duration: u64,
+    pub mime_type: String,
+    pub file_size: u64,
+    pub reply_to_id: Option<i64>,
+    pub reply_to_text: Option<String>,
+}
+
+pub fn parse_voice(update: &Value, chat_id: &str) -> Option<InboundVoice> {
+    let message = &update["message"];
+    if message["chat"]["id"].as_i64()?.to_string() != chat_id {
+        return None;
+    }
+    let voice = message.get("voice")?;
+    let file_id = voice["file_id"].as_str()?.trim();
+    if file_id.is_empty() {
+        return None;
+    }
+    let reply_to = message.get("reply_to_message");
+    Some(InboundVoice {
+        file_id: file_id.to_string(),
+        message_id: message["message_id"].as_i64().unwrap_or(0),
+        duration: voice["duration"].as_u64().unwrap_or(0),
+        mime_type: voice["mime_type"]
+            .as_str()
+            .unwrap_or("audio/ogg")
+            .to_string(),
+        file_size: voice["file_size"].as_u64().unwrap_or(0),
+        reply_to_id: reply_to
+            .and_then(|r| r.get("message_id"))
+            .and_then(|id| id.as_i64()),
+        reply_to_text: reply_to
+            .and_then(|r| r.get("text"))
+            .and_then(|t| t.as_str())
+            .map(String::from),
     })
 }
 
@@ -908,6 +954,124 @@ fn send_message(
     Ok(msg_id)
 }
 
+// ── Voice notes ──────────────────────────────────────────────
+// The file name is built here from the message id, never from Telegram's path:
+// the remote path only chooses a known extension, so it cannot escape the
+// cache directory.
+fn voice_extension(file_path: &str) -> &'static str {
+    match Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("oga") => "oga",
+        Some("ogg") => "ogg",
+        Some("mp3") => "mp3",
+        Some("m4a") => "m4a",
+        Some("wav") => "wav",
+        Some("opus") => "opus",
+        _ => "oga",
+    }
+}
+
+// Telegram paths look like "voice/file_12.oga". Anything else is refused
+// before it enters the download URL.
+fn safe_remote_path(path: &str) -> Option<&str> {
+    (!path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.'))
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != ".."))
+    .then_some(path)
+}
+
+fn voice_file_name(message_id: i64, file_path: &str) -> String {
+    format!(
+        "telegram-{}.{}",
+        message_id.max(0),
+        voice_extension(file_path)
+    )
+}
+
+fn too_big() -> String {
+    format!(
+        "il vocale supera il limite di {} MB",
+        MAX_VOICE_BYTES / (1024 * 1024)
+    )
+}
+
+fn voice_prompt(voice: &InboundVoice, path: &Path) -> String {
+    format!(
+        "🎙️ Vocale Telegram ({} s, {}) salvato in {}. Trascrivilo con gli strumenti disponibili, gestisci la richiesta e rispondi qui.",
+        voice.duration,
+        voice.mime_type,
+        path.display()
+    )
+}
+
+// Downloads the note into the app cache. A failure is reported to the chat,
+// never to the polling loop: one bad voice message must not stop the bot.
+fn receive_voice(
+    app: &AppHandle,
+    client: &reqwest::blocking::Client,
+    config: &Config,
+    voice: &InboundVoice,
+) -> Result<String, String> {
+    if voice.file_size > MAX_VOICE_BYTES {
+        return Err(too_big());
+    }
+    let info = call(
+        client,
+        &config.token,
+        "getFile",
+        Some(json!({ "file_id": voice.file_id })),
+    )?;
+    let file_path = info["result"]["file_path"]
+        .as_str()
+        .ok_or("Telegram non ha restituito il percorso del vocale")?;
+    let size = info["result"]["file_size"]
+        .as_u64()
+        .unwrap_or(voice.file_size);
+    if size > MAX_VOICE_BYTES {
+        return Err(too_big());
+    }
+    let remote = safe_remote_path(file_path).ok_or("percorso del vocale non valido")?;
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("cartella cache non disponibile: {e}"))?
+        .join("voice");
+    fs::create_dir_all(&dir).map_err(|e| format!("impossibile creare {}: {e}", dir.display()))?;
+    let dest = dir.join(voice_file_name(voice.message_id, remote));
+    let url = format!("{API}/file/bot{}/{remote}", config.token);
+    let response = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("download del vocale fallito: {}", e.without_url()))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Telegram ha rifiutato il download del vocale (HTTP {})",
+            response.status().as_u16()
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .map_err(|e| format!("vocale non leggibile: {e}"))?;
+    if bytes.len() as u64 > MAX_VOICE_BYTES {
+        return Err(too_big());
+    }
+    // Write then rename, so a truncated download never looks complete.
+    let tmp = dest.with_extension("part");
+    fs::write(&tmp, &bytes).map_err(|e| format!("impossibile salvare {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, &dest).map_err(|e| format!("impossibile salvare {}: {e}", dest.display()))?;
+    Ok(voice_prompt(voice, &dest))
+}
+
 // ── Polling thread ───────────────────────────────────────────
 
 pub fn emit_status(app: &AppHandle, state: &Arc<TelegramState>) {
@@ -945,7 +1109,36 @@ fn poll(app: AppHandle, state: Arc<TelegramState>, config: Config, generation: u
                     if let Some(id) = update["update_id"].as_i64() {
                         offset = offset.max(id + 1);
                     }
-                    if let Some(inbound_msg) = parse_inbound(update, &config.chat_id) {
+                    let mut voice_error = None;
+                    let (inbound_msg, is_voice) = match parse_inbound(update, &config.chat_id) {
+                        Some(message) => (Some(message), false),
+                        None => match parse_voice(update, &config.chat_id) {
+                            Some(voice) => match receive_voice(&app, &client, &config, &voice) {
+                                Ok(text) => (
+                                    Some(InboundMessage {
+                                        text,
+                                        reply_to_id: voice.reply_to_id,
+                                        reply_to_text: voice.reply_to_text,
+                                    }),
+                                    true,
+                                ),
+                                Err(e) => {
+                                    voice_error = Some(e);
+                                    (None, false)
+                                }
+                            },
+                            None => (None, false),
+                        },
+                    };
+                    if let Some(e) = voice_error {
+                        let notice = format!("❌ Vocale non ricevuto: {e}");
+                        let _ = send_message(&client, &config, &notice);
+                        let _ = app.emit(
+                            "telegram:message",
+                            json!({ "direction": "out", "text": notice, "error": e, "voice": true }),
+                        );
+                    }
+                    if let Some(inbound_msg) = inbound_msg {
                         let (active_path, projects) = state.resolve_projects(&config);
                         let pinned = state.pinned_target.lock().unwrap().clone();
                         let recent = state.recent_messages.lock().unwrap().clone();
@@ -986,6 +1179,7 @@ fn poll(app: AppHandle, state: Arc<TelegramState>, config: Config, generation: u
                                         "session": target.session,
                                         "typed": typed.is_ok(),
                                         "error": error,
+                                        "voice": is_voice,
                                     }),
                                 );
                                 if let Err(e) = typed {
@@ -1236,6 +1430,97 @@ mod tests {
         );
         assert_eq!(inbound(&update(42, "   "), "42"), None);
         assert_eq!(inbound(&json!({ "update_id": 1 }), "42"), None);
+    }
+
+    #[test]
+    fn a_voice_note_is_parsed_for_the_authorized_chat_only() {
+        let update = json!({
+            "update_id": 9,
+            "message": {
+                "message_id": 11,
+                "chat": { "id": 42 },
+                "voice": {
+                    "file_id": "file-1",
+                    "duration": 7,
+                    "mime_type": "audio/ogg",
+                    "file_size": 4096
+                }
+            }
+        });
+        let v = parse_voice(&update, "42").unwrap();
+        assert_eq!(v.file_id, "file-1");
+        assert_eq!(v.message_id, 11);
+        assert_eq!(v.duration, 7);
+        assert_eq!(v.mime_type, "audio/ogg");
+        assert_eq!(v.file_size, 4096);
+        assert!(
+            parse_voice(&update, "7").is_none(),
+            "only the configured chat reaches the PM"
+        );
+        assert!(parse_voice(&json!({ "update_id": 1 }), "42").is_none());
+        assert!(
+            parse_voice(
+                &json!({ "message": { "chat": { "id": 42 }, "voice": {} } }),
+                "42"
+            )
+            .is_none(),
+            "a voice without a file id cannot be downloaded"
+        );
+    }
+
+    #[test]
+    fn text_and_voice_never_take_each_others_path() {
+        let text = update(42, "hello PM");
+        assert!(parse_voice(&text, "42").is_none());
+        let voice = json!({
+            "message": { "chat": { "id": 42 }, "voice": { "file_id": "f" } }
+        });
+        assert!(parse_inbound(&voice, "42").is_none());
+    }
+
+    #[test]
+    fn voice_files_are_named_from_the_message_id_and_a_known_extension() {
+        assert_eq!(voice_file_name(12, "voice/file_1.oga"), "telegram-12.oga");
+        assert_eq!(voice_file_name(12, "voice/file_1.MP3"), "telegram-12.mp3");
+        assert_eq!(voice_file_name(12, "voice/file_1"), "telegram-12.oga");
+        assert_eq!(voice_file_name(-3, "x.opus"), "telegram-0.opus");
+    }
+
+    #[test]
+    fn a_remote_voice_path_cannot_walk_out_of_the_cache() {
+        assert_eq!(
+            safe_remote_path("voice/file_1.oga"),
+            Some("voice/file_1.oga")
+        );
+        for bad in [
+            "",
+            "/voice/x.oga",
+            "voice/../../x",
+            "voice//x",
+            "./x",
+            "voice\\x",
+            "voice/x.oga?token=1",
+            "voice/x y.oga",
+        ] {
+            assert!(safe_remote_path(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_voice_prompt_points_the_pm_at_the_saved_file() {
+        let voice = InboundVoice {
+            file_id: "f".into(),
+            message_id: 5,
+            duration: 7,
+            mime_type: "audio/ogg".into(),
+            file_size: 10,
+            reply_to_id: None,
+            reply_to_text: None,
+        };
+        let text = voice_prompt(&voice, Path::new("/tmp/voice/telegram-5.oga"));
+        assert!(text.contains("7 s"));
+        assert!(text.contains("/tmp/voice/telegram-5.oga"));
+        assert!(text.contains("audio/ogg"));
     }
 
     #[test]
