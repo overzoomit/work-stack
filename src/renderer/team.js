@@ -5,6 +5,7 @@ import { AGENTS, commandFor } from './launcher.js';
 import { agentBadgeFor, agentIdFromCommand } from './agentcatalog.js';
 import { mcpSection } from './mcp.js';
 import { TEAM_ROLES, roleFor } from './teamroles.js';
+import { buildAgentGraph, agentGraphSvg } from './agent_graph.js';
 
 export { TEAM_ROLES } from './teamroles.js';
 
@@ -629,13 +630,19 @@ export function initTeam({ activeProject, saveProjects = null }) {
     for (const win of windows || []) updateTerminalAgentBadge(win.name, win.agent, project);
     showLiveLed();
     // Open popover: badges and count follow, without probing MCP again or
-    // interrupting the agent picker or a half-typed field.
+    // interrupting the agent picker or a half-typed field. The graph has no
+    // inputs, so it always repaints to keep nodes and particles live.
     const typing = document.activeElement?.tagName === 'INPUT';
-    if (pop && viewState.mode === 'main' && !typing && project === getProject()?.path) renderPopContent(false);
+    if (pop && project === getProject()?.path) {
+      if (viewState.mode === 'graph') renderPopContent(false);
+      else if (viewState.mode === 'main' && !typing) renderPopContent(false);
+    }
   });
   work?.planeDogwatch?.onUpdate((report) => {
     const typing = document.activeElement?.tagName === 'INPUT';
-    if (pop && viewState.mode === 'main' && !typing && report.project === getProject()?.path) renderPopContent(false);
+    if (pop && report.project === getProject()?.path) {
+      if (viewState.mode === 'graph' || !typing) renderPopContent(false);
+    }
   });
   work?.telegram?.onStatus(() => {
     if (pop) renderPopContent();
@@ -843,6 +850,15 @@ async function getExistingNames(project) {
   return { isTmux, session, tmuxWindows, openPanes, prompts, states, agents, names: [...names] };
 }
 
+// Visible switch between the classic list and the Mission Control canvas.
+export function viewToggle(mode) {
+  return `
+    <div class="tp-view-toggle" role="tablist" aria-label="Team view">
+      <button class="tp-view-btn${mode === 'main' ? ' active' : ''}" data-act="view-main" role="tab" aria-selected="${mode === 'main'}">☰ Team</button>
+      <button class="tp-view-btn${mode === 'graph' ? ' active' : ''}" data-act="view-graph" role="tab" aria-selected="${mode === 'graph'}">🛰 Mission Control</button>
+    </div>`;
+}
+
 // Renders the popover content based on current viewState. `probeMcp: false`
 // keeps the last MCP result instead of probing again.
 let lastMcpHtml = null;
@@ -885,6 +901,35 @@ async function renderPopContent(probeMcp = true) {
     return;
   }
 
+  // Mission Control: same snapshot as the list, drawn as a live node canvas.
+  if (viewState.mode === 'graph') {
+    const { isTmux, session, states, agents, names } = await getExistingNames(p);
+    const plane = await work?.planeDogwatch?.status().catch(() => null);
+    const assignments = plane?.projects?.find((r) => r.project === p.path)?.assignments ?? [];
+    const graph = buildAgentGraph({ names, states, agents, assignments });
+    pop.innerHTML = `
+      <header class="tp-head">
+        <div class="tp-title">
+          <span>🛰 Mission Control</span>
+          <button class="icon-btn" data-act="close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="tp-sub">
+          ${names.length} agent(s) · live graph${isTmux ? ` · tmux <b>${esc(session || 'inactive')}</b>` : ''} · click a node to open its terminal
+        </div>
+        ${viewToggle('graph')}
+      </header>
+      <div class="tp-graph-wrap">${agentGraphSvg(graph)}</div>
+      <div class="tp-graph-legend">
+        <span><i class="ag-legend-dot idle"></i>Idle</span>
+        <span><i class="ag-legend-dot working"></i>Working</span>
+        <span><i class="ag-legend-dot blocked"></i>Needs You</span>
+      </div>
+      <div class="tp-actions">
+        <button class="tp-btn-secondary" data-act="sync-team" style="flex:1;">↻ Sync tmux windows</button>
+      </div>`;
+    return;
+  }
+
   // Main squad view
   const { isTmux, session, tmuxWindows, prompts, states, agents, names } = await getExistingNames(p);
   const pending = pendingByProject.get(p.path)?.pending
@@ -916,6 +961,7 @@ async function renderPopContent(probeMcp = true) {
       <div class="tp-sub">
         ${isTmux ? `tmux session: <b>${esc(session || 'inactive')}</b> · ${tmuxWindows.length} windows${pending.length ? ` · <b class="tp-waiting">${pending.length} waiting for an answer</b>` : ''}` : 'Standard terminal mode (tmux not available)'}
       </div>
+      ${viewToggle('main')}
     </header>
 
     <div class="tp-list">
@@ -1119,6 +1165,11 @@ export async function openTeamMenu() {
       await renderPopContent();
       return;
     }
+    if (act === 'view-graph' || act === 'view-main') {
+      viewState.mode = act === 'view-graph' ? 'graph' : 'main';
+      await renderPopContent();
+      return;
+    }
     if (act === 'sync-team') {
       const reattached = await syncProjectTerminals(p);
       toast(reattached.length ? `Reattached ${reattached.length} tmux windows.` : 'All windows are already in sync.');
@@ -1276,6 +1327,16 @@ export async function openTeamMenu() {
       return;
     }
 
+    // Mission Control node: jump straight to the agent's terminal.
+    const graphNode = e.target.closest?.('[data-graph-node]');
+    if (graphNode) {
+      const roleName = graphNode.dataset.graphNode;
+      if (!roleName) return;
+      closeTeamMenu();
+      await openOrFocusRole(p, roleName);
+      return;
+    }
+
     // Focus or open existing role pane
     const focusRow = e.target.closest('[data-focus-role]');
     if (focusRow && !e.target.closest('.tp-act-btn')) {
@@ -1288,6 +1349,18 @@ export async function openTeamMenu() {
 
   addEventListener('keydown', onKey, true);
   addEventListener('pointerdown', onOutside, true);
+
+  // Keyboard users get the same jump-to-terminal behaviour as a click.
+  pop.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const graphNode = e.target?.closest?.('[data-graph-node]');
+    if (!graphNode) return;
+    e.preventDefault();
+    const roleName = graphNode.dataset.graphNode;
+    if (!roleName) return;
+    closeTeamMenu();
+    await openOrFocusRole(p, roleName);
+  });
 
   // The Needs You custom form and the PM connection form both submit here.
   pop.addEventListener('submit', async (e) => {

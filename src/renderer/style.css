@@ -1413,6 +1413,62 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 }
 .tp-chip:hover { background: rgba(255, 255, 255, .15); border-color: rgba(255, 255, 255, .2); }
 
+/* Mission Control: switch + live node canvas. */
+.tp-view-toggle {
+  display: flex; gap: 2px; margin-top: 10px; padding: 2px; border-radius: 8px;
+  background: rgba(0, 0, 0, .28); border: 1px solid rgba(255, 255, 255, .08);
+}
+.tp-view-btn {
+  flex: 1; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-2); font: 600 11.5px var(--sans); cursor: pointer; transition: background 120ms ease, color 120ms ease;
+}
+.tp-view-btn:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+.tp-view-btn.active { color: #fff; background: rgba(99, 102, 241, .42); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+.tp-graph-wrap { padding: 10px 12px 2px; overflow: auto; }
+.tp-graph-svg { display: block; overflow: visible; }
+.ag-edge-line { fill: none; stroke: rgba(255, 255, 255, .12); stroke-width: 1.2; }
+.ag-edge.state-working .ag-edge-line { stroke: rgba(48, 209, 88, .4); }
+.ag-edge.state-blocked .ag-edge-line { stroke: rgba(255, 159, 10, .55); }
+.ag-flow-particle.state-working { fill: #30d158; filter: drop-shadow(0 0 5px #30d158); }
+.ag-flow-particle.state-blocked { fill: #ff9f0a; filter: drop-shadow(0 0 6px #ff9f0a); }
+.ag-node { cursor: pointer; outline: none; }
+.ag-node-box {
+  fill: rgba(255, 255, 255, .045); stroke: rgba(255, 255, 255, .16); stroke-width: 1;
+  transition: fill 120ms ease, stroke 120ms ease;
+}
+.ag-node:hover .ag-node-box, .ag-node:focus-visible .ag-node-box {
+  fill: rgba(255, 255, 255, .1); stroke: rgba(255, 255, 255, .34);
+}
+.ag-node.state-working .ag-node-box {
+  stroke: rgba(48, 209, 88, .6); fill: rgba(48, 209, 88, .08);
+  animation: ag-glow-working 1.8s ease-in-out infinite;
+}
+.ag-node.state-blocked .ag-node-box {
+  stroke: rgba(255, 159, 10, .8); fill: rgba(255, 159, 10, .12);
+  animation: ag-glow-blocked 1.05s ease-in-out infinite;
+}
+.ag-node.state-done .ag-node-box { stroke: rgba(48, 209, 88, .45); fill: rgba(48, 209, 88, .06); }
+.ag-state-dot { fill: var(--muted); }
+.ag-node.state-working .ag-state-dot, .ag-node.state-done .ag-state-dot { fill: var(--green); }
+.ag-node.state-blocked .ag-state-dot { fill: var(--orange); }
+.ag-node-badge { font: 700 9.5px var(--mono); fill: var(--text-2); }
+.ag-node-name { font: 700 12px var(--sans); fill: var(--text); }
+.ag-node-state { font: 500 9.5px var(--sans); fill: var(--text-2); }
+.ag-node.state-working .ag-node-state { fill: var(--green); }
+.ag-node.state-blocked .ag-node-state { fill: var(--orange); font-weight: 700; }
+.ag-node-ticket { font: 500 9px var(--mono); fill: var(--accent); }
+.tp-graph-legend { display: flex; gap: 14px; padding: 6px 16px 0; color: var(--text-2); font-size: 10.5px; }
+.ag-legend-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--muted); }
+.ag-legend-dot.working { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.ag-legend-dot.blocked { background: var(--orange); box-shadow: 0 0 5px var(--orange); }
+.ag-empty { fill: var(--text-2); font: 12px var(--sans); }
+@keyframes ag-glow-blocked { 50% { stroke: rgba(255, 159, 10, .35); } }
+@keyframes ag-glow-working { 50% { stroke: rgba(48, 209, 88, .28); } }
+@media (prefers-reduced-motion: reduce) {
+  .ag-node.state-working .ag-node-box, .ag-node.state-blocked .ag-node-box { animation: none; }
+  .ag-flow-particle { display: none; }
+}
+
 /* Needs You: the prompts holding an agent, first in the squad list. */
 .tp-needs-you {
   margin: 2px 4px 12px; padding: 10px; border-radius: 12px;
