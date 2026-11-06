@@ -267,11 +267,72 @@ body.sidebar-hidden .layout { --left: 0px; }
 .pane.focused .pane-head { color: var(--text-2); }
 .pane-head .pane-title { font-weight: 600; white-space: nowrap; color: var(--text); letter-spacing: -0.005em; }
 .pane-head .pane-cwd { font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.pane-body { flex: 1; min-height: 0; padding: 6px 0 0 10px; }
+.pane-body { flex: 1; min-height: 0; padding: 6px 0 0 10px; position: relative; }
 .pane-body .xterm { height: 100%; }
 .pane-body .xterm-viewport { background: transparent !important; }
 .pane.exited .pane-body { opacity: .5; }
 .dot.web { background: var(--purple); border-radius: 2.5px; }
+
+/* ── Time Machine: scrollback scrubber under a terminal ── */
+.pane-timebar {
+  flex: none; display: flex; align-items: center; gap: 5px;
+  height: 30px; padding: 0 6px 0 8px;
+  background: rgba(255, 255, 255, .025); color: var(--text-2);
+  box-shadow: inset 0 1px 0 var(--line);
+  font: 11px var(--mono);
+  animation: fade-in 140ms var(--ease-out);
+}
+.pane-timebar[hidden] { display: none; }
+.pane-timebar .icon-btn {
+  width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+  font-size: 12px; color: var(--text-2);
+}
+.pane-timebar .icon-btn:hover:not(:disabled) { background: var(--bg-3-hover); color: var(--text); }
+.pane-timebar .icon-btn:disabled { opacity: .3; }
+.tm-slider {
+  flex: 1; min-width: 50px; height: 4px; margin: 0 2px;
+  appearance: none; -webkit-appearance: none; outline: none;
+  border-radius: 2px; cursor: pointer;
+  background: linear-gradient(90deg, rgba(10, 132, 255, .8), rgba(10, 132, 255, .25));
+}
+.tm-slider::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: #f5f5f7; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 1px 4px rgba(0, 0, 0, .45);
+}
+.tm-slider:disabled { opacity: .35; cursor: default; }
+.tm-time {
+  min-width: 56px; text-align: right; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tm-mode {
+  min-width: 54px; color: var(--muted); font-size: 9.5px; letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.tm-mode.replay { color: var(--accent); }
+.pane-replay {
+  position: absolute; inset: 0; z-index: 7;
+  display: flex; flex-direction: column;
+  background: rgba(8, 9, 12, .95);
+  backdrop-filter: blur(6px);
+}
+.pane-replay[hidden] { display: none; }
+.pane-replay-head {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  box-shadow: inset 0 -1px 0 var(--line);
+  color: var(--muted); font: 11px var(--mono);
+}
+.pane-replay-time { color: var(--accent); font-variant-numeric: tabular-nums; }
+.pane-replay-text {
+  flex: 1; min-height: 0; margin: 0; padding: 8px 10px; overflow: auto;
+  color: var(--text-2); font: 12px/1.4 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+}
+.pane.term-light .pane-timebar { background: rgba(0, 0, 0, .035); }
+.pane.term-light .tm-time, .pane.term-light .tm-mode { color: #6e6e73; }
+.pane.term-light .pane-replay { background: rgba(250, 250, 252, .97); }
+.pane.term-light .pane-replay-text { color: #1d1d1f; }
+.pane.term-light .pane-replay-head { color: #6e6e73; }
 
 /* ── Docked browser preview ── */
 .webview-pane { background: var(--bg-struct); }

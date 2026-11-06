@@ -74,6 +74,23 @@ test('work.tmux exposes tmux IPC commands', async () => {
   assert.deepEqual(calls, ['tmux_is_available', 'tmux_session_for_project', 'tmux_list_windows']);
 });
 
+test('work.tmux exposes the Time Machine commands', async () => {
+  const calls = [];
+  const { work } = load((cmd, _wait, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'tmux_get_history_timeline') return [{ index: 0, timestamp: 1, text: 'out' }];
+    if (cmd === 'tmux_fork_from_history') return '@9';
+    return null;
+  });
+  const timeline = await work.tmux.getHistoryTimeline('work_s', '@1');
+  assert.deepEqual(timeline, [{ index: 0, timestamp: 1, text: 'out' }]);
+  assert.equal(await work.tmux.forkFromHistory('work_s', '@1', 3), '@9');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['tmux_get_history_timeline', { session: 'work_s', window: '@1' }],
+    ['tmux_fork_from_history', { session: 'work_s', window: '@1', atIndex: 3 }],
+  ]);
+});
+
 test('work.dogwatch inspects a session, explains a window and relays the PM answer', async () => {
   const calls = [];
   const { work } = load((cmd, ...rest) => {

@@ -1,9 +1,12 @@
 // Tmux backend: session and window orchestration for projects and agent teams.
 use crate::remote::RemoteProject;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -247,6 +250,7 @@ pub fn new_window(
 pub fn kill_window(session: &str, window_id: &str) -> Result<(), String> {
     let target = format!("{session}:{window_id}");
     run_tmux(&["kill-window", "-t", &target])?;
+    forget_history(session, window_id);
     Ok(())
 }
 
@@ -320,6 +324,211 @@ pub fn capture_pane(session: &str, target: &str, lines: Option<u32>) -> Result<S
         args.push(&lines_str);
     }
     run_tmux(&args)
+}
+
+// ── Time Machine ─────────────────────────────────────────────
+//
+// The scrubber replays the output a pane had at an earlier moment without
+// touching the running process. Snapshots are captured from tmux's own
+// scrollback (not from the renderer, which may be mid-frame) and kept in
+// memory for the life of Work; identical consecutive captures are dropped so
+// the timeline only marks real changes. The renderer polls the list: a pane
+// whose output does not change costs one `capture-pane` and no new entry.
+
+pub const HISTORY_MAX_ENTRIES: usize = 240;
+pub const HISTORY_MAX_TEXT_BYTES: usize = 256 * 1024;
+pub const HISTORY_MAX_STORE_BYTES: usize = 8 * 1024 * 1024;
+pub const HISTORY_CAPTURE_LINES: u32 = 4000;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineEntry {
+    pub index: usize,
+    // Unix epoch milliseconds: the renderer formats it in local time.
+    pub timestamp: u64,
+    pub text: String,
+}
+
+fn history_store() -> &'static Mutex<HashMap<String, Vec<TimelineEntry>>> {
+    static STORE: OnceLock<Mutex<HashMap<String, Vec<TimelineEntry>>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn history_key(session: &str, window: &str) -> String {
+    format!("{session}:{window}")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+// A snapshot longer than the cap keeps its tail: the newest output is what a
+// replay of that moment needs, and the beginning lives in the first entries.
+fn cap_snapshot(text: &str) -> String {
+    let text = text.trim_end();
+    if text.len() <= HISTORY_MAX_TEXT_BYTES {
+        return text.to_string();
+    }
+    let mut start = text.len() - HISTORY_MAX_TEXT_BYTES;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    if let Some(newline) = text[start..].find('\n') {
+        start += newline + 1;
+    }
+    text[start..].to_string()
+}
+
+// Appends `text` as a new snapshot unless it is empty or unchanged. Returns
+// whether a new entry was added. Indices are chronological and survive the
+// eviction of the oldest entries, so a stale selection can never fork the
+// wrong moment.
+pub fn append_snapshot(entries: &mut Vec<TimelineEntry>, text: &str, timestamp: u64) -> bool {
+    let text = cap_snapshot(text);
+    if text.is_empty() {
+        return false;
+    }
+    if entries.last().is_some_and(|last| last.text == text) {
+        return false;
+    }
+    let index = entries.last().map(|last| last.index + 1).unwrap_or(0);
+    entries.push(TimelineEntry {
+        index,
+        timestamp,
+        text,
+    });
+    while entries.len() > HISTORY_MAX_ENTRIES {
+        entries.remove(0);
+    }
+    let mut total: usize = entries.iter().map(|e| e.text.len()).sum();
+    while total > HISTORY_MAX_STORE_BYTES && entries.len() > 1 {
+        total -= entries.remove(0).text.len();
+    }
+    true
+}
+
+fn with_history<T>(f: impl FnOnce(&mut HashMap<String, Vec<TimelineEntry>>) -> T) -> T {
+    let mut store = history_store()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut store)
+}
+
+// Captures the pane now and records the resulting snapshot. The full list is
+// returned so the renderer can rebuild the scrubber with one call.
+pub fn record_history_snapshot(session: &str, window: &str) -> Result<Vec<TimelineEntry>, String> {
+    check_pane_target(window)?;
+    let text = capture_pane(session, window, Some(HISTORY_CAPTURE_LINES))?;
+    let key = history_key(session, window);
+    Ok(with_history(|store| {
+        let entries = store.entry(key).or_default();
+        append_snapshot(entries, &text, now_ms());
+        entries.clone()
+    }))
+}
+
+// Drops the timeline of a window that is going away.
+pub fn forget_history(session: &str, window: &str) {
+    let key = history_key(session, window);
+    with_history(|store| {
+        store.remove(&key);
+    });
+}
+
+fn sanitize_name(raw: &str, fallback: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches('-');
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned.chars().take(32).collect()
+    }
+}
+
+// A single-quoted POSIX argument, safe for the shell tmux starts the window with.
+fn shell_quote(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:@%+,".contains(c));
+    if plain {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+// Writes the selected snapshot to a temporary log and creates a new window in
+// the source pane's folder. The window shows that log and then hands over to
+// a normal shell, so the fork starts with the task context in its scrollback.
+pub fn fork_from_history(session: &str, window: &str, at_index: usize) -> Result<String, String> {
+    check_pane_target(window)?;
+    let key = history_key(session, window);
+    let entry = with_history(|store| {
+        store.get(&key).and_then(|entries| {
+            entries
+                .iter()
+                .find(|entry| entry.index == at_index)
+                .cloned()
+        })
+    })
+    .ok_or_else(|| {
+        format!(
+            "Nessuno snapshot {at_index} per la finestra {window}. Apri la Time Machine e riprova."
+        )
+    })?;
+
+    let source = format!("{session}:{window}");
+    let info = run_tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &source,
+        "#{pane_current_path}\t#{window_name}",
+    ])?;
+    let mut parts = info.trim_end_matches(['\r', '\n']).splitn(2, '\t');
+    let cwd = parts.next().unwrap_or("").trim();
+    let name = parts.next().unwrap_or("").trim();
+    let cwd = if cwd.is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir())
+    } else {
+        PathBuf::from(cwd)
+    };
+
+    let dir = std::env::temp_dir().join("work-time-machine");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Impossibile preparare il fork della sessione: {e}"))?;
+    let file = dir.join(format!(
+        "{}-{}-{}.log",
+        sanitize_name(session, "session"),
+        sanitize_name(window, "window"),
+        now_ms()
+    ));
+    let context = format!(
+        "# Work Time Machine — {source}\n# Snapshot #{} del {} ms\n\n{}\n",
+        entry.index, entry.timestamp, entry.text
+    );
+    std::fs::write(&file, context)
+        .map_err(|e| format!("Impossibile scrivere il contesto del fork: {e}"))?;
+
+    let command = format!(
+        "cat {}; exec \"${{SHELL:-sh}}\"",
+        shell_quote(&file.to_string_lossy())
+    );
+    let fork_name = sanitize_name(&format!("fork-{name}-{at_index}"), "fork");
+    new_window(session, Some(&fork_name), &cwd, Some(&command))
 }
 
 // ── Split panes ──────────────────────────────────────────────
@@ -573,6 +782,28 @@ pub fn tmux_capture_pane(
         Some(remote) => crate::remote::capture_pane(&remote, &session, &target, lines),
         None => capture_pane(&session, &target, lines),
     }
+}
+
+// Records a timestamped snapshot of the pane's scrollback and returns the
+// whole timeline. Local tmux only: a remote pane's history stays on the host
+// and the Time Machine button is hidden for remote projects.
+#[tauri::command(async)]
+pub fn tmux_get_history_timeline(
+    session: String,
+    window: String,
+) -> Result<Vec<TimelineEntry>, String> {
+    record_history_snapshot(&session, &window)
+}
+
+// Creates a new window in the source pane's folder, seeded with the selected
+// snapshot, and returns its tmux window id (e.g. "@7").
+#[tauri::command(async)]
+pub fn tmux_fork_from_history(
+    session: String,
+    window: String,
+    at_index: usize,
+) -> Result<String, String> {
+    fork_from_history(&session, &window, at_index)
 }
 
 #[tauri::command(async)]
@@ -999,5 +1230,104 @@ mod tests {
             .any(|w| w.id == info.window_id));
 
         let _ = kill_session(&session);
+    }
+
+    // ── Time Machine ────────────────────────────────────────
+
+    #[test]
+    fn timeline_keeps_only_the_snapshots_that_changed() {
+        let mut entries = Vec::new();
+        assert!(append_snapshot(&mut entries, "hello\n", 100));
+        assert!(!append_snapshot(&mut entries, "hello\n", 200));
+        assert!(append_snapshot(&mut entries, "hello\nworld\n", 300));
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[1].index, 1);
+        assert_eq!(entries[1].timestamp, 300);
+        assert_eq!(entries[1].text, "hello\nworld", "trailing blank lines drop");
+    }
+
+    #[test]
+    fn timeline_ignores_blank_snapshots_and_caps_old_entries() {
+        let mut entries = Vec::new();
+        assert!(!append_snapshot(&mut entries, " \n\n\t", 1));
+        assert!(entries.is_empty());
+
+        for i in 0..(HISTORY_MAX_ENTRIES + 5) {
+            assert!(append_snapshot(
+                &mut entries,
+                &format!("line {i}"),
+                i as u64
+            ));
+        }
+        assert_eq!(entries.len(), HISTORY_MAX_ENTRIES);
+        assert_eq!(
+            entries.first().unwrap().index,
+            5,
+            "the oldest entries are evicted, indices stay chronological"
+        );
+        assert_eq!(entries.last().unwrap().index, HISTORY_MAX_ENTRIES + 4);
+    }
+
+    #[test]
+    fn a_snapshot_over_the_cap_keeps_its_recent_output() {
+        let long = format!("{}\nultima riga", "x".repeat(HISTORY_MAX_TEXT_BYTES + 64));
+        let capped = cap_snapshot(&long);
+        assert!(capped.len() <= HISTORY_MAX_TEXT_BYTES);
+        assert_eq!(capped, "ultima riga", "cut on a line boundary, tail kept");
+    }
+
+    #[test]
+    fn history_is_scoped_to_session_and_window() {
+        assert_eq!(history_key("work_a", "@1"), "work_a:@1");
+        assert_ne!(history_key("work_a", "@1"), history_key("work_b", "@1"));
+        assert_ne!(history_key("work_a", "@1"), history_key("work_a", "@2"));
+        assert_eq!(sanitize_name("my app:@1", "x"), "my-app--1");
+        assert_eq!(sanitize_name("", "fallback"), "fallback");
+        assert_eq!(shell_quote("/tmp/plain.log"), "/tmp/plain.log");
+        assert_eq!(shell_quote("/tmp/with space.log"), "'/tmp/with space.log'");
+        assert_eq!(shell_quote("/tmp/it's.log"), "'/tmp/it'\\''s.log'");
+    }
+
+    #[test]
+    fn time_machine_records_the_pane_and_forks_it_into_a_new_window() {
+        if !is_available() {
+            return;
+        }
+        let session = unique("wstm_");
+        ensure_session(&session, Path::new("/tmp")).unwrap();
+        let window = new_window(
+            &session,
+            Some("probe"),
+            Path::new("/tmp"),
+            Some("printf 'time-machine-line\\n'; sleep 30"),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+
+        let entries = record_history_snapshot(&session, &window).unwrap();
+        assert!(!entries.is_empty(), "the pane's output is captured");
+        assert!(entries.last().unwrap().text.contains("time-machine-line"));
+        let at = entries.last().unwrap().index;
+
+        let fork = fork_from_history(&session, &window, at).unwrap();
+        assert!(fork.starts_with('@'), "a window id: {fork}");
+        assert_ne!(fork, window);
+        assert!(list_windows(&session).unwrap().iter().any(|w| w.id == fork));
+
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let shown = capture_pane(&session, &fork, Some(200)).unwrap();
+        let _ = kill_session(&session);
+        assert!(
+            shown.contains("time-machine-line"),
+            "the fork starts with the selected context: {shown}"
+        );
+
+        assert!(
+            fork_from_history(&session, &window, at).is_err(),
+            "a timeline that no longer exists cannot be forked"
+        );
+        forget_history(&session, &window);
     }
 }

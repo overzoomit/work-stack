@@ -4,7 +4,7 @@ import { Terminal } from './vendor/xterm.mjs';
 import { FitAddon } from './vendor/addon-fit.mjs';
 import { WebLinksAddon } from './vendor/addon-web-links.mjs';
 import { createTerminalSearch } from './terminalsearch.js';
-import { $, esc, setHtml, afterExit } from './ui.js';
+import { $, esc, setHtml, afterExit, toast, toastError } from './ui.js';
 import { DEFAULTS, FONT_MIN, FONT_MAX, themeById, xtermTheme } from './themes.js';
 import { tildify } from './paths.js';
 import { roleFor } from './teamroles.js';
@@ -607,6 +607,9 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     onLook(e.currentTarget);
   };
   if (t.tmuxSession && !t.tmuxWindow) t.tmuxWindow = await work.pty.tmuxWindow(id).catch(() => null);
+  // A local tmux pane gets the time-machine scrubber; remote history stays on
+  // the host and a docked console is not a task terminal.
+  if (t.tmuxSession && t.tmuxWindow && !container && !remote) setupTimeMachine(t);
 
   paintHead(t);
   if (project === active && takeFocus) {
@@ -659,6 +662,320 @@ export async function splitTerminal(id, direction = 'horizontal') {
     splitDirection: direction,
     splitFrom: t,
   });
+}
+
+// ── Time Machine ─────────────────────────────────────────────
+// A scrubber under a tmux/agent terminal. The backend keeps timestamped
+// snapshots of the pane's scrollback; here they are replayed over the live
+// xterm (an overlay, so the running process is never interrupted), copied or
+// exported as a compact delta log, and forked into a new window.
+const TM_POLL_MS = 5000;
+const TM_PLAY_MS = 650;
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+export function formatTimelineTime(ms) {
+  const d = new Date(Number(ms) || 0);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// Snapshots hold the whole scrollback, so the compact log shows only the lines
+// that appeared between two captures. `from`/`to` are positions in the list.
+export function compactTimeline(entries, from = 0, to = entries.length - 1) {
+  if (!Array.isArray(entries) || !entries.length) return '';
+  const start = Math.max(0, Math.min(from, entries.length - 1));
+  const end = Math.max(start, Math.min(to, entries.length - 1));
+  const out = [];
+  let previous = [];
+  for (let i = start; i <= end; i++) {
+    const entry = entries[i];
+    const lines = String(entry?.text || '')
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+$/g, ''));
+    let shared = 0;
+    while (shared < previous.length && shared < lines.length && previous[shared] === lines[shared]) shared++;
+    const fresh = lines.slice(shared);
+    while (fresh.length && !fresh[0].trim()) fresh.shift();
+    if (!fresh.length) continue;
+    out.push(`── ${formatTimelineTime(entry.timestamp)} ──`, ...fresh);
+    previous = lines;
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function setupTimeMachine(t) {
+  if (!t || t.console || t.timeMachine || !work.tmux?.getHistoryTimeline) return null;
+  const head = t.el.querySelector('.pane-head');
+  const toggle = document.createElement('button');
+  toggle.className = 'icon-btn pane-tm';
+  toggle.dataset.act = 'tm';
+  toggle.title = 'Time Machine: replay the output';
+  toggle.textContent = '⏱';
+  const look = head.querySelector('[data-act="look"]');
+  if (look?.parentNode === head) head.insertBefore(toggle, look);
+  else head.appendChild(toggle);
+
+  const bar = document.createElement('div');
+  bar.className = 'pane-timebar';
+  bar.hidden = true;
+  bar.innerHTML = `
+    <button class="icon-btn tm-rewind" title="Rewind to the start of the session">⏮</button>
+    <button class="icon-btn tm-play" title="Play the replay">▶</button>
+    <input class="tm-slider" type="range" min="0" max="0" step="1" value="0" title="Rewind the terminal output">
+    <span class="tm-time">--:--</span>
+    <span class="tm-mode">collecting…</span>
+    <button class="icon-btn tm-copy" title="Copy the compact log up to this point">⧉</button>
+    <button class="icon-btn tm-export" title="Export the compact log up to this point">⇩</button>
+    <button class="icon-btn tm-fork" title="Fork a new session from this point">⑂</button>
+    <button class="icon-btn tm-close" title="Hide the Time Machine">✕</button>`;
+  t.el.appendChild(bar);
+
+  const body = t.el.querySelector('.pane-body');
+  const replay = document.createElement('div');
+  replay.className = 'pane-replay';
+  replay.hidden = true;
+  replay.innerHTML = `
+    <div class="pane-replay-head">
+      <span class="pane-replay-time">--:--</span>
+      <span class="pane-replay-hint">Replay · the process keeps running</span>
+    </div>
+    <pre class="pane-replay-text"></pre>`;
+  body.appendChild(replay);
+
+  const tm = {
+    entries: [], index: 0,
+    // Agent terminals show the scrubber from the start; plain shells get it
+    // once a real timeline exists (or from the ⏱ button).
+    open: !!(t.role || t.agentId), seenTimeline: false,
+    playing: false, playTimer: null, poll: null, busy: false,
+    bar, replay,
+    slider: bar.querySelector('.tm-slider'),
+    time: bar.querySelector('.tm-time'),
+    mode: bar.querySelector('.tm-mode'),
+    play: bar.querySelector('.tm-play'),
+    replayTime: replay.querySelector('.pane-replay-time'),
+    replayText: replay.querySelector('.pane-replay-text'),
+  };
+  t.timeMachine = tm;
+
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleTimeMachine(t);
+  });
+  bar.querySelector('.tm-rewind').addEventListener('click', () => seekTimeMachine(t, 0));
+  tm.play.addEventListener('click', () => toggleTimeMachinePlay(t));
+  tm.slider.addEventListener('input', () => seekTimeMachine(t, Number(tm.slider.value)));
+  bar.querySelector('.tm-copy').addEventListener('click', () => copyTimeMachineLog(t));
+  bar.querySelector('.tm-export').addEventListener('click', () => exportTimeMachineLog(t));
+  bar.querySelector('.tm-fork').addEventListener('click', () => forkTimeMachine(t));
+  bar.querySelector('.tm-close').addEventListener('click', () => toggleTimeMachine(t, false));
+
+  renderTimeMachine(t);
+  refitSoon(t);
+  tm.poll = setInterval(() => {
+    if (!t.exited) refreshTimeMachine(t);
+  }, TM_POLL_MS);
+  tm.poll?.unref?.();
+  refreshTimeMachine(t);
+  return tm;
+}
+
+// The scrubber takes height away from the xterm: remeasure after the layout.
+function refitSoon(t) {
+  requestAnimationFrame(() => {
+    try {
+      t.fit?.fit();
+    } catch {
+      // hidden pane: measured when it is shown
+    }
+  });
+}
+
+function renderTimeMachine(t) {
+  const tm = t.timeMachine;
+  if (!tm) return;
+  const last = tm.entries.length - 1;
+  const entry = tm.entries[tm.index];
+  const live = tm.entries.length === 0 || tm.index >= last;
+  tm.bar.hidden = !tm.open;
+  tm.slider.max = String(Math.max(0, last));
+  tm.slider.value = String(Math.max(0, tm.index));
+  tm.slider.disabled = tm.entries.length < 2;
+  tm.time.textContent = entry ? formatTimelineTime(entry.timestamp) : '--:--';
+  tm.mode.textContent = !tm.entries.length ? 'collecting…' : live ? 'live' : 'replay';
+  tm.mode.classList.toggle('replay', !live && tm.entries.length > 0);
+  tm.play.textContent = tm.playing ? '⏸' : '▶';
+  tm.play.title = tm.playing ? 'Pause the replay' : 'Play the replay';
+  tm.play.disabled = tm.entries.length < 2;
+  tm.replay.hidden = live;
+  if (live) {
+    tm.replayTime.textContent = '--:--';
+    tm.replayText.textContent = '';
+  } else if (entry) {
+    tm.replayTime.textContent = formatTimelineTime(entry.timestamp);
+    tm.replayText.textContent = entry.text;
+    tm.replayText.scrollTop = tm.replayText.scrollHeight || 0;
+  }
+}
+
+export function toggleTimeMachine(t, open = !t.timeMachine?.open) {
+  const tm = t.timeMachine;
+  if (!tm) return null;
+  tm.open = !!open;
+  if (tm.open) refreshTimeMachine(t);
+  renderTimeMachine(t);
+  refitSoon(t);
+  return tm.open;
+}
+
+// Rebuilds the scrubber from the backend list. A viewer parked on an old
+// snapshot stays there while new output arrives; one on the last entry follows
+// the live process.
+export function applyTimeline(t, entries) {
+  const tm = t.timeMachine;
+  if (!tm || !Array.isArray(entries)) return null;
+  const followingLive = tm.index >= tm.entries.length - 1;
+  tm.entries = entries;
+  if (!entries.length) tm.index = 0;
+  else tm.index = followingLive ? entries.length - 1 : Math.min(tm.index, entries.length - 1);
+  if (entries.length > 1 && !tm.seenTimeline) {
+    tm.seenTimeline = true;
+    if (!tm.open) {
+      tm.open = true;
+      refitSoon(t);
+    }
+  }
+  renderTimeMachine(t);
+  return tm;
+}
+
+export async function refreshTimeMachine(t) {
+  const tm = t?.timeMachine;
+  if (!tm || !t.tmuxSession || !t.tmuxWindow || t.project?.remote) return null;
+  if (!work.tmux?.getHistoryTimeline || tm.busy) return null;
+  tm.busy = true;
+  try {
+    const entries = await work.tmux.getHistoryTimeline(t.tmuxSession, t.tmuxWindow);
+    applyTimeline(t, entries);
+    return entries;
+  } catch {
+    // The tmux server may be restarting: the next poll retries silently.
+    return null;
+  } finally {
+    tm.busy = false;
+  }
+}
+
+function stopPlayback(t) {
+  const tm = t?.timeMachine;
+  if (!tm) return;
+  clearInterval(tm.playTimer);
+  tm.playTimer = null;
+  tm.playing = false;
+}
+
+export function seekTimeMachine(t, index) {
+  const tm = t.timeMachine;
+  if (!tm?.entries.length) return null;
+  stopPlayback(t);
+  tm.index = Math.max(0, Math.min(tm.entries.length - 1, Math.trunc(Number(index) || 0)));
+  renderTimeMachine(t);
+  return tm.entries[tm.index];
+}
+
+export function toggleTimeMachinePlay(t) {
+  const tm = t.timeMachine;
+  if (!tm || tm.entries.length < 2) return null;
+  if (tm.playing) {
+    stopPlayback(t);
+    renderTimeMachine(t);
+    return false;
+  }
+  if (tm.index >= tm.entries.length - 1) tm.index = 0;
+  tm.playing = true;
+  tm.playTimer = setInterval(() => {
+    if (!all.has(t.id) || tm.index >= tm.entries.length - 1) {
+      stopPlayback(t);
+      renderTimeMachine(t);
+      return;
+    }
+    tm.index += 1;
+    renderTimeMachine(t);
+  }, TM_PLAY_MS);
+  tm.playTimer?.unref?.();
+  renderTimeMachine(t);
+  return true;
+}
+
+// The compact log from session start to the selected moment.
+export function timeMachineLog(t) {
+  const tm = t.timeMachine;
+  if (!tm?.entries.length) return '';
+  return compactTimeline(tm.entries, 0, tm.index);
+}
+
+export function copyTimeMachineLog(t) {
+  const text = timeMachineLog(t);
+  if (text) work.app.copy(text);
+  return text;
+}
+
+const fileSafe = (s) => String(s || 'terminal').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'terminal';
+
+export function exportTimeMachineLog(t) {
+  const text = timeMachineLog(t);
+  if (!text) return '';
+  const entry = t.timeMachine.entries[t.timeMachine.index];
+  const name = `work-timemachine-${fileSafe(t.title)}-${formatTimelineTime(entry?.timestamp).replace(/:/g, '')}.log`;
+  try {
+    if (typeof Blob !== 'function' || typeof URL?.createObjectURL !== 'function') throw new Error('no blob');
+    const a = document.createElement('a');
+    // A plain document (no download support) falls back to the clipboard.
+    if (typeof a.click !== 'function') throw new Error('no download');
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Log exported');
+  } catch {
+    // A webview without downloads still gives the user the text.
+    work.app.copy(text);
+  }
+  return text;
+}
+
+// Forks a new tmux window at the selected snapshot and opens its pane beside
+// the source one. The backend seeds that window with the captured context.
+export async function forkTimeMachine(t) {
+  const tm = t.timeMachine;
+  if (!tm?.entries.length || !t.tmuxSession || !t.tmuxWindow) return null;
+  const entry = tm.entries[tm.index];
+  try {
+    const windowId = await work.tmux.forkFromHistory(t.tmuxSession, t.tmuxWindow, entry.index);
+    if (!windowId) return null;
+    return await openTerminal(t.project, {
+      cwd: t.cwd,
+      title: `Fork ${formatTimelineTime(entry.timestamp)}`,
+      tmuxSession: t.tmuxSession,
+      tmuxWindow: windowId,
+      splitFrom: t,
+      splitDirection: 'horizontal',
+    });
+  } catch (e) {
+    toastError(e);
+    return null;
+  }
+}
+
+function disposeTimeMachine(t) {
+  const tm = t?.timeMachine;
+  if (!tm) return;
+  stopPlayback(t);
+  clearInterval(tm.poll);
+  tm.poll = null;
 }
 
 function paintHead(t) {
@@ -759,6 +1076,7 @@ export function closeTerminal(id) {
   // Take the rectangle out of the tree now: the survivors grow while the
   // closing pane plays its exit animation in the space it last occupied.
   removeLeaf(p, t);
+  disposeTimeMachine(t);
   t.search?.dispose();
   t.dispose?.();
   t.el.classList.add('closing');

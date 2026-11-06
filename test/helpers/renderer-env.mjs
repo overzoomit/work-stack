@@ -177,6 +177,13 @@ export const env = {
   createdWindows: [],
   tmuxSplit: null, // what tmux.splitPane answers (or an Error through tmuxSplitError)
   tmuxSplitError: null,
+  // Time Machine: the timeline the backend answers, transient read/fork fails,
+  // and the forks requested (session, window, index).
+  timeline: [],
+  timelineError: null,
+  fork: null,
+  forkError: null,
+  forks: [],
 };
 let nextId = 1;
 globalThis.window = {
@@ -259,6 +266,19 @@ globalThis.window = {
       },
       closePane: async (session, target, remote) => {
         env.tmuxCalls.push(['closePane', session, target, remote]);
+      },
+      getHistoryTimeline: async (session, window) => {
+        env.tmuxCalls.push(['getHistoryTimeline', session, window]);
+        if (env.timelineError) throw env.timelineError;
+        return env.timeline;
+      },
+      forkFromHistory: async (session, window, atIndex) => {
+        env.tmuxCalls.push(['forkFromHistory', session, window, atIndex]);
+        if (env.forkError) throw env.forkError;
+        env.forks.push({ session, window, atIndex });
+        const id = env.fork?.windowId || `@${(env.tmuxWindows?.length || 0) + 20}`;
+        env.tmuxWindows = [...(env.tmuxWindows || []), { id, name: 'fork', active: false, path: '' }];
+        return id;
       },
     },
   },
