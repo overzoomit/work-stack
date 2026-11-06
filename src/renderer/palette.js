@@ -224,6 +224,9 @@ function ticketEntries(tickets) {
 // ── Palette ─────────────────────────────────────────────────
 
 let s = null; // the open palette: { project, el, veil, input, list, foot, ... }
+// Monotone across every open: a response from a palette that was closed (or
+// replaced by another project) can never match the current token.
+let generation = 0;
 
 export const paletteOpen = () => !!s;
 
@@ -274,7 +277,7 @@ export function openPalette(project) {
     },
     loading: { file: !project.remote, git: !!project.root, agent: true, ticket: true },
     errors: [],
-    token: 0,
+    token: ++generation,
   };
   input.oninput = () => {
     if (!s) return;
@@ -298,7 +301,7 @@ export function openPalette(project) {
   veil.onpointerdown = () => closePalette();
   apply();
   input.focus();
-  loadSources(project, ++s.token);
+  loadSources(project, s.token);
 }
 
 function loadSources(project, token) {

@@ -176,3 +176,67 @@ test('un ticket Plane si apre dalla palette', async () => {
   await wait();
   assert.deepEqual(calls.at(-1), ['ticket', 52]);
 });
+
+test('le risposte di una palette chiusa non sovrascrivono quella nuova (regressione)', async () => {
+  closePalette();
+  const calls = [];
+  const pending = [];
+  setup({
+    files: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    openFile: (project, path) => calls.push(['file', project.path, path]),
+  });
+  const a = { path: '/A', name: 'A', root: '/A' };
+  const b = { path: '/B', name: 'B', root: '/B' };
+
+  openPalette(a);
+  await wait();
+  assert.equal(pending.length, 1, 'A asks for its files');
+  closePalette();
+
+  openPalette(b);
+  await wait();
+  assert.equal(pending.length, 2, 'B asks for its own files');
+  pending[1].resolve(['B-only.txt']);
+  await wait();
+  pending[0].resolve(['A-only.txt']); // the closed palette answers last
+  await wait();
+
+  const el = lastPalette();
+  const input = el.querySelector('.palette-input');
+  const list = el.querySelector('.palette-list');
+  input.value = 'A-only';
+  input.oninput();
+  assert.doesNotMatch(list.innerHTML, /A-only\.txt/, 'a closed open cannot add files to B');
+  input.value = 'B-only';
+  input.oninput();
+  assert.match(list.innerHTML, /<b>B<\/b>/, 'B keeps its own files');
+  key(el, 'Enter');
+  await wait();
+  assert.deepEqual(calls, [['file', '/B', 'B-only.txt']], 'the action belongs to the palette that is open');
+  assert.equal(paletteOpen(), false);
+});
+
+test('gli errori di una palette chiusa non finiscono nella nuova apertura (regressione)', async () => {
+  closePalette();
+  const pending = [];
+  setup({
+    files: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+  });
+  const a = { path: '/A', name: 'A', root: '/A' };
+  const b = { path: '/B', name: 'B', root: '/B' };
+
+  openPalette(a);
+  await wait();
+  closePalette();
+  openPalette(b);
+  await wait();
+  pending[1].resolve(['B-only.txt']);
+  await wait();
+  pending[0].reject(new Error('A failed after close'));
+  await wait();
+
+  const foot = lastPalette().querySelector('.palette-foot');
+  assert.doesNotMatch(foot.innerHTML, /unavailable/, 'the old error is dropped');
+  assert.doesNotMatch(foot.innerHTML, /loading/);
+  closePalette();
+});
