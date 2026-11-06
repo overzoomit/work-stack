@@ -226,7 +226,16 @@ export function showWorkingDiff(project, file, staged) {
   const group = staged === true ? 's' : staged === false ? 'u' : inUnstaged ? 'u' : 's';
   openWorking(project.root, st, { group, file }, {
     onToggleStage: (f, isStaged) => runGit(isStaged ? 'unstage' : 'stage', { files: [f] }, { quiet: true }),
+    onCommitMessage: setCommitMessage,
   });
+}
+
+// Smart Lens writes the generated message straight into the commit form; the
+// draft keeps it when the user switches project and comes back.
+export function setCommitMessage(text) {
+  if (!active) return;
+  $('#commit-msg').value = text;
+  active.draft = text;
 }
 
 export async function runGit(name, params = {}, { quiet = false, button = null, repo = null } = {}) {

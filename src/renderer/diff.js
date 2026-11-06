@@ -307,3 +307,46 @@ export function changeStarts(rows) {
   for (let i = 0; i < rows.length; i++) if (isChange(rows[i]) && !isChange(rows[i - 1])) starts.push(i);
   return starts;
 }
+
+// ── Smart Lens toolbar ──────────────────────────────────────
+// Sits above the diff in both layouts. Rendering it is a handful of buttons:
+// the analysis only starts on click, so a large diff renders as before.
+export function smartLensHtml({ commit = true } = {}) {
+  return `<div class="sl-bar">
+    <span class="sl-title">Smart Lens</span>
+    <button class="btn btn-small" data-sl="explain" title="Explain the highlighted changes in Italian">Explain changes</button>
+    ${commit ? '<button class="btn btn-small" data-sl="commit" title="Generate a Conventional Commit message from the changes">Generate commit message</button>' : ''}
+    <span class="sl-status muted small" data-sl-status></span>
+  </div>
+  <div class="sl-output" data-sl-output hidden></div>`;
+}
+
+export function renderSmartLens(box, opts = {}) {
+  box.hidden = false;
+  box.classList.remove('busy', 'error');
+  box.innerHTML = smartLensHtml(opts);
+}
+
+export function bindSmartLens(box, { explain, commit } = {}) {
+  box.onclick = (e) => {
+    const btn = e.target.closest?.('[data-sl]');
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.sl === 'explain') explain?.(btn);
+    else if (btn.dataset.sl === 'commit') commit?.(btn);
+  };
+}
+
+export function setSmartLensBusy(box, busy, text = '') {
+  box.classList.toggle('busy', !!busy);
+  const status = box.querySelector?.('[data-sl-status]');
+  if (status) status.textContent = text;
+  box.querySelectorAll?.('[data-sl]').forEach((b) => { b.disabled = !!busy; });
+}
+
+export function showSmartLensOutput(box, text, { error = false } = {}) {
+  const out = box.querySelector?.('[data-sl-output]');
+  if (!out) return;
+  out.hidden = !text;
+  out.textContent = text || '';
+  box.classList.toggle('error', !!error);
+}

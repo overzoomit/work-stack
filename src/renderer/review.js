@@ -1,12 +1,13 @@
 // WebStorm-style review sheet: commit details + changed-files tree on the
 // left, side-by-side diff of the selected file on the right.
 import { $, $$, esc, basename, fullDate, leave, toast, toastError } from './ui.js';
-import { parseDiff, renderDiff } from './diff.js';
+import { parseDiff, renderDiff, renderSmartLens, bindSmartLens, setSmartLensBusy, showSmartLensOutput } from './diff.js';
 import { refBadges } from './graph.js';
 
 const { work } = window;
 
 let session = null; // { repo, mode, hash, parent, groups, current, nav, token }
+let lensSeq = 0; // invalidates an in-flight Smart Lens request for another file
 
 function getMode() {
   try {
@@ -85,6 +86,7 @@ export function closeReview() {
 function open() {
   const el = $('#review');
   el.hidden = false;
+  lensSeq++; // any Smart Lens request for the previous sheet is now stale
   $('#review-diff').innerHTML = '<div class="d-empty">Select a file.</div>';
 }
 
@@ -108,6 +110,8 @@ export async function openCommit(repo, hash, actions = []) {
   if (session?.token !== token) return;
   session.groups = [{ key: 'c', files: c.files }];
   session.parent = c.parents[0] || null;
+  // Smart Lens works on the pending changes, not on a commit in the history.
+  $('#smart-lens').hidden = true;
 
   const [subject, ...rest] = c.message.split('\n');
   const body = rest.join('\n').trim();
@@ -147,9 +151,9 @@ export async function openCommit(repo, hash, actions = []) {
 }
 
 // Working-copy review: staged + unstaged groups. `onToggleStage(file, staged)`.
-export async function openWorking(repo, status, select, { onToggleStage } = {}) {
+export async function openWorking(repo, status, select, { onToggleStage, onCommitMessage } = {}) {
   const token = Symbol('review');
-  session = { repo, mode: 'working', token, onToggleStage };
+  session = { repo, mode: 'working', token, onToggleStage, onCommitMessage };
   open();
   renderActions([]);
   $('#review-title').textContent = 'Local changes';
@@ -163,6 +167,7 @@ export async function openWorking(repo, status, select, { onToggleStage } = {}) 
     <div class="ft-head">${g.label} <span class="count">${g.files.length}</span></div>
     ${renderTree(g.files, g.key)}`).join('');
   bindTree();
+  setupSmartLens();
   const first = select || { group: status.unstaged.length ? 'u' : 's', file: (status.unstaged[0] || status.staged[0])?.file };
   if (first.file) selectFile(first.group, first.file);
 }
@@ -179,6 +184,49 @@ function renderActions(actions) {
       a.run();
     };
     box.appendChild(b);
+  }
+}
+
+// Smart Lens: two on-demand tools above the diff. Neither runs while the file
+// is being selected, so the viewer's rendering cost does not change.
+function setupSmartLens() {
+  const box = $('#smart-lens');
+  renderSmartLens(box, { commit: true });
+  bindSmartLens(box, { explain: explainChanges, commit: generateCommitMessage });
+}
+
+async function explainChanges() {
+  if (!session || session.mode !== 'working') return;
+  const box = $('#smart-lens');
+  const ticket = ++lensSeq;
+  setSmartLensBusy(box, true, 'Analyzing…');
+  try {
+    const text = await work.git.explainDiff(session.repo, session.current?.file);
+    if (ticket === lensSeq) showSmartLensOutput(box, text);
+  } catch (e) {
+    if (ticket === lensSeq) showSmartLensOutput(box, e?.message || String(e), { error: true });
+    toastError(e);
+  } finally {
+    if (ticket === lensSeq) setSmartLensBusy(box, false);
+  }
+}
+
+async function generateCommitMessage() {
+  if (!session || session.mode !== 'working') return;
+  const box = $('#smart-lens');
+  const ticket = ++lensSeq;
+  setSmartLensBusy(box, true, 'Generating…');
+  try {
+    const message = await work.git.generateCommitMessage(session.repo);
+    if (ticket !== lensSeq) return;
+    session.onCommitMessage?.(message);
+    showSmartLensOutput(box, message);
+    toast('Commit message filled in the Git panel.');
+  } catch (e) {
+    if (ticket === lensSeq) showSmartLensOutput(box, e?.message || String(e), { error: true });
+    toastError(e);
+  } finally {
+    if (ticket === lensSeq) setSmartLensBusy(box, false);
   }
 }
 
@@ -213,6 +261,13 @@ async function selectFile(groupKey, file) {
   $('#review-path').innerHTML = `<span class="code ${f.code}">${f.code}</span>
     <span class="d-path"><span class="muted">${esc(dir)}</span>${esc(basename(file))}</span> ${renamed}`;
   $('#review-tools-extra').innerHTML = stageBtn;
+  if (session.mode === 'working') {
+    // The explanation belongs to the selected file: invalidate an in-flight
+    // request and clear the previous result when the selection changes.
+    lensSeq++;
+    setSmartLensBusy($('#smart-lens'), false);
+    showSmartLensOutput($('#smart-lens'), '');
+  }
   $('#d-stage')?.addEventListener('click', async () => {
     await session.onToggleStage(file, groupKey === 's');
     closeReview();
