@@ -469,6 +469,9 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
     cursorBlink: settings.cursorBlink,
     cursorStyle: settings.cursorStyle,
     allowTransparency: true,
+    // The search addon paints match decorations through registerDecoration,
+    // which xterm keeps behind this proposed API flag.
+    allowProposedApi: true,
     // Option stays Option, as in Terminal.app: Italian and other layouts type @ # [ ] with it.
     macOptionIsMeta: false,
     scrollback: kind === 'run' ? 3000 : 10000, // Run logs are verbose and rerun often

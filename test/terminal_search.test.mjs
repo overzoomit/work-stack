@@ -46,6 +46,8 @@ test('Ctrl+F apre la barra nel pannello attivo, con il campo a fuoco e seleziona
   assert.equal(bar.el.hidden, false);
   assert.equal(bar.input.focused, true, 'the field takes the focus');
   assert.deepEqual(document.activeElement, bar.input);
+  assert.equal(t.term.options.allowProposedApi, true,
+    'the decoration API needs proposed APIs enabled');
 
   bar.input.value = 'errore';
   bar.search('errore');
@@ -72,6 +74,12 @@ test('la digitazione cerca in modo incrementale; Invio e Shift+Invio scorrono i 
   assert.equal(call[2].incremental, true, 'each keystroke extends the current match');
   assert.equal(call[2].decorations.matchOverviewRuler, '#0a84ff');
   assert.equal(call[2].decorations.activeMatchColorOverviewRuler, '#ffd60a');
+  // Without the buffer colours the addon registers decorations that paint
+  // nothing, so the matches stay invisible even when the counter is right.
+  assert.equal(call[2].decorations.matchBackground, 'rgba(10, 132, 255, 0.30)');
+  assert.equal(call[2].decorations.matchBorder, '#0a84ff');
+  assert.equal(call[2].decorations.activeMatchBackground, 'rgba(255, 214, 10, 0.45)');
+  assert.equal(call[2].decorations.activeMatchBorder, '#ffd60a');
 
   const enter = key(bar.input, { key: 'Enter', shiftKey: false });
   assert.deepEqual(enter, { prevented: 1, stopped: 1 });

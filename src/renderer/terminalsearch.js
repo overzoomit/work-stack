@@ -6,6 +6,13 @@ import { SearchAddon } from './vendor/addon-search.mjs';
 import { isTerminalSearchKey } from './keys.js';
 
 const DECORATIONS = {
+  // The addon turns matchBackground/activeMatchBackground into the decoration
+  // fill, and the *Border values into its outline; the overview ruler alone
+  // leaves the matches invisible in the buffer.
+  matchBackground: 'rgba(10, 132, 255, 0.30)',
+  matchBorder: '#0a84ff',
+  activeMatchBackground: 'rgba(255, 214, 10, 0.45)',
+  activeMatchBorder: '#ffd60a',
   matchOverviewRuler: '#0a84ff',
   activeMatchColorOverviewRuler: '#ffd60a',
 };
