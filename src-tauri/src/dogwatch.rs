@@ -636,6 +636,9 @@ pub fn answer(session: &str, window: &str, text: &str) -> Result<(), String> {
     let target = format!("{session}:{window}");
     if !text.is_empty() {
         tmux::run_tmux(&["send-keys", "-t", &target, "-l", "--", text])?;
+        // Give the target TUI (Ink / Codex / readline) time to swallow and settle
+        // before pressing Enter, especially for long or pasted text.
+        std::thread::sleep(std::time::Duration::from_millis(350));
     }
     tmux::run_tmux(&["send-keys", "-t", &target, "Enter"])?;
     Ok(())

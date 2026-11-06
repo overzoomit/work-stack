@@ -432,6 +432,8 @@ def send_answer(
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip() or f"cannot send keys to {pane}")
     if enter:
+        if text:
+            time.sleep(0.35)
         out = run_tmux(["send-keys", "-t", pane, "Enter"], binary)
         if out.returncode != 0:
             raise RuntimeError(out.stderr.strip() or f"cannot press Enter in {pane}")
