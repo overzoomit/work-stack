@@ -198,19 +198,35 @@ test('Needs You fires once per new blocked prompt, not on every refresh', () => 
   const played = [];
   const watcher = createSoundWatcher({ play: (event) => played.push(event) });
   const first = [{ target: 'dev1', prompt_type: 'confirmation', question: 'Proceed?' }];
-  assert.equal(watcher.dogwatch(first).length, 1);
+  assert.equal(watcher.dogwatch('a', first).length, 1);
   assert.deepEqual(played, ['needsYou']);
-  assert.deepEqual(watcher.dogwatch(first), [], 'the same prompt is not announced twice');
+  assert.deepEqual(watcher.dogwatch('a', first), [], 'the same prompt is not announced twice');
   assert.deepEqual(played, ['needsYou']);
 
   const second = [...first, { target: 'dev2', question: 'Which branch?' }];
-  assert.equal(watcher.dogwatch(second).length, 1);
+  assert.equal(watcher.dogwatch('a', second).length, 1);
   assert.deepEqual(played, ['needsYou', 'needsYou']);
 
   // Answered: the set empties, so the next prompt is news again.
-  watcher.dogwatch([]);
-  watcher.dogwatch(first);
+  watcher.dogwatch('a', []);
+  watcher.dogwatch('a', first);
   assert.deepEqual(played, ['needsYou', 'needsYou', 'needsYou']);
+});
+
+test('Needs You memory is per project', () => {
+  const played = [];
+  const watcher = createSoundWatcher({ play: (event) => played.push(event) });
+  const prompt = [{ target: 'dev1', question: 'Proceed?' }];
+  watcher.dogwatch('a', prompt);
+  watcher.dogwatch('b', []);
+  assert.deepEqual(watcher.dogwatch('a', prompt), [], 'another project update must not reset A');
+  assert.deepEqual(played, ['needsYou']);
+
+  assert.equal(watcher.dogwatch('b', prompt).length, 1, 'same prompt in B is news for B');
+  assert.deepEqual(played, ['needsYou', 'needsYou']);
+
+  watcher.dogwatch('a', []);
+  assert.deepEqual(watcher.dogwatch('b', prompt), [], 'answering in A does not reset B');
 });
 
 test('a different question on the same window is a new prompt', () => {

@@ -200,13 +200,14 @@ export function doneActions(report) {
   );
 }
 
-// Wires the events to the cues while remembering the prompts already seen.
+// Wires the events to the cues while remembering, per project, the prompts already seen.
 export function createSoundWatcher({ play = playSound } = {}) {
-  let seen = new Set();
+  const seenByProject = new Map();
   return {
-    dogwatch(pending = []) {
-      const keys = newNeedsYouKeys(seen, pending);
-      seen = new Set((pending || []).map(needsYouKey));
+    dogwatch(project, pending = []) {
+      const keys = newNeedsYouKeys(seenByProject.get(project), pending);
+      if (pending?.length) seenByProject.set(project, new Set(pending.map(needsYouKey)));
+      else seenByProject.delete(project);
       if (keys.length) play('needsYou');
       return keys;
     },

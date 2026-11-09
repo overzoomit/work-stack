@@ -974,7 +974,7 @@ more.onclick = (e) => {
   // Audio cues read the same live events as the UI: a new blocked prompt and a
   // ticket reaching Done. The watcher remembers what was already announced.
   const sounds = createSoundWatcher();
-  work.dogwatch.onUpdate((_project, _session, pending) => sounds.dogwatch(pending));
+  work.dogwatch.onUpdate((project, _session, pending) => sounds.dogwatch(project, pending));
   work.planeDogwatch.onUpdate((report) => sounds.plane(report));
   initAnalytics({ activeProject: () => active });
   initGithub({
