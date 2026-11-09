@@ -431,6 +431,9 @@ fn input_line(line: &str) -> bool {
         .strip_prefix(['│', '|', '┃'])
         .map_or(start, str::trim_start);
     start.starts_with(['>', '❯', '›'])
+        || start.starts_with("Build ·")
+        || start.starts_with("Ask ·")
+        || start.starts_with("Chat ·")
         || line.trim_end().ends_with(['$', '#', '%', '❯', '>'])
         || line.to_lowercase().contains("ctrl+p commands")
 }
