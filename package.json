@@ -10,6 +10,7 @@
     "test:e2e": "npm run build:e2e && node --test \"test/e2e/*.e2e.mjs\"",
     "install:linux": "scripts/install-linux.sh",
     "test": "node --test \"test/*.test.{js,mjs}\" && cargo test --manifest-path src-tauri/Cargo.toml",
+    "clean": "cargo clean --manifest-path src-tauri/Cargo.toml",
     "postinstall": "node scripts/vendor.mjs"
   },
   "license": "UNLICENSED",

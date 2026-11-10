@@ -75,5 +75,8 @@ update-desktop-database "$SHARE_DIR/applications" 2>/dev/null || true
 gtk-update-icon-cache -f -t "$SHARE_DIR/icons/hicolor" 2>/dev/null || true
 kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null || true
 
+echo "==> Pulizia artefatti di compilazione (src-tauri/target)"
+cargo clean --manifest-path src-tauri/Cargo.toml
+
 echo "==> Work $(node -p "require('./package.json').version") installato in $BIN_DIR/work"
 echo "==> CLI installate: $BIN_DIR/plane, $BIN_DIR/dogwatch, $BIN_DIR/telegram-pm"
