@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { revealActiveTab, wheelScroll } from '../src/renderer/tabstrip.js';
+import { keepActiveTabVisible, revealActiveTab, wheelScroll } from '../src/renderer/tabstrip.js';
 
 const css = readFileSync(resolve('src/renderer/style.css'), 'utf-8');
 const rule = (selector) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/\./g, '\\.')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
@@ -53,4 +53,25 @@ test('the active tab is scrolled into view, nothing happens without one', () => 
   revealActiveTab(strip);
   assert.deepEqual(args, { inline: 'nearest', block: 'nearest' });
   assert.doesNotThrow(() => revealActiveTab({ querySelector: () => null }));
+});
+
+test('the active tab is revealed again whenever the strip is resized', () => {
+  const original = globalThis.ResizeObserver;
+  let notify;
+  let observed;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { notify = callback; }
+    observe(target) { observed = target; }
+  };
+  try {
+    let reveals = 0;
+    const strip = { querySelector: () => ({ scrollIntoView: () => reveals++ }) };
+    keepActiveTabVisible(strip);
+    assert.equal(observed, strip);
+    notify();
+    notify();
+    assert.equal(reveals, 2);
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
 });

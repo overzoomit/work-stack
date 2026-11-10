@@ -20,7 +20,7 @@ import { initLauncher, launchDefault, resumeClaude, launchWithPrompt, lastUsedAg
 import { initTeam, showLiveLed } from './team.js';
 import { createSoundWatcher } from './sound.js';
 import { initAnalytics, openAnalytics } from './analytics.js';
-import { revealActiveTab, wheelScroll } from './tabstrip.js';
+import { keepActiveTabVisible, revealActiveTab, wheelScroll } from './tabstrip.js';
 import { isProjectWorking, projectLedHtml, recordProjectActivity } from './ptabled.js';
 import { openAppearance } from './appearance.js';
 import { openPluginsDialog } from './plugins.js';
@@ -1039,6 +1039,7 @@ more.onclick = (e) => {
   projects.filter((p) => p !== active).forEach((p) => refreshGit(p));
   renderProjectTabs();
   $('#project-tabs').addEventListener('wheel', (e) => wheelScroll($('#project-tabs'), e), { passive: false });
+  keepActiveTabVisible($('#project-tabs'));
   initStatusBar();
   initUpdate({
     version: info.version,
