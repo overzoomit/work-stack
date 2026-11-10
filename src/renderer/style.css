@@ -49,7 +49,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+html, body { height: 100%; max-width: 100vw; margin: 0; }
 body {
   background:
     radial-gradient(1200px 600px at 20% -10%, rgba(10, 132, 255, 0.10), transparent 60%),
@@ -59,6 +59,7 @@ body {
   font: 13px/1.45 var(--sans);
   letter-spacing: -0.003em;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 46px 1fr 26px;
   overflow: hidden;
   user-select: none;
@@ -104,6 +105,7 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
 /* ── Top bar: translucent material, no hard divider ── */
 .topbar {
   display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  min-width: 0; max-width: 100%;
   background: var(--bg-struct);
   box-shadow: inset 0 -1px 0 var(--line);
   -webkit-app-region: drag;
@@ -125,7 +127,7 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
 .project-tabs::-webkit-scrollbar { display: none; }
 .ptab {
   display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 6px 0 12px; border-radius: 8px;
-  color: var(--text-2); white-space: nowrap; flex: none; max-width: 260px;
+  color: var(--text-2); white-space: nowrap; flex: 1 1 180px; min-width: 60px; max-width: 220px; overflow: hidden;
   transition: transform var(--t-press) ease-out, background-color var(--t-press) ease-out, color var(--t-press) ease-out;
 }
 .ptab:hover { background: var(--bg-3); color: var(--text); }
@@ -158,8 +160,8 @@ button { font: inherit; color: inherit; cursor: default; -webkit-tap-highlight-c
 @media (prefers-reduced-motion: reduce) {
   .ptab-led.working { animation: none; }
 }
-.ptab-name { font-weight: 600; letter-spacing: -0.005em; overflow: hidden; text-overflow: ellipsis; }
-.ptab-branch { font: 500 11px var(--mono); color: var(--green); opacity: .85; }
+.ptab-name { min-width: 0; font-weight: 600; letter-spacing: -0.005em; overflow: hidden; text-overflow: ellipsis; }
+.ptab-branch { flex: none; font: 500 11px var(--mono); color: var(--green); opacity: .85; }
 .ptab-branch i { font-style: normal; color: var(--orange); margin-left: 3px; }
 .ptab-close {
   border: 0; background: none; color: var(--muted); width: 18px; height: 18px; border-radius: 5px; font-size: 10px;
