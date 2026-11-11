@@ -30,7 +30,10 @@ from pathlib import Path
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11
-    tomllib = None
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        tomllib = None
 
 # Team windows the watchdog must watch: dev1, qa1, doc1, agent1...
 AGENT_WINDOW = re.compile(r"^(?:pm|dev\d+|qa\d*|doc\d*|agent\d+|generico)$", re.IGNORECASE)
@@ -206,18 +209,80 @@ def _python_regex(pattern: str) -> re.Pattern[str] | None:
         return None
 
 
+def _parse_manifest_toml(text: str) -> dict[str, object]:
+    """Fallback TOML parser for agent manifests when tomllib/tomli is unavailable."""
+    data: dict[str, object] = {"rules": []}
+    current_rule: dict[str, object] | None = None
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        i += 1
+        if not line or line.startswith("#"):
+            continue
+        if line == "[[rules]]":
+            current_rule = {"predicates": {}}
+            data["rules"].append(current_rule)
+            continue
+        if "=" in line:
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if val.startswith("[") and not val.endswith("]"):
+                array_parts = [val[1:]]
+                while i < len(lines):
+                    sub = lines[i].strip()
+                    i += 1
+                    if sub.endswith("]"):
+                        array_parts.append(sub[:-1])
+                        break
+                    array_parts.append(sub)
+                val_items = []
+                for part in array_parts:
+                    for item in part.split(","):
+                        item = item.strip()
+                        if item and (item.startswith('"') or item.startswith("'")):
+                            val_items.append(item[1:-1])
+                val_parsed = val_items
+            elif val.startswith("[") and val.endswith("]"):
+                inner = val[1:-1].strip()
+                val_parsed = [
+                    item.strip()[1:-1]
+                    for item in inner.split(",")
+                    if item.strip() and (item.strip().startswith('"') or item.strip().startswith("'"))
+                ]
+            elif (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                val_parsed = val[1:-1]
+            elif val.isdigit():
+                val_parsed = int(val)
+            else:
+                val_parsed = val
+
+            target = current_rule if current_rule is not None else data
+            if key.startswith("predicates."):
+                pred_key = key.split(".", 1)[1]
+                target["predicates"][pred_key] = val_parsed
+            else:
+                target[key] = val_parsed
+    return data
+
+
 def load_manifests() -> list[dict[str, object]]:
     """Read the TOML manifests once; invalid rules are skipped, not fatal."""
     global _MANIFESTS
     if _MANIFESTS is not None:
         return _MANIFESTS
     manifests: list[dict[str, object]] = []
-    if tomllib and MANIFEST_DIR.is_dir():
+    if MANIFEST_DIR.is_dir():
         paths = sorted(MANIFEST_DIR.glob("*.toml"), key=lambda p: (p.name == "generic.toml", p.name))
         for path in paths:
             try:
-                raw = tomllib.loads(path.read_text(encoding="utf-8"))
-            except (OSError, tomllib.TOMLDecodeError):
+                content = path.read_text(encoding="utf-8")
+                if tomllib is not None:
+                    raw = tomllib.loads(content)
+                else:
+                    raw = _parse_manifest_toml(content)
+            except Exception:
                 continue
             rules = []
             for rule in raw.get("rules", []):

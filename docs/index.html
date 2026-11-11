@@ -121,6 +121,53 @@ h1 {
   box-shadow: var(--shadow); outline: 1px solid var(--line);
 }
 
+/* Showcase Switcher */
+.showcase-switcher {
+  display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.showcase-tab {
+  background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  font: inherit; font-size: 0.875rem; font-weight: 500; padding: 8px 18px; border-radius: 980px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all 150ms ease-out;
+}
+.showcase-tab:hover { color: var(--text); border-color: var(--accent); }
+.showcase-tab.active {
+  background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.showcase-view { display: none; }
+.showcase-view.active { display: block; }
+.showcase-caption { text-align: center; margin-top: 14px; font-size: 0.875rem; color: var(--muted); }
+.showcase-caption strong { color: var(--text); }
+
+/* Workflow & Architecture Section */
+.role-matrix { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 28px 0; }
+.role-card {
+  background: var(--card); border-radius: 16px; padding: 20px; outline: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.role-tag {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 980px;
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; align-self: flex-start;
+}
+.role-tag.pm { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
+.role-tag.dev { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
+.role-tag.qa { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.35); }
+.role-tag.doc { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.35); }
+.role-tag.generic { background: rgba(203, 213, 225, 0.15); color: #cbd5e1; border: 1px solid rgba(203, 213, 225, 0.35); }
+.role-card h4 { margin: 0; font-size: 1.0625rem; font-weight: 600; }
+.role-card p { margin: 0; font-size: 0.875rem; color: var(--muted); line-height: 1.45; }
+.diagram-box {
+  margin-top: 32px; border-radius: 16px; overflow: hidden;
+  box-shadow: var(--shadow); outline: 1px solid var(--line); background: #0b0e15;
+}
+.diagram-box img { width: 100%; height: auto; display: block; }
+.diagram-title {
+  padding: 14px 20px; background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid var(--line);
+  font-size: 0.875rem; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: space-between;
+}
+.diagram-title span { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
+
 /* Sections */
 section { padding: 96px 0; }
 section.alt { background: var(--bg-2); }
@@ -216,6 +263,7 @@ footer .footer-links { display: flex; gap: 16px; align-items: center; }
     <a class="brand" href="#"><img src="icon.png" alt="Work Stack Icon">Work Stack</a>
     <div class="links">
       <a href="#features">Features</a>
+      <a href="#workflow">Workflow</a>
       <a href="#novita">What's New</a>
       <a href="#performance">Performance</a>
       <a href="#download">Download</a>
@@ -246,11 +294,39 @@ footer .footer-links { display: flex; gap: 16px; align-items: center; }
       <span>Star on GitHub</span>
     </a>
   </div>
-  <p class="meta" id="hero-meta">Version 2.16.0 · Free · macOS 11+ (Apple Silicon) and Linux (Ubuntu 22.04+, Arch, Fedora)</p>
+  <p class="meta" id="hero-meta">Version 2.16.1 · Free · macOS 11+ (Apple Silicon) and Linux (Ubuntu 22.04+, Arch, Fedora)</p>
 </header>
 
 <div class="shot reveal">
-  <img src="screenshot.webp" alt="Work Stack window: accordion sidebar on the left with Agent Squad, tmux terminal grid in the center with PM Antigravity, Dev1 Claude Code, Dev2 OpenCode and QA Codex, Live LED indicator on top" width="1920" height="1047">
+  <div class="showcase-switcher" role="tablist" aria-label="Work Stack Visual Views">
+    <button class="showcase-tab active" data-target="view-dashboard" role="tab" aria-selected="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+      <span>App Dashboard</span>
+    </button>
+    <button class="showcase-tab" data-target="view-workflow" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M18 6a9 9 0 0 1-9 9"/></svg>
+      <span>Multi-Agent Workflow</span>
+    </button>
+    <button class="showcase-tab" data-target="view-dogwatch" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span>Dogwatch Sentinel</span>
+    </button>
+  </div>
+
+  <div id="view-dashboard" class="showcase-view active" role="tabpanel">
+    <img src="screenshot.webp" alt="Work Stack window: accordion sidebar on the left with Agent Squad, tmux terminal grid in the center with PM Antigravity, Dev1 Claude Code, Dev2 OpenCode and QA Codex, Live LED indicator on top" width="1920" height="1047">
+    <p class="showcase-caption"><strong>Unified Developer Dashboard:</strong> Left accordion sidebar (Agent Squad, Project, Changes, Graph), central tmux terminal grid with active AI agents, Live LED status indicator.</p>
+  </div>
+
+  <div id="view-workflow" class="showcase-view" role="tabpanel">
+    <img src="workflow-orchestration.svg" alt="Work Multi-Agent Architecture: Single PM, Dev1, Dev2, QA1, Doc, and Generic agents managed via persistent tmux sessions, PTY panes, work-agent CLI, SSH, ngrok and Telegram" width="1200" height="520">
+    <p class="showcase-caption"><strong>Persistent Multi-Agent Orchestration:</strong> Independent tmux sessions per project, native PTY control, inter-agent coordination CLI, remote Telegram &amp; SSH bridges.</p>
+  </div>
+
+  <div id="view-dogwatch" class="showcase-view" role="tabpanel">
+    <img src="dogwatch-flow.svg" alt="Dogwatch State Machine: Real-time interactive prompt capture, autonomous PM relay, and Telegram human escalation" width="1200" height="470">
+    <p class="showcase-caption"><strong>Dogwatch Autonomous Sentinel:</strong> Continuously monitors agent windows, catches confirmations/questions, and relays them to the PM for autonomous answering or Telegram escalation.</p>
+  </div>
 </div>
 
 <section id="features">
@@ -307,9 +383,61 @@ footer .footer-links { display: flex; gap: 16px; align-items: center; }
   </div>
 </section>
 
+<section id="workflow" class="alt">
+  <div class="wrap">
+    <p class="eyebrow">Multi-Agent Workflow</p>
+    <h2 class="reveal">Structured collaboration between PM, Devs, QAs, and Docs.</h2>
+    <p class="sub reveal">Work Stack turns chaotic multi-agent prompts into a predictable software delivery pipeline with isolated tmux panes, automated ticket delegation, and autonomous sentinel supervision.</p>
+
+    <div class="role-matrix">
+      <div class="role-card reveal">
+        <span class="role-tag pm">PM (0:pm)</span>
+        <h4>Senior Project Manager</h4>
+        <p>Defines acceptance criteria, breaks down features, organizes backlog on Plane, assigns tickets to idle Devs, and acts as the sole human communication bridge via Telegram.</p>
+      </div>
+      <div class="role-card reveal">
+        <span class="role-tag dev">Dev (dev1, dev2...)</span>
+        <h4>Senior Developers</h4>
+        <p>Pick up Todo or Re-open tickets, work in isolated branches/panes, write unit and integration tests, and transition issues to Test upon passing local verification.</p>
+      </div>
+      <div class="role-card reveal">
+        <span class="role-tag qa">QA (qa1, qa2...)</span>
+        <h4>QA Engineers</h4>
+        <p>Test strictly issues in Test state with end-to-end runtime verification, browser DOM checks, and edge-case regression. Move issues to Done or bounce back to Re-open.</p>
+      </div>
+      <div class="role-card reveal">
+        <span class="role-tag doc">Doc (doc1)</span>
+        <h4>Technical Documentation</h4>
+        <p>Maintains project README, knowledge bases, architecture decision records (ADRs), API references, and public documentation sites perfectly aligned with releases.</p>
+      </div>
+      <div class="role-card reveal">
+        <span class="role-tag generic">Generic (agent1)</span>
+        <h4>Ad-Hoc &amp; Script Tasks</h4>
+        <p>Independent workers for benchmarking, migrations, dependency updates, and scratch debugging scripts that do not interfere with active sprint tickets.</p>
+      </div>
+    </div>
+
+    <div class="diagram-box reveal">
+      <div class="diagram-title">
+        <span>Multi-Agent Architecture &amp; Orchestration Topology</span>
+        <span>Interactive SVG Architecture</span>
+      </div>
+      <img src="workflow-orchestration.svg" alt="Work Multi-Agent Architecture Diagram" width="1200" height="520" loading="lazy">
+    </div>
+
+    <div class="diagram-box reveal" style="margin-top: 24px;">
+      <div class="diagram-title">
+        <span>Dogwatch Sentinel State Machine &amp; Autonomous PM Relay Loop</span>
+        <span>Reactive Watchdog Flow</span>
+      </div>
+      <img src="dogwatch-flow.svg" alt="Dogwatch State Machine Diagram" width="1200" height="470" loading="lazy">
+    </div>
+  </div>
+</section>
+
 <section id="novita">
   <div class="wrap">
-    <p class="eyebrow">What's New in v2.16.0</p>
+    <p class="eyebrow">What's New in v2.16.1</p>
     <h2 class="reveal">More powerful tools, fewer window switches.</h2>
     <p class="sub reveal">From autonomous PM relay and universal command palette to docked browser preview, agent fleet telemetry, and procedural cyberpunk audio.</p>
     <div class="grid">
@@ -463,6 +591,21 @@ npm run build    # bundle in src-tauri/target/release/bundle/</code></pre>
 </footer>
 
 <script>
+// Interactive showcase switcher
+document.querySelectorAll('.showcase-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.showcase-tab').forEach((t) => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.showcase-view').forEach((v) => v.classList.remove('active'));
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    const target = document.getElementById(tab.dataset.target);
+    if (target) target.classList.add('active');
+  });
+});
+
 // Border under the nav only once content actually runs under it.
 const nav = document.getElementById('nav');
 const onScroll = () => nav.classList.toggle('scrolled', scrollY > 4);

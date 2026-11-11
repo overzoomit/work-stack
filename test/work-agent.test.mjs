@@ -149,9 +149,12 @@ test('wait returns 0 when the shared state reaches the requested value', { skip:
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
-    await new Promise((r) => setTimeout(r, 300));
-    writeState(box, [{ ...windows()[0] }, { ...windows()[1], state: 'blocked', rule: 'codex-permission', prompt: { question: 'Proceed?' } }]);
+    const update = () => writeState(box, [{ ...windows()[0] }, { ...windows()[1], state: 'blocked', rule: 'codex-permission', prompt: { question: 'Proceed?' } }]);
+    await new Promise((r) => setTimeout(r, 400));
+    update();
+    const interval = setInterval(update, 200);
     const code = await new Promise((r) => child.once('exit', r));
+    clearInterval(interval);
     assert.equal(code, 0, stderr);
     assert.equal(stdout.trim(), 'qa1\tblocked');
   } finally {

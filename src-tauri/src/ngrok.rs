@@ -703,7 +703,7 @@ mod tests {
     fn an_agent_that_is_not_logged_in_fails_with_its_reason() {
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_ngrok(dir.path(), &format!(
-                "echo 'ERROR:  Instructions to install your authtoken' >&2\necho '{AUTH_FAILED}'\necho 'ERROR:  ERR_NGROK_4018' >&2\nexit 1"
+                "printf '%s\\n' 'ERROR:  Instructions to install your authtoken' >&2\nprintf '%s\\n' '{AUTH_FAILED}'\nprintf '%s\\n' 'ERROR:  ERR_NGROK_4018' >&2\nexit 1"
             ));
         let (t, _) = tunnels();
         let e = t

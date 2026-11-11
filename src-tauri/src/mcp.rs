@@ -494,7 +494,15 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         assert!(port_open(port));
         drop(listener);
-        assert!(!port_open(port));
+        let mut closed = false;
+        for _ in 0..50 {
+            if !port_open(port) {
+                closed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(closed, "port {port} did not close after listener drop");
         assert!(!endpoint_up(&format!("http://127.0.0.1:{port}")));
     }
 
