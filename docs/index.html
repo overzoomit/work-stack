@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Work Stack — Dashboard Desktop per Sviluppatori &amp; Agenti AI</title>
-<meta name="description" content="Dashboard desktop per sviluppatori che unifica gestione multi-progetto, orchestrazione tmux, Squadra Agenti AI, Git e monitoraggio sentinella Dogwatch. Nativa, leggera, in Rust.">
+<title>Work Stack — Dashboard Desktop per Sviluppatori &amp; Squadre Agenti AI</title>
+<meta name="description" content="Dashboard desktop per sviluppatori che unifica gestione multi-progetto, orchestrazione tmux, Squadra Agenti AI, browser docked, Smart Diff Lens, Fleet Analytics e monitoraggio sentinella Dogwatch. Nativa, leggera, in Rust.">
 <meta name="color-scheme" content="dark light">
 <meta property="og:title" content="Work Stack">
-<meta property="og:description" content="Orchestrazione tmux, Git e Squadra Agenti AI in un'unica dashboard desktop.">
+<meta property="og:description" content="Orchestrazione tmux, Git, Browser Docked e Squadra Agenti AI in un'unica dashboard desktop.">
 <meta property="og:image" content="screenshot.webp">
 <link rel="icon" href="icon.png">
 <script>document.documentElement.classList.add('js')</script>
@@ -108,7 +108,7 @@ h1 {
 }
 .hero .lead {
   font-size: clamp(1.25rem, 2.6vw, 1.75rem); line-height: 1.25; letter-spacing: -0.015em;
-  color: var(--muted); max-width: 720px; margin: 0 auto; font-weight: 500;
+  color: var(--muted); max-width: 760px; margin: 0 auto; font-weight: 500;
 }
 .hero .lead strong { color: var(--text); font-weight: 600; }
 .hero .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
@@ -214,6 +214,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
     <a class="brand" href="#"><img src="icon.png" alt="Icona Work Stack">Work Stack</a>
     <div class="links">
       <a href="#funzioni">Funzioni</a>
+      <a href="#novita">Novità v2.14.1</a>
       <a href="#prestazioni">Prestazioni</a>
       <a href="#download" class="cta btn small">Scarica</a>
     </div>
@@ -223,15 +224,15 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 <header class="hero wrap">
   <img class="icon" src="icon.png" alt="Icona di Work Stack" width="112" height="112">
   <h1>Work Stack.</h1>
-  <p class="lead"><strong>Orchestrazione tmux, Git e Squadra Agenti AI</strong> in un'unica finestra. Coordina PM, Dev e QA con sentinella Dogwatch, ponte remoto Telegram e strumenti completi per sviluppatori.</p>
+  <p class="lead"><strong>Orchestrazione tmux, Git, Browser Docked e Squadra Agenti AI</strong> in un'unica finestra. Coordina PM, Dev, QA e Doc con sentinella Dogwatch, ponte remoto Telegram Multi-PM e strumenti completi per sviluppatori.</p>
   <div class="actions">
     <a class="btn" id="hero-dl" href="#download">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>
       <span>Scarica</span>
     </a>
-    <a class="btn ghost" href="#funzioni">Scopri le funzioni</a>
+    <a class="btn ghost" href="#novita">Scopri le novità</a>
   </div>
-  <p class="meta" id="hero-meta">Gratis · macOS 11+ (Apple Silicon) e Linux (Ubuntu 22.04+, Arch, Fedora)</p>
+  <p class="meta" id="hero-meta">Versione 2.14.1 · gratis · macOS 11+ (Apple Silicon) e Linux (Ubuntu 22.04+, Arch, Fedora)</p>
 </header>
 
 <div class="shot reveal">
@@ -242,17 +243,17 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
   <div class="wrap">
     <p class="eyebrow">Funzioni</p>
     <h2 class="reveal">Tutto il progetto, in una sola finestra.</h2>
-    <p class="sub reveal">Ogni progetto è un tab con i suoi terminali, il suo albero e il suo stato git. Apri, sposti, fai commit e segui gli agenti senza cambiare app.</p>
+    <p class="sub reveal">Ogni progetto è un tab responsive con i suoi terminali, il suo albero e il suo stato git. Apri, sposti, fai commit e segui gli agenti senza cambiare app.</p>
     <div class="grid">
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">✦</span>
         <h3>Squadra Agenti AI</h3>
-        <p>Ruoli strutturati: PM unico (<code>0:pm</code>), Dev incrementali (<code>dev1</code>, <code>dev2</code>), QA multipli (<code>qa1</code>, <code>qa2</code>) e Agenti Generici. Avvio istantaneo e flag bypass permessi configurabile per singolo agente.</p>
+        <p>Ruoli strutturati: PM unico (<code>0:pm</code>), Dev incrementali (<code>dev1</code>, <code>dev2</code>), QA multipli (<code>qa1</code>, <code>qa2</code>), Doc e Agenti Generici. Avvio istantaneo e flag bypass permessi configurabile per singolo agente.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⌘</span>
         <h3>Orchestrazione tmux</h3>
-        <p>Adozione automatica delle sessioni di progetto, riaggancio immediato di tutte le finestre esistenti, riquadri terminale puliti senza status bar e detach controllato alla chiusura.</p>
+        <p>Adozione automatica delle sessioni di progetto, riaggancio immediato di tutte le finestre esistenti, split-pane orizzontale e verticale nativo, riquadri terminale puliti senza status bar e detach controllato alla chiusura.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">◉</span>
@@ -281,11 +282,72 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
       </article>
       <article class="card wide reveal">
         <h3>Ciclo Continuo &amp; Sentinella Plane-Dogwatch</h3>
-        <p>La sentinella autonoma <code>plane-dogwatch</code> collega il backlog Plane alle finestre tmux del progetto: delega Todo e Re-open prioritari ai Dev liberi, assegna la validazione al QA e notifica la chiusura al PM via Telegram.</p>
+        <p>La sentinella autonoma <code>plane-dogwatch</code> collega il backlog Plane alle finestre tmux del progetto: delega Todo e Re-open prioritari ai Dev liberi, assegna la validazione al QA e notifica la chiusura al PM via Telegram con tag <code>[progetto]</code> conforme a oz.</p>
         <div class="agents" aria-label="Agenti supportati">
           <span>Claude Code</span><span>Antigravity CLI</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span>
-          <span>Copilot CLI</span><span>Aider</span><span>Cursor Agent</span><span>Qwen Code</span><span>Goose</span>
+          <span>OpenCode su Ollama</span><span>Copilot CLI</span><span>Aider</span><span>Cursor Agent</span><span>Amp</span>
+          <span>Qwen Code</span><span>Goose</span>
         </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="novita">
+  <div class="wrap">
+    <p class="eyebrow">Novità v2.14.1</p>
+    <h2 class="reveal">Più strumenti, meno cambi di finestra.</h2>
+    <p class="sub reveal">Dalla palette universale al browser affiancato al codice, fino alla telemetria della flotta agenti e all'audio procedurale.</p>
+    <div class="grid">
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">⌨️</span>
+        <h3>Omni-Command Palette</h3>
+        <p>Premi <code>Ctrl+K</code> (<code>⌘K</code> su macOS) e navighi ovunque in un lampo: file, rami Git, agenti della squadra, ticket Plane e comandi rapidi di sistema con ricerca fuzzy istantanea.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🌐</span>
+        <h3>Docked Webview &amp; Live Browser</h3>
+        <p>Un browser leggero affiancato al codice: si apre da solo quando un dev server stampa un indirizzo locale (3000, 5173, 8080…), oppure dal pulsante Preview della barra Run. Viewport Desktop/Mobile, navigazione completa e snapshot PNG dello schermo per il QA.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🔍</span>
+        <h3>Smart Diff Lens</h3>
+        <p>Spiegazione automatica e deterministica delle modifiche Git nel visualizzatore diff, con file toccati, simboli introdotti e aree coinvolte, più generazione di messaggi di commit conformi a Conventional Commits.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🛸</span>
+        <h3>Mission Control Canvas</h3>
+        <p>Canvas a nodi interattivo in SVG reattivo della Squadra Agenti, con particelle animate che tracciano il flusso di lavoro, stato live dei task e focus sul terminale al clic.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">📊</span>
+        <h3>Fleet Analytics Dashboard</h3>
+        <p>Telemetria e KPI operativi in tempo reale: token consumati, stima dei costi per modello, tempo medio del ciclo Dev→QA→Done, tasso di passaggio QA al primo colpo e grafici SVG per monitorare l'efficienza della squadra.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">⏳</span>
+        <h3>Time-Machine &amp; Scrubber</h3>
+        <p>Scorri indietro nel tempo lo scrollback dei terminali tmux con uno scrubber visuale e apri una nuova finestra nella stessa cartella con lo snapshot scelto già nel contesto.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🔊</span>
+        <h3>Audio Cyberpunk &amp; Voice Notes</h3>
+        <p>Sintetizzatore sonoro procedurale (Web Audio API nativa) per notifiche ed eventi contestuali; le note vocali inviate al bot Telegram vengono scaricate nella cache dell'app e inoltrate al PM con il percorso da trascrivere.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🚨</span>
+        <h3>Centro Attenzioni "Needs You"</h3>
+        <p>Bacheca in primo piano nella Squadra Agenti che aggrega le conferme Dogwatch bloccate, permettendo di rispondere con un clic senza cercare il singolo terminale.</p>
+      </article>
+      <article class="card reveal">
+        <span class="glyph" aria-hidden="true">🔎</span>
+        <h3>Ricerca In-Buffer Terminale</h3>
+        <p>Trova testo al volo nello storico di xterm.js con <code>Ctrl+F</code>, evidenziazione concorrente delle corrispondenze e navigazione da tastiera.</p>
+      </article>
+      <article class="card wide reveal">
+        <span class="glyph" aria-hidden="true">✈</span>
+        <h3>Telegram Multi-Progetto &amp; Multi-PM (Standard oz)</h3>
+        <p>Un solo bot Telegram per governare tutti i progetti aperti in Work Stack. Routing flessibile con <code>/projects</code>, fissaggio con <code>/use &lt;progetto&gt;</code>, menzioni <code>@&lt;progetto&gt;</code>, routing intelligente via Reply e prefissatura automatica <code>[progetto]</code> conforme allo standard oz.</p>
       </article>
     </div>
   </div>
@@ -295,12 +357,12 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
   <div class="wrap">
     <p class="eyebrow">Prestazioni</p>
     <h2 class="reveal">Nativa. Leggera. Scritta in Rust.</h2>
-    <p class="sub reveal">Work usa Tauri 2 e la WebView del sistema. Terminali, git e watcher girano in un backend Rust, e il lavoro in background parte dagli eventi del file system, senza polling.</p>
+    <p class="sub reveal">Work usa Tauri 2 e la WebView del sistema. Terminali, git e watcher girano in un backend Rust: il monitoraggio del repository parte dagli eventi del file system, mentre Dogwatch e Plane-Dogwatch usano cicli brevi e leggeri.</p>
     <div class="stats">
       <div class="stat reveal"><div class="n">7,4 MB</div><div class="l">App installata</div><div class="c">sul disco, senza runtime incluso</div></div>
       <div class="stat reveal"><div class="n">3,5 MB</div><div class="l">Download</div><div class="c">il .dmg per macOS</div></div>
       <div class="stat reveal"><div class="n">~175 MB</div><div class="l">Memoria</div><div class="c">a riposo, con un progetto aperto</div></div>
-      <div class="stat reveal"><div class="n">1</div><div class="l">Dipendenza</div><div class="c">serve solo <code>git</code>: niente Node, niente Python</div></div>
+      <div class="stat reveal"><div class="n">889</div><div class="l">Test automatici</div><div class="c">486 Node + 403 Rust, più 3 test GitHub opzionali</div></div>
     </div>
     <p class="note">Misure su MacBook Air M4 (16 GB, macOS 26.6) con lo stesso codice dell'interfaccia, un progetto e un terminale aperti. La memoria è il footprint di tutti i processi dell'app, mediana di 3 avvii. Anche con <code>seq 1 1000000</code> in un terminale l'interfaccia resta fluida (frame più lungo 32–36 ms), grazie all'output a blocchi con controllo di flusso.</p>
   </div>
