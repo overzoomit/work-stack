@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Work Stack — Dashboard Desktop per Sviluppatori &amp; Squadre Agenti AI</title>
-<meta name="description" content="Dashboard desktop per sviluppatori che unifica gestione multi-progetto, orchestrazione tmux, Squadra Agenti AI, browser docked, Smart Diff Lens, Fleet Analytics e monitoraggio sentinella Dogwatch. Nativa, leggera, in Rust.">
+<title>Work Stack — Desktop Developer Workspace &amp; AI Agent Squad Orchestration</title>
+<meta name="description" content="Developer desktop dashboard uniting multi-project management, tmux orchestration, AI Agent Squad, docked browser, Smart Diff Lens, Fleet Analytics and Dogwatch sentinel monitoring. Native, lightweight, in Rust.">
 <meta name="color-scheme" content="dark light">
 <meta property="og:title" content="Work Stack">
-<meta property="og:description" content="Orchestrazione tmux, Git, Browser Docked e Squadra Agenti AI in un'unica dashboard desktop.">
+<meta property="og:description" content="tmux orchestration, Git, Docked Browser and AI Agent Squad in a single developer desktop workspace.">
 <meta property="og:image" content="screenshot.webp">
 <link rel="icon" href="icon.png">
 <script>document.documentElement.classList.add('js')</script>
@@ -74,14 +74,15 @@ nav {
   transition: border-color 200ms ease;
 }
 nav.scrolled { border-bottom-color: var(--line); }
-nav .wrap { display: flex; align-items: center; gap: 24px; height: 52px; }
+nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
 nav .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
 nav .brand img { width: 24px; height: 24px; }
-nav .links { display: flex; align-items: center; gap: 20px; margin-left: auto; font-size: 0.8125rem; }
+nav .links { display: flex; align-items: center; gap: 18px; margin-left: auto; font-size: 0.8125rem; }
 nav .links a { color: var(--muted); }
 nav .links a:hover { color: var(--text); text-decoration: none; }
 nav .links a.cta, nav .links a.cta:hover { color: #fff; }
-@media (max-width: 640px) { nav .links a:not(.cta) { display: none; } }
+nav .gh-star-nav { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 720px) { nav .links a:not(.cta):not(.gh-star-nav) { display: none; } }
 
 /* Buttons: feedback on press, instantly */
 .btn {
@@ -108,7 +109,7 @@ h1 {
 }
 .hero .lead {
   font-size: clamp(1.25rem, 2.6vw, 1.75rem); line-height: 1.25; letter-spacing: -0.015em;
-  color: var(--muted); max-width: 760px; margin: 0 auto; font-weight: 500;
+  color: var(--muted); max-width: 800px; margin: 0 auto; font-weight: 500;
 }
 .hero .lead strong { color: var(--text); font-weight: 600; }
 .hero .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
@@ -188,7 +189,8 @@ pre {
 }
 
 footer { padding: 40px 0 56px; color: var(--muted); font-size: 0.8125rem; border-top: 1px solid var(--line); }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; align-items: center; }
+footer .footer-links { display: flex; gap: 16px; align-items: center; }
 
 /* Enter once, gently. Opacity plus a short rise, never on reduced motion. */
 .js .reveal { opacity: 0; transform: translateY(16px); transition: opacity 600ms ease, transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1); }
@@ -211,81 +213,93 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 
 <nav id="nav">
   <div class="wrap">
-    <a class="brand" href="#"><img src="icon.png" alt="Icona Work Stack">Work Stack</a>
+    <a class="brand" href="#"><img src="icon.png" alt="Work Stack Icon">Work Stack</a>
     <div class="links">
-      <a href="#funzioni">Funzioni</a>
-      <a href="#novita">Novità v2.15.0</a>
-      <a href="#prestazioni">Prestazioni</a>
-      <a href="#download" class="cta btn small">Scarica</a>
+      <a href="#features">Features</a>
+      <a href="#novita">What's New</a>
+      <a href="#performance">Performance</a>
+      <a href="#download">Download</a>
+      <a class="btn small ghost gh-star-nav" href="https://github.com/overzoomit/work-stack" target="_blank" rel="noopener" title="Star on GitHub">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+        <span>Star</span>
+      </a>
+      <a href="#download" class="cta btn small">Get App</a>
     </div>
   </div>
 </nav>
 
 <header class="hero wrap">
-  <img class="icon" src="icon.png" alt="Icona di Work Stack" width="112" height="112">
+  <img class="icon" src="icon.png" alt="Work Stack Icon" width="112" height="112">
   <h1>Work Stack.</h1>
-  <p class="lead"><strong>Orchestrazione tmux, Git, Browser Docked e Squadra Agenti AI</strong> in un'unica finestra. Coordina PM, Dev, QA e Doc con sentinella Dogwatch, ponte remoto Telegram Multi-PM e strumenti completi per sviluppatori.</p>
+  <p class="lead"><strong>tmux orchestration, Git, Docked Browser, and AI Agent Squad</strong> in a single desktop window. Coordinate PM, Dev, QA, and Doc with Dogwatch watchdog, Telegram Multi-PM remote bridge, and complete developer tooling.</p>
   <div class="actions">
     <a class="btn" id="hero-dl" href="#download">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>
-      <span>Scarica</span>
+      <span>Download</span>
     </a>
-    <a class="btn ghost" href="#novita">Scopri le novità</a>
+    <a class="btn ghost" href="https://github.com/overzoomit/work-stack" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+      <span>GitHub Repository</span>
+    </a>
+    <a class="btn ghost" href="https://github.com/overzoomit/work-stack" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+      <span>Star on GitHub</span>
+    </a>
   </div>
-  <p class="meta" id="hero-meta">Versione 2.15.0 · gratis · macOS 11+ (Apple Silicon) e Linux (Ubuntu 22.04+, Arch, Fedora)</p>
+  <p class="meta" id="hero-meta">Version 2.16.0 · Free · macOS 11+ (Apple Silicon) and Linux (Ubuntu 22.04+, Arch, Fedora)</p>
 </header>
 
 <div class="shot reveal">
-  <img src="screenshot.webp" alt="La finestra di Work Stack: a sinistra sidebar accordion con Squadra Agenti, al centro la griglia terminali tmux con PM Antigravity, Dev1 Claude Code, Dev2 OpenCode e QA Codex, in alto il diodo LED Live verde acceso" width="1920" height="1047">
+  <img src="screenshot.webp" alt="Work Stack window: accordion sidebar on the left with Agent Squad, tmux terminal grid in the center with PM Antigravity, Dev1 Claude Code, Dev2 OpenCode and QA Codex, Live LED indicator on top" width="1920" height="1047">
 </div>
 
-<section id="funzioni">
+<section id="features">
   <div class="wrap">
-    <p class="eyebrow">Funzioni</p>
-    <h2 class="reveal">Tutto il progetto, in una sola finestra.</h2>
-    <p class="sub reveal">Ogni progetto è un tab responsive con i suoi terminali, il suo albero e il suo stato git. Apri, sposti, fai commit e segui gli agenti senza cambiare app.</p>
+    <p class="eyebrow">Features</p>
+    <h2 class="reveal">Your entire project, in a single window.</h2>
+    <p class="sub reveal">Every project is a responsive tab with its own terminals, file tree, and Git state. Open, split, commit, and monitor agents without context switching.</p>
     <div class="grid">
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">✦</span>
-        <h3>Squadra Agenti AI</h3>
-        <p>Ruoli strutturati: PM unico (<code>0:pm</code>), Dev incrementali (<code>dev1</code>, <code>dev2</code>), QA multipli (<code>qa1</code>, <code>qa2</code>), Doc e Agenti Generici. Avvio istantaneo e flag bypass permessi configurabile per singolo agente.</p>
+        <h3>AI Agent Squad</h3>
+        <p>Structured roles: Single PM (<code>0:pm</code>), incremental Devs (<code>dev1</code>, <code>dev2</code>), multiple QAs (<code>qa1</code>, <code>qa2</code>), Doc, and Generic agents. Instant launcher with per-agent permission bypass toggle.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⌘</span>
-        <h3>Orchestrazione tmux</h3>
-        <p>Adozione automatica delle sessioni di progetto, riaggancio immediato di tutte le finestre esistenti, split-pane orizzontale e verticale nativo, riquadri terminale puliti senza status bar e detach controllato alla chiusura.</p>
+        <h3>tmux Orchestration</h3>
+        <p>Automatic project session adoption, instant re-attach of all existing windows, native horizontal/vertical split-pane, clean status-bar-free terminal panes, and graceful detach on exit.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">◉</span>
-        <h3>Sentinella Dogwatch &amp; LED Live</h3>
-        <p>Rilevamento intelligente di conferme (<code>[y/N]</code>, scelte, prompt) senza falsi positivi dai log. Diodo luminoso in topbar: Verde brillante (Live), Grigio (Off) o Arancione pulsante (Escalation).</p>
+        <h3>Dogwatch Watchdog &amp; Live LED</h3>
+        <p>Intelligent interactive prompt detection (<code>[y/N]</code>, choices, question prompts) without false positives from build logs. Topbar LED diode: Bright Green (Live), Grey (Off), or Pulsing Orange (Escalation).</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">✈</span>
-        <h3>Ponte Telegram (PM-Only)</h3>
-        <p>Ricevi escalation e rispondi direttamente dal tuo smartphone via bot Telegram con configurazione guidata <code>@BotFather</code>. Canale isolato e rigorosamente riservato al PM.</p>
+        <h3>Telegram Bridge (PM-Only)</h3>
+        <p>Receive escalations and reply directly from your smartphone via Telegram bot with guided <code>@BotFather</code> setup. Isolated channel strictly reserved for the PM.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">▤</span>
-        <h3>Layout Accordion VS Code</h3>
-        <p>Sidebar a colonna singola con sezioni espandibili: Agenti (sessioni e transcript), Project (albero con anteprima Markdown/HTML), Changes, Graph interattivo, GitHub e Run.</p>
+        <h3>VS Code Accordion Layout</h3>
+        <p>Single-column sidebar with collapsible accordion sections: Agents (sessions and transcripts), Project (tree with Markdown/HTML preview), Changes, interactive Graph, GitHub, and Run.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⎇</span>
-        <h3>Git Completo &amp; Diff Accurato</h3>
-        <p>Stage, commit (anche amend), branch, stash, fetch, pull e push. Graph visivo dei rami e diff affiancato o unificato che evidenzia ogni singola parola cambiata.</p>
+        <h3>Full Git &amp; Precise Diff</h3>
+        <p>Stage, commit (including amend), branch, stash, fetch, pull, and push. Visual branch graph and side-by-side or unified diff highlighting every changed word.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⚡</span>
-        <h3>Browser &amp; Strumenti MCP</h3>
-        <p>Preservazione delle variabili grafiche per Firefox DevTools, Chrome Remote Debugging (porta 9222) e connettori Model Context Protocol per agenti avanzati.</p>
+        <h3>Browser &amp; MCP Tools</h3>
+        <p>Graphic environment preservation for Firefox DevTools, Chrome Remote Debugging (port 9222), and Model Context Protocol connectors for advanced agents.</p>
       </article>
       <article class="card wide reveal">
-        <h3>Ciclo Continuo &amp; Sentinella Plane-Dogwatch</h3>
-        <p>La sentinella autonoma <code>plane-dogwatch</code> collega il backlog Plane alle finestre tmux del progetto: delega Todo e Re-open prioritari ai Dev liberi, assegna la validazione al QA e notifica la chiusura al PM via Telegram con tag <code>[progetto]</code> conforme a oz.</p>
-        <div class="agents" aria-label="Agenti supportati">
+        <h3>Continuous Cycle &amp; Plane-Dogwatch Sentinel</h3>
+        <p>The autonomous <code>plane-dogwatch</code> daemon connects your Plane backlog to project tmux windows: delegates priority Todo and Re-open tickets to idle Devs, assigns validation to QA, and notifies completion to PM via Telegram with standard <code>[project]</code> tags.</p>
+        <div class="agents" aria-label="Supported agents">
           <span>Claude Code</span><span>Antigravity CLI</span><span>Codex</span><span>Gemini CLI</span><span>OpenCode</span>
-          <span>OpenCode su Ollama</span><span>Copilot CLI</span><span>Aider</span><span>Cursor Agent</span><span>Amp</span>
+          <span>OpenCode on Ollama</span><span>Copilot CLI</span><span>Aider</span><span>Cursor Agent</span><span>Amp</span>
           <span>Qwen Code</span><span>Goose</span>
         </div>
       </article>
@@ -295,101 +309,101 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
 
 <section id="novita">
   <div class="wrap">
-    <p class="eyebrow">Novità v2.15.0</p>
-    <h2 class="reveal">Più strumenti, meno cambi di finestra.</h2>
-    <p class="sub reveal">Dalla risposta autonoma del PM e relay Dogwatch alla palette universale, fino al browser docked e alla telemetria della flotta agenti.</p>
+    <p class="eyebrow">What's New in v2.16.0</p>
+    <h2 class="reveal">More powerful tools, fewer window switches.</h2>
+    <p class="sub reveal">From autonomous PM relay and universal command palette to docked browser preview, agent fleet telemetry, and procedural cyberpunk audio.</p>
     <div class="grid">
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🤖</span>
         <h3>Dogwatch PM Autonomous Relay</h3>
-        <p>Quando un agente (Dev, QA, Doc) si blocca su una domanda o permesso, Dogwatch la inoltra istantaneamente al terminale del PM (<code>0:pm</code>) appena è inattivo. Il PM può rispondere in autonomia oppure scalare all'utente via Telegram bot bidirezionale.</p>
+        <p>When a worker agent (Dev, QA, Doc) blocks on a prompt or question, Dogwatch immediately relays it to the PM terminal (<code>0:pm</code>) as soon as it is idle. The PM can answer autonomously or escalate to the human user via bidirectional Telegram bot.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⌨️</span>
         <h3>Omni-Command Palette</h3>
-        <p>Premi <code>Ctrl+K</code> (<code>⌘K</code> su macOS) e navighi ovunque in un lampo: file, rami Git, agenti della squadra, ticket Plane e comandi rapidi di sistema con ricerca fuzzy istantanea.</p>
+        <p>Press <code>Ctrl+K</code> (<code>⌘K</code> on macOS) to instantly navigate anywhere: project files, Git branches, squad agents, Plane tickets, and system quick actions with instant fuzzy search.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🌐</span>
         <h3>Docked Webview &amp; Live Browser</h3>
-        <p>Un browser leggero affiancato al codice: si apre da solo quando un dev server stampa un indirizzo locale (3000, 5173, 8080…), oppure dal pulsante Preview della barra Run. Viewport Desktop/Mobile, navigazione completa e snapshot PNG dello schermo per il QA.</p>
+        <p>A lightweight browser docked alongside your code: launches automatically when a dev server prints a local address (3000, 5173, 8080…), or from the Run bar Preview button. Desktop/Mobile viewports, full navigation, and 1-click PNG QA screenshots.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🔍</span>
         <h3>Smart Diff Lens</h3>
-        <p>Spiegazione automatica e deterministica delle modifiche Git nel visualizzatore diff, con file toccati, simboli introdotti e aree coinvolte, più generazione di messaggi di commit conformi a Conventional Commits.</p>
+        <p>Automatic, deterministic Git diff analysis in the changes viewer: summarizes touched files, added/removed lines, introduced symbols, and affected areas, plus 1-click Conventional Commits message generation.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🛸</span>
         <h3>Mission Control Canvas</h3>
-        <p>Canvas a nodi interattivo in SVG reattivo della Squadra Agenti, con particelle animate che tracciano il flusso di lavoro, stato live dei task e focus sul terminale al clic.</p>
+        <p>Interactive SVG node canvas of the Agent Squad, featuring animated particle flows tracking task transitions, real-time status (idle, working, blocked), and click-to-terminal focus.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">📊</span>
         <h3>Fleet Analytics Dashboard</h3>
-        <p>Telemetria e KPI operativi in tempo reale: token consumati, stima dei costi per modello, tempo medio del ciclo Dev→QA→Done, tasso di passaggio QA al primo colpo e grafici SVG per monitorare l'efficienza della squadra.</p>
+        <p>Real-time operational telemetry and KPIs: token usage, cost estimation by model, average Dev→QA→Done cycle times, first-pass QA success rate, and native SVG sparklines.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">⏳</span>
         <h3>Time-Machine &amp; Scrubber</h3>
-        <p>Scorri indietro nel tempo lo scrollback dei terminali tmux con uno scrubber visuale e apri una nuova finestra nella stessa cartella con lo snapshot scelto già nel contesto.</p>
+        <p>Travel back in time through tmux scrollback history with a visual slider and fork any historical snapshot into a new terminal window.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🔊</span>
-        <h3>Audio Cyberpunk &amp; Voice Notes</h3>
-        <p>Sintetizzatore sonoro procedurale (Web Audio API nativa) per notifiche ed eventi contestuali; le note vocali inviate al bot Telegram vengono scaricate nella cache dell'app e inoltrate al PM con il percorso da trascrivere.</p>
+        <h3>Cyberpunk Audio &amp; Voice Notes</h3>
+        <p>Procedural synthesizer (native Web Audio API) for contextual sound cues and event notifications; Telegram voice notes sent to the bot are cached and passed to the PM with the audio path ready for transcription.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🚨</span>
-        <h3>Centro Attenzioni "Needs You"</h3>
-        <p>Bacheca in primo piano nella Squadra Agenti che aggrega le conferme Dogwatch bloccate, permettendo di rispondere con un clic senza cercare il singolo terminale.</p>
+        <h3>"Needs You" Attention Center</h3>
+        <p>Squad panel spotlight that aggregates pending Dogwatch prompts, enabling 1-click quick answers or custom responses without searching individual windows.</p>
       </article>
       <article class="card reveal">
         <span class="glyph" aria-hidden="true">🔎</span>
-        <h3>Ricerca In-Buffer Terminale</h3>
-        <p>Trova testo al volo nello storico di xterm.js con <code>Ctrl+F</code>, evidenziazione concorrente delle corrispondenze e navigazione da tastiera.</p>
+        <h3>In-Buffer Terminal Search</h3>
+        <p>Instant search across xterm.js scrollback buffer with <code>Ctrl+F</code>, concurrent match highlighting, occurrence counters, and keyboard navigation.</p>
       </article>
       <article class="card wide reveal">
         <span class="glyph" aria-hidden="true">✈</span>
-        <h3>Telegram Multi-Progetto &amp; Multi-PM (Standard oz)</h3>
-        <p>Un solo bot Telegram per governare tutti i progetti aperti in Work Stack. Routing flessibile con <code>/projects</code>, fissaggio con <code>/use &lt;progetto&gt;</code>, menzioni <code>@&lt;progetto&gt;</code>, routing intelligente via Reply e prefissatura automatica <code>[progetto]</code> conforme allo standard oz.</p>
+        <h3>Multi-Project &amp; Multi-PM Telegram Bridge (oz-standard)</h3>
+        <p>Single Telegram bot managing all open Work Stack projects. Flexible routing with <code>/projects</code>, target pinning via <code>/use &lt;project&gt;</code>, <code>@&lt;project&gt;</code> mentions, reply-to thread routing, and automatic <code>[project]</code> prefixes.</p>
       </article>
     </div>
   </div>
 </section>
 
-<section id="prestazioni" class="alt">
+<section id="performance" class="alt">
   <div class="wrap">
-    <p class="eyebrow">Prestazioni</p>
-    <h2 class="reveal">Nativa. Leggera. Scritta in Rust.</h2>
-    <p class="sub reveal">Work usa Tauri 2 e la WebView del sistema. Terminali, git e watcher girano in un backend Rust: il monitoraggio del repository parte dagli eventi del file system, mentre Dogwatch e Plane-Dogwatch usano cicli brevi e leggeri.</p>
+    <p class="eyebrow">Performance</p>
+    <h2 class="reveal">Native. Lightweight. Crafted in Rust.</h2>
+    <p class="sub reveal">Work Stack pairs Tauri 2 with system WebView. Terminals, Git operations, and watchers run on a high-efficiency Rust backend: repository monitoring leverages native filesystem events, while Dogwatch and Plane-Dogwatch run non-blocking, lightweight polling cycles.</p>
     <div class="stats">
-      <div class="stat reveal"><div class="n">7,4 MB</div><div class="l">App installata</div><div class="c">sul disco, senza runtime incluso</div></div>
-      <div class="stat reveal"><div class="n">3,5 MB</div><div class="l">Download</div><div class="c">il .dmg per macOS</div></div>
-      <div class="stat reveal"><div class="n">~175 MB</div><div class="l">Memoria</div><div class="c">a riposo, con un progetto aperto</div></div>
-      <div class="stat reveal"><div class="n">889</div><div class="l">Test automatici</div><div class="c">486 Node + 403 Rust, più 3 test GitHub opzionali</div></div>
+      <div class="stat reveal"><div class="n">7.4 MB</div><div class="l">Installed App</div><div class="c">on disk, no bundled runtime</div></div>
+      <div class="stat reveal"><div class="n">3.5 MB</div><div class="l">Download</div><div class="c">macOS .dmg image</div></div>
+      <div class="stat reveal"><div class="n">~175 MB</div><div class="l">Memory</div><div class="c">at idle, with an open project</div></div>
+      <div class="stat reveal"><div class="n">905</div><div class="l">Automated Tests</div><div class="c">492 Node + 413 Rust unit/integration tests</div></div>
     </div>
-    <p class="note">Misure su MacBook Air M4 (16 GB, macOS 26.6) con lo stesso codice dell'interfaccia, un progetto e un terminale aperti. La memoria è il footprint di tutti i processi dell'app, mediana di 3 avvii. Anche con <code>seq 1 1000000</code> in un terminale l'interfaccia resta fluida (frame più lungo 32–36 ms), grazie all'output a blocchi con controllo di flusso.</p>
+    <p class="note">Benchmarks measured on MacBook Air M4 (16 GB, macOS 26.6) with single project and terminal open. Memory reflects full multi-process footprint (median of 3 launches). Even under intense output streams like <code>seq 1 1000000</code>, UI remains silky smooth (peak frame delay 32–36 ms) thanks to chunked backpressure flow control.</p>
   </div>
 </section>
 
 <section id="download">
   <div class="wrap">
     <p class="eyebrow">Download</p>
-    <h2 class="reveal">Scarica Work Stack.</h2>
-    <p class="sub reveal">Gratis, per macOS e Linux. Requisito base <code>git</code> (e <code>tmux</code> per l'orchestrazione terminali).</p>
+    <h2 class="reveal">Get Work Stack.</h2>
+    <p class="sub reveal">Free for macOS and Linux. Base requirement is <code>git</code> (and <code>tmux</code> for terminal orchestration).</p>
     <div class="dl">
       <article class="card reveal" data-os="mac">
         <div class="os">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.62-1.7-3.19-1.72-1.36-.14-2.65.8-3.34.8-.69 0-1.75-.78-2.88-.76-1.48.02-2.85.86-3.61 2.19-1.54 2.67-.39 6.62 1.1 8.79.73 1.06 1.6 2.25 2.74 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.08 2.65-2.14.84-1.23 1.18-2.42 1.2-2.48-.03-.01-2.3-.88-2.32-3.5ZM14.2 6.13c.6-.74 1.01-1.76.9-2.78-.87.04-1.93.58-2.55 1.31-.56.65-1.05 1.69-.92 2.69.97.07 1.96-.49 2.57-1.22Z"/></svg>
-          <h3>macOS <small>11 Big Sur o successivo · Apple Silicon</small></h3>
+          <h3>macOS <small>11 Big Sur or later · Apple Silicon</small></h3>
         </div>
         <div class="files">
-          <a class="file" data-ext=".dmg" href="https://github.com/overzoomit/work-stack/releases/latest"><b>Work.dmg</b><span>Immagine disco</span></a>
+          <a class="file" data-ext=".dmg" href="https://github.com/overzoomit/work-stack/releases/latest"><b>Work.dmg</b><span>Disk image</span></a>
         </div>
         <details>
-          <summary>Al primo avvio macOS lo blocca?</summary>
-          <p>Work Stack è firmato, ma non ancora notarizzato da Apple, quindi Gatekeeper lo blocca al primo avvio. Apri <b>Impostazioni di Sistema → Privacy e sicurezza</b> e scegli <b>Apri comunque</b>. In alternativa, dal Terminale: <code>xattr -dr com.apple.quarantine /Applications/Work.app</code></p>
+          <summary>First launch blocked by macOS?</summary>
+          <p>Work Stack is signed, but not yet notarized by Apple, so Gatekeeper may block it on first launch. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>. Alternatively, from Terminal: <code>xattr -dr com.apple.quarantine /Applications/Work.app</code></p>
         </details>
       </article>
       <article class="card reveal" data-os="linux">
@@ -398,46 +412,53 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: 
           <h3>Linux <small>x86_64 · Ubuntu 22.04+, Fedora, Arch</small></h3>
         </div>
         <div class="files">
-          <a class="file" data-ext=".AppImage" href="https://github.com/overzoomit/work-stack/releases/latest"><b>AppImage</b><span>Qualsiasi distribuzione</span></a>
+          <a class="file" data-ext=".AppImage" href="https://github.com/overzoomit/work-stack/releases/latest"><b>AppImage</b><span>Any distribution</span></a>
           <a class="file" data-ext=".deb" href="https://github.com/overzoomit/work-stack/releases/latest"><b>.deb</b><span>Debian, Ubuntu</span></a>
           <a class="file" data-ext=".rpm" href="https://github.com/overzoomit/work-stack/releases/latest"><b>.rpm</b><span>Fedora, openSUSE</span></a>
           <a class="file" href="https://github.com/overzoomit/work-stack/tree/main/packaging/arch"><b>PKGBUILD</b><span>Arch Linux</span></a>
         </div>
         <details>
-          <summary>Dipendenze</summary>
-          <p>Serve webkit2gtk-4.1, già presente su Ubuntu 22.04 e successive. I pacchetti .deb e .rpm installano <code>git</code> da soli.</p>
+          <summary>Dependencies</summary>
+          <p>Requires webkit2gtk-4.1, pre-installed on Ubuntu 22.04 and later. The .deb and .rpm packages install <code>git</code> automatically.</p>
         </details>
         <details>
           <summary>Arch Linux</summary>
-          <p>Il PKGBUILD reimpacchetta il .deb della release e usa la WebKitGTK di sistema:</p>
+          <p>The PKGBUILD repacks the release .deb and uses system WebKitGTK:</p>
           <pre><code>git clone https://github.com/overzoomit/work-stack.git
 cd work-stack/packaging/arch
 makepkg -si</code></pre>
-          <p>Se la finestra resta bianca (NVIDIA, Wayland), avvia con <code>WEBKIT_DISABLE_DMABUF_RENDERER=1 work</code>.</p>
+          <p>If the window stays blank (NVIDIA, Wayland), launch with <code>WEBKIT_DISABLE_DMABUF_RENDERER=1 work</code>.</p>
         </details>
       </article>
     </div>
-    <p class="release" id="release">Tutte le versioni sono su <a href="https://github.com/overzoomit/work-stack/releases">GitHub Releases</a>.</p>
+    <p class="release" id="release">All releases are available on <a href="https://github.com/overzoomit/work-stack/releases">GitHub Releases</a>.</p>
   </div>
 </section>
 
-<section class="alt">
+<section class="alt" id="source">
   <div class="wrap">
-    <p class="eyebrow">Dal sorgente</p>
-    <h2 class="reveal">Compilalo da te.</h2>
-    <p class="sub reveal">Servono Node 22+, Rust stable e <code>git</code>. Su Linux servono anche le librerie di sviluppo di WebKitGTK.</p>
+    <p class="eyebrow">From Source</p>
+    <h2 class="reveal">Build it yourself.</h2>
+    <p class="sub reveal">Requires Node 22+, Rust stable, and <code>git</code>. Linux also requires WebKitGTK development packages.</p>
     <pre class="reveal"><code>git clone https://github.com/overzoomit/work-stack.git
 cd work-stack
 npm install
-npm run dev      # avvia in sviluppo
-npm run build    # installer in src-tauri/target/release/bundle/</code></pre>
+npm run dev      # run in development
+npm run build    # bundle in src-tauri/target/release/bundle/</code></pre>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
     <span>Work Stack · Overzoom</span>
-    <span><a href="https://github.com/overzoomit/work-stack">Codice sorgente</a> · <a href="https://github.com/overzoomit/work-stack/releases">Versioni</a></span>
+    <div class="footer-links">
+      <a href="https://github.com/overzoomit/work-stack" target="_blank" rel="noopener">GitHub Repository</a>
+      <a href="https://github.com/overzoomit/work-stack/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/overzoomit/work-stack" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+        <span>Star</span>
+      </a>
+    </div>
   </div>
 </footer>
 
@@ -468,7 +489,7 @@ if (card) {
 fetch('https://api.github.com/repos/overzoomit/work-stack/releases/latest')
   .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
   .then((rel) => {
-    const mb = (b) => (b / 1e6).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' MB';
+    const mb = (b) => (b / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' MB';
     document.querySelectorAll('.file[data-ext]').forEach((a) => {
       const asset = rel.assets.find((x) => x.name.endsWith(a.dataset.ext));
       if (!asset) return;
@@ -477,13 +498,13 @@ fetch('https://api.github.com/repos/overzoomit/work-stack/releases/latest')
     });
     const v = rel.tag_name.replace(/^v/, '');
     document.getElementById('release').innerHTML =
-      `Versione ${v} · <a href="${rel.html_url}">note di rilascio</a> · <a href="https://github.com/overzoomit/work-stack/releases">tutte le versioni</a>`;
+      `Version ${v} · <a href="${rel.html_url}">release notes</a> · <a href="https://github.com/overzoomit/work-stack/releases">all versions</a>`;
     const main = card && card.querySelector('.file');
     if (main && main.href.includes('/download/')) {
       const hero = document.getElementById('hero-dl');
       hero.href = main.href;
-      hero.querySelector('span').textContent = os === 'mac' ? 'Scarica per macOS' : 'Scarica AppImage';
-      document.getElementById('hero-meta').textContent = `Versione ${v} · gratis · ${os === 'mac' ? 'macOS 11+, Apple Silicon' : 'Linux x86_64'}`;
+      hero.querySelector('span').textContent = os === 'mac' ? 'Download for macOS' : 'Download AppImage';
+      document.getElementById('hero-meta').textContent = `Version ${v} · Free · ${os === 'mac' ? 'macOS 11+, Apple Silicon' : 'Linux x86_64'}`;
     }
   })
   .catch(() => {});
