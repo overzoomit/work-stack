@@ -20,7 +20,15 @@ case "$1" in
   capture-pane)
     case "$*" in
       *:pm*) if [ "$PM_BLOCKED" = 1 ]; then printf 'Continue? [y/N]\\n'; else printf 'waiting for the next task\\n'; fi ;;
-      *:dev1*) if [ "$DEV1_BLOCKED" = 1 ]; then printf 'Do you want to proceed?\\n❯ 1. Yes\\n  2. No\\n'; else printf 'running the suite\\n'; fi ;;
+      *:dev1*)
+        if [ "$DEV1_BLOCKED" = 1 ]; then
+          printf 'Do you want to proceed?\\n❯ 1. Yes\\n  2. No\\n';
+        elif [ "$DEV1_QUESTION_PROMPT" = 1 ]; then
+          printf 'Task complete. Should I write unit tests for the changes?\\n❯ \\n';
+        else
+          printf 'running the suite\\n';
+        fi
+        ;;
     esac
     ;;
   display-message) printf 'work_test\\n' ;;
@@ -120,6 +128,23 @@ test('senza --relay-pm il PM non riceve nulla e le voci restano con relayed_to_p
     assert.equal(out.pending[0].relayed_to_pm, false);
     assert.equal(pmSends(box).length, 0);
     assert.equal(existsSync(box.relayFile), false);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('una domanda aperta con cursore interattivo sulla riga finale viene estratta e inoltrata al PM', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = run(box, { DEV1_QUESTION_PROMPT: '1' }, ['--relay-pm']);
+    assert.equal(out.pending.length, 1);
+    assert.equal(out.pending[0].target, 'dev1');
+    assert.equal(out.pending[0].relayed_to_pm, true);
+    assert.equal(out.pending[0].prompt_type, 'question');
+    assert.match(out.pending[0].question, /Should I write unit tests/);
+    const [sent] = pmSends(box);
+    assert.ok(sent);
+    assert.match(sent, /Should I write unit tests/);
   } finally {
     box.cleanup();
   }

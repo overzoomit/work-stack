@@ -10,7 +10,7 @@ una squadra orchestrata di agenti AI, browser docked, Git/GitHub, Fleet Analytic
 </p>
 
 <p>
-  <a href="https://github.com/overzoomit/work-stack/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.14.1-7c3aed?style=flat-square"></a>
+  <a href="https://github.com/overzoomit/work-stack/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.15.0-7c3aed?style=flat-square"></a>
   <img alt="Rust 2021" src="https://img.shields.io/badge/Rust-2021-dea584?style=flat-square&logo=rust&logoColor=white">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Linux and macOS" src="https://img.shields.io/badge/Linux%20%C2%B7%20macOS-supported-0ea5e9?style=flat-square&logo=linux&logoColor=white">
@@ -262,7 +262,7 @@ Sidebar a colonna singola con sezioni **accordion** in stile VS Code, tutte rich
 | **Time-Machine** | Scrubber dello scrollback terminale con snapshot timeline e fork sessione tmux | ✅ |
 | **Audio Cyberpunk** | Sintetizzatore procedurale eventi, notifiche sonore e note vocali Telegram inoltrate al PM | ✅ |
 | **Telegram Multi-PM**| Controllo multi-progetto, comandi `/projects` e `/use`, reply tracking e tag oz | ✅ |
-| **Dogwatch** | Manifesti TOML, LED Live/Blocked/Off, escalation, risposta da app/CLI/Telegram | ✅ |
+| **Dogwatch & PM Relay** | Manifesti TOML, LED Live/Blocked/Off, relay automatico al PM (`0:pm`) idle con risposta autonoma o inoltro Telegram | ✅ |
 | **Plane-Dogwatch** | Delega autonoma ticket Plane, sincronizzazione bidirezionale, lock condiviso | ✅ |
 | **work-agent** | CLI inter-agente (`list`, `prompt`, `wait`, `read`) con reset per OpenCode | ✅ |
 | **Albero file** | Preview Markdown/HTML sanificata, editing UTF-8, ricerca fuzzy e grep | ✅ |
@@ -273,7 +273,7 @@ Sidebar a colonna singola con sezioni **accordion** in stile VS Code, tutte rich
 | **Settings Modal** | Modale centralizzato con tab Plane, Jev, Environment, Audio e Portability, API key salvate in un file leggibile solo dall'utente | ✅ |
 | **Estetica** | 10 temi, dimensione testo, cursore, materiali traslucidi, icona nativa | ✅ |
 
-> ✅ = stabile nella release **v2.14.1**.
+> ✅ = stabile nella release **v2.15.0**.
 
 ### Scorciatoie da tastiera
 

@@ -427,8 +427,9 @@ fn take_region(region: &Region, capture: &str) -> String {
         }
         Region::LastNonEmptyLine => capture
             .lines()
+            .map(trim_box)
             .rev()
-            .find(|line| !line.trim().is_empty())
+            .find(|line| !line.trim().is_empty() && !is_input_marker(line))
             .unwrap_or("")
             .to_string(),
         Region::PromptBlock => prompt_block(capture),
@@ -517,7 +518,27 @@ fn bare_flag(line: &str) -> bool {
     })
 }
 
-// What a prompt keeps drawn around its question: options, key hints, borders.
+// Lines that only contain an interactive prompt symbol or input placeholder:
+// ❯, >, $, %, #, ›, or "Chat ·", etc.
+pub fn is_input_marker(line: &str) -> bool {
+    let s = trim_box(line).trim();
+    if s.is_empty() {
+        return false;
+    }
+    if s == "❯" || s == ">" || s == "$" || s == "%" || s == "#" || s == "›" {
+        return true;
+    }
+    let lower = s.to_lowercase();
+    if lower == "ask anything..." || lower == "chat ·" || lower == "build ·" {
+        return true;
+    }
+    if s.chars().count() <= 3 && s.starts_with(['❯', '>', '$', '%', '#', '›']) {
+        return true;
+    }
+    false
+}
+
+// What a prompt keeps drawn around its question: options, key hints, borders, input markers.
 fn is_chrome(line: &str) -> bool {
     let lower = trim_box(line).to_lowercase();
     let hint = [
@@ -529,6 +550,7 @@ fn is_chrome(line: &str) -> bool {
     ];
     numbered_option(line).is_some()
         || bare_flag(line)
+        || is_input_marker(line)
         || lower.chars().all(|c| "╭╰╮╯─┌└┐┘".contains(c))
         || hint.iter().any(|h| lower.contains(h))
 }
@@ -1513,6 +1535,21 @@ mod tests {
         assert!(text.contains("tmux-dogwatch.py answer dev1"));
         assert!(text.contains("telegram-pm.py send"));
         assert!(text.contains("Opzioni: Yes | No"));
+    }
+
+    #[test]
+    fn open_question_with_cursor_marker_on_last_line_is_extracted() {
+        let capture =
+            "Everything compiled successfully. Do you want me to commit and push the changes?\n❯ ";
+        let classification = classified("claude", capture);
+        assert_eq!(classification.state, AgentState::Blocked);
+        assert_eq!(classification.prompt_type, Some(PromptType::Question));
+        let p = parse_prompt(capture).expect("a prompt");
+        assert_eq!(p.prompt_type, PromptType::Question);
+        assert_eq!(
+            p.question,
+            "Everything compiled successfully. Do you want me to commit and push the changes?"
+        );
     }
 
     fn wait_for(what: &str, mut done: impl FnMut() -> bool) {

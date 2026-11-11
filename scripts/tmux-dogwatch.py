@@ -161,8 +161,31 @@ PROMPT_CHROME = re.compile(
 BOX_EDGE = re.compile(r"^[ \t│]+(?=\S)|[ \t│]+$")
 
 
+INPUT_MARKER = re.compile(
+    r"^\s*(?:[│|┃]\s*)?(?:[>❯›$#%]|(?:\? )|(?:Build|Ask|Chat)\s*·)\s*$",
+    re.IGNORECASE,
+)
+
+
+def is_input_marker(line: str) -> bool:
+    line = line.strip().strip("│|┃").strip()
+    if not line:
+        return False
+    if line in {"❯", ">", "$", "%", "#", "›"}:
+        return True
+    if len(line) <= 3 and line[0] in {"❯", ">", "$", "%", "#", "›"}:
+        return True
+    lower = line.lower()
+    return lower in {"ask anything...", "chat ·", "build ·"} or bool(INPUT_MARKER.match(line))
+
+
 def is_prompt_chrome(line: str) -> bool:
-    return bool(NUMBERED_OPTION.match(line) or BARE_FLAG.match(line) or PROMPT_CHROME.search(line))
+    return bool(
+        NUMBERED_OPTION.match(line)
+        or BARE_FLAG.match(line)
+        or is_input_marker(line)
+        or PROMPT_CHROME.search(line)
+    )
 
 
 # ── Declarative manifests (same files as src-tauri/detect/manifests) ──
@@ -250,7 +273,8 @@ def _region_text(region: str, text: str) -> str:
         return "\n".join(prompt_block_lines(text))
     if region == "last_non_empty_line":
         for line in reversed(text.splitlines()):
-            if line.strip():
+            stripped = line.strip().strip("│|┃").strip()
+            if stripped and not is_input_marker(stripped):
                 return line
         return ""
     match = re.fullmatch(r"bottom_non_empty_lines\((\d+)\)", region)
