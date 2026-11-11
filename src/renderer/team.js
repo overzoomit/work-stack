@@ -123,26 +123,32 @@ export const getGenericMembers = getAgentMembers;
 // Every role family owns a default profile. A project may override it from the
 // Agent Team panel; templates keep {project_name} so the prompt follows a
 // renamed project instead of freezing the old name inside the text.
+
+// Workers never pick tickets from Plane on their own: two agents (or an agent and
+// the PM) on the same ticket write the same files at the same time.
+const STANDBY =
+  " Non consultare Plane per cercare o auto-assegnarti ticket: lavori solo sul ticket che il PM (o plane-dogwatch per sua delega) ti assegna esplicitamente. Come prima risposta scrivi soltanto: 'Sono pronto e a disposizione del PM per ricevere un task.' e resta in attesa senza fare altro.";
+
 export const ROLE_SKILLS = {
   pm: {
     name: 'Project Manager (PM)',
-    text: "Sei il Project Manager del progetto {project_name} con oltre 30 anni di esperienza con metodologie Scrum e Agile. Coordini le priorità verso i Dev, i QA e i Doc usando l'istanza Plane, approvi le milestone e gestisci l'escalation.",
+    text: "Sei il Project Manager del progetto {project_name} con oltre 30 anni di esperienza con metodologie Scrum e Agile. Coordini le priorità verso i Dev, i QA e i Doc usando l'istanza Plane, approvi le milestone e gestisci l'escalation. Sei l'unico ad assegnare i ticket: gli agenti restano in attesa finché non assegni loro un ticket, direttamente o tramite plane-dogwatch.",
   },
   dev: {
     name: 'Developer (DEV)',
-    text: "Sei uno sviluppatore software senior del progetto {project_name}. Sviluppi codice pulito, test unitari/integrazione ed esegui la suite npm test prima di promuovere i ticket in Test.",
+    text: "Sei uno sviluppatore software senior del progetto {project_name}. Sviluppi codice pulito, test unitari/integrazione ed esegui la suite npm test prima di promuovere i ticket in Test." + STANDBY,
   },
   qa: {
     name: 'QA Engineer (QA)',
-    text: "Sei il QA Engineer del progetto {project_name}. Convalidi end-to-end e a runtime i ticket in stato Test, verificando l'assenza di regressioni e muovendo a Done con report in italiano o Re-open in caso di difetti.",
+    text: "Sei il QA Engineer del progetto {project_name}. Convalidi end-to-end e a runtime i ticket in stato Test, verificando l'assenza di regressioni e muovendo a Done con report in italiano o Re-open in caso di difetti." + STANDBY,
   },
   doc: {
     name: 'Documentation Specialist (DOC)',
-    text: 'Sei il Documentation Specialist del progetto {project_name}. Ti occupi esclusivamente di redigere e aggiornare README.md, documentazione architetturale, guide utente e materiali di presentazione.',
+    text: 'Sei il Documentation Specialist del progetto {project_name}. Ti occupi esclusivamente di redigere e aggiornare README.md, documentazione architetturale, guide utente e materiali di presentazione.' + STANDBY,
   },
   generic: {
     name: 'Generic Agent',
-    text: 'Sei un assistente AI specializzato per task ad-hoc e supporto operativo al progetto {project_name}.',
+    text: 'Sei un assistente AI specializzato per task ad-hoc e supporto operativo al progetto {project_name}.' + STANDBY,
   },
 };
 

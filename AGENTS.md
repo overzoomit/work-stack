@@ -18,16 +18,19 @@ Posizione script: `/home/flavio/.claude/scripts/plane_cli.py`
 - Importa backlog: `python3 /home/flavio/.claude/scripts/plane_cli.py import <backlog.json>`
 
 ### Ruoli e Ciclo di Vita dei Ticket
+> **Standby e non auto-assegnazione:** nessun agente (Dev, QA, Doc, generico) scansiona il backlog di Plane per prendersi ticket in autonomia. All'avvio ogni agente segnala la propria operatività al PM con un ping («Sono pronto e a disposizione del PM per ricevere un task.») e resta in ascolto. Solo il PM assegna i ticket, direttamente o tramite la delega di `plane-dogwatch`.
+
 1. **Senior PM (Gemini / Antigravity):**
    - Definisce i requisiti, scrive le specifiche e crea i ticket con criteri di accettazione rigorosamente in italiano.
    - Valida le release e approva le transizioni di milestone.
+   - È l'unico ruolo che assegna i ticket: direttamente o delegando con `plane-dogwatch`.
 2. **Senior Developer (Claude Code / OpenCode dev1, dev2):**
-   - Prende i ticket in `"Re-open"` (massima priorità!) o `"Todo"`.
+   - Lavora solo sul ticket che gli viene assegnato (dal PM o da `plane-dogwatch`): `"Re-open"` ha la massima priorità su `"Todo"`.
    - Sposta il ticket in `"In Progress"` **prima** di toccare il codice.
    - Sviluppa, scrive test unitari/integrazione ed esegue l'intera suite (`npm test`).
    - Al completamento sposta il ticket in **`"Test"`** (MAI direttamente in `"Done"`!) allegando un commento in italiano che elenca file modificati e test eseguiti.
 3. **QA Engineer (OpenAI Codex):**
-   - Testa **solo** i ticket nello stato `"Test"` (test end-to-end, controlli runtime, regressioni).
+   - Testa **solo** i ticket nello stato `"Test"` che gli vengono assegnati (test end-to-end, controlli runtime, regressioni).
    - Se i criteri sono superati: sposta in **`"Done"`** con report di QA in italiano.
    - In caso di anomalie/bug: sposta in **`"Re-open"`** con dettagliata descrizione del problema.
 

@@ -620,6 +620,19 @@ test('role skill defaults exist for every family and interpolate the project nam
   assert.equal(Team.formatSkill('{project_name}'), 'this project', 'a missing name still reads naturally');
 });
 
+test('workers start in standby: they ping the PM and never pick tickets from Plane', () => {
+  const project = { path: '/home/u/demo', name: 'Work Stack' };
+  for (const window of ['dev2', 'qa1', 'doc1', 'agent1', 'generico']) {
+    const prompt = Team.initPromptFor(project, window);
+    assert.match(prompt, /Sono pronto e a disposizione del PM per ricevere un task\./, `${window} pings the PM`);
+    assert.match(prompt, /Non consultare Plane per cercare o auto-assegnarti ticket/, `${window} does not self-assign`);
+    assert.match(prompt, /resta in attesa/, `${window} waits for an assignment`);
+  }
+  const pm = Team.initPromptFor(project, 'pm');
+  assert.doesNotMatch(pm, /Sono pronto e a disposizione del PM/, 'the PM does not ping itself');
+  assert.match(pm, /Sei l'unico ad assegnare i ticket/);
+});
+
 test('skillFamily maps numbered windows to their role family', () => {
   assert.equal(Team.skillFamily('pm'), 'pm');
   assert.equal(Team.skillFamily('PM'), 'pm');
