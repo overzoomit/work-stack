@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { basename } from 'node:path';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -240,10 +241,26 @@ test('Done: the PM is notified once, and only for a ticket seen before it was do
     const out = await run(box, ['--once']);
     assert.equal(out.status, 0, out.stderr);
     assert.deepEqual(out.json().actions.map((a) => [a.issue, a.to, a.telegram]), [[3, 'done', 'sent']]);
-    assert.match(readFileSync(box.telegramLog, 'utf8'), /^send ✅ Ticket \[3\] .* completato: Ticket title 3/);
+    assert.match(
+      readFileSync(box.telegramLog, 'utf8'),
+      new RegExp(`^send \\[${basename(box.dir)}\\] ✅ Ticket \\[3\\] .* completato: Ticket title 3`),
+      'the folder name tags the message when there is no .oz.json',
+    );
 
     await run(box, ['--once']);
     assert.equal(readFileSync(box.telegramLog, 'utf8').trim().split('\n').length, 1, 'only once');
+  });
+});
+
+test('Done: the .oz.json project key tags the message', { skip }, () => {
+  const tickets = [issue(3, 's-test')];
+  return scenario(tickets, {}, async (api, box) => {
+    writeFileSync(join(box.dir, '.oz.json'), JSON.stringify({ version: 1, project: 'MIRADA' }));
+    await run(box, ['--once']);
+    tickets[0].state = 's-done';
+    tickets[0].updated_at = '2026-11-02T10:00:00Z';
+    await run(box, ['--once']);
+    assert.match(readFileSync(box.telegramLog, 'utf8'), /^send \[MIRADA\] ✅ Ticket \[3\] /);
   });
 });
 

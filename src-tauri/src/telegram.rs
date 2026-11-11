@@ -32,6 +32,30 @@ pub struct TargetProject {
     pub session: String,
 }
 
+fn normalize_tag(tag: &str) -> String {
+    tag.chars()
+        .filter(|c| !matches!(c, '-' | '_') && !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+impl TargetProject {
+    // Case-insensitive, ignoring '-' and '_'; also accepts the project key of .oz.json.
+    pub fn matches_tag(&self, tag: &str) -> bool {
+        let wanted = normalize_tag(tag);
+        if wanted.is_empty() {
+            return false;
+        }
+        [
+            self.name.as_str(),
+            self.session.as_str(),
+            &crate::plane_dogwatch::resolve_project_tag(Path::new(&self.path)),
+        ]
+        .iter()
+        .any(|candidate| normalize_tag(candidate) == wanted)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -691,17 +715,16 @@ pub fn resolve_target(
 }
 
 pub fn extract_project_from_text(text: &str, projects: &[TargetProject]) -> Option<TargetProject> {
-    let trimmed = text.trim();
-    if let Some(start) = trimmed.find('[') {
-        if let Some(end) = trimmed[start + 1..].find(']') {
-            let tag = trimmed[start + 1..start + 1 + end].trim();
-            if let Some(found) = projects
-                .iter()
-                .find(|p| p.name.eq_ignore_ascii_case(tag) || p.session.eq_ignore_ascii_case(tag))
-            {
-                return Some(found.clone());
-            }
+    // Every [tag] is tried: "[13]" (ticket number) may come before the project tag.
+    let mut rest = text;
+    while let Some(start) = rest.find('[') {
+        let after = &rest[start + 1..];
+        let end = after.find(']')?;
+        let tag = after[..end].trim();
+        if let Some(found) = projects.iter().find(|p| p.matches_tag(tag)) {
+            return Some(found.clone());
         }
+        rest = &after[end + 1..];
     }
     None
 }
@@ -796,11 +819,10 @@ pub fn route_inbound(
             }
         }
         // Match per nome o sessione
-        if let Some(target) = projects.iter().find(|p| {
-            p.name.eq_ignore_ascii_case(arg)
-                || p.session.eq_ignore_ascii_case(arg)
-                || p.path.ends_with(arg)
-        }) {
+        if let Some(target) = projects
+            .iter()
+            .find(|p| p.matches_tag(arg) || p.path.ends_with(arg))
+        {
             return (
                 RouteResult::CommandReply(format!(
                     "🎯 Target fissato su \"{}\" (sessione: {}). I prossimi messaggi andranno al suo PM.",
@@ -884,10 +906,7 @@ pub fn route_inbound(
             ),
             None => (after_at, ""),
         };
-        if let Some(target) = projects
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(prefix) || p.session.eq_ignore_ascii_case(prefix))
-        {
+        if let Some(target) = projects.iter().find(|p| p.matches_tag(prefix)) {
             let text_to_send = if rest.is_empty() { raw } else { rest };
             return (
                 RouteResult::ForwardToPm {
@@ -901,9 +920,7 @@ pub fn route_inbound(
         if let Some(end) = raw.find(']') {
             let prefix = raw[1..end].trim();
             let rest = raw[end + 1..].trim();
-            if let Some(target) = projects.iter().find(|p| {
-                p.name.eq_ignore_ascii_case(prefix) || p.session.eq_ignore_ascii_case(prefix)
-            }) {
+            if let Some(target) = projects.iter().find(|p| p.matches_tag(prefix)) {
                 let text_to_send = if rest.is_empty() { raw } else { rest };
                 return (
                     RouteResult::ForwardToPm {
@@ -1916,6 +1933,77 @@ Wait for background task task-1 to finish.
                 session: "work_ecommerce-api".into(),
             },
         ]
+    }
+
+    #[test]
+    fn matches_tag_ignores_case_dashes_and_underscores() {
+        let p = &sample_projects()[0];
+        assert!(p.matches_tag("work-stack"));
+        assert!(p.matches_tag("WORK_STACK"));
+        assert!(p.matches_tag("workstack"));
+        assert!(p.matches_tag("work_work-stack"));
+        assert!(!p.matches_tag("13"));
+        assert!(!p.matches_tag(""));
+        assert!(!p.matches_tag("ecommerce-api"));
+    }
+
+    #[test]
+    fn matches_tag_accepts_the_oz_json_project_key() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".oz.json"), r#"{"project":"MIRADA"}"#).unwrap();
+        let p = TargetProject {
+            name: "frontend".into(),
+            path: dir.path().to_string_lossy().into(),
+            session: "work_frontend".into(),
+        };
+        assert!(p.matches_tag("mirada"));
+        assert!(p.matches_tag("MIRADA"));
+        assert!(p.matches_tag("frontend"));
+    }
+
+    #[test]
+    fn extract_project_finds_the_tag_before_or_after_the_ticket_number() {
+        let projects = sample_projects();
+        for text in [
+            "[work-stack] ✅ Ticket [13] (UUID: x) completato: T",
+            "✅ Ticket [13] (UUID: x) completato: T [WORK_STACK]",
+            "[13] [work-stack] done",
+        ] {
+            assert_eq!(
+                extract_project_from_text(text, &projects).map(|p| p.name),
+                Some("work-stack".to_string()),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            extract_project_from_text("Ticket [13] done", &projects),
+            None
+        );
+        assert_eq!(
+            extract_project_from_text("broken [13 and [", &projects),
+            None
+        );
+    }
+
+    #[test]
+    fn a_reply_to_a_tagged_done_notice_goes_to_that_project_pm() {
+        let projects = sample_projects();
+        let inbound = InboundMessage {
+            text: "ottimo, procedi con la release".into(),
+            reply_to_id: None,
+            reply_to_text: Some("[ecommerce_api] ✅ Ticket [13] (UUID: x) completato: T".into()),
+        };
+        let (action, _) = route_inbound(
+            &inbound,
+            Some("/home/user/work-stack"),
+            None,
+            &projects,
+            &HashMap::new(),
+        );
+        match action {
+            RouteResult::ForwardToPm { target, .. } => assert_eq!(target.name, "ecommerce-api"),
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

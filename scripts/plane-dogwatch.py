@@ -451,7 +451,16 @@ def last_comment(plane: Plane, issue_id: str) -> str:
     return plain(comments[-1].get("comment_html"), 1500) if comments else ""
 
 
-def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str], qa: list[str], telegram: Path) -> dict:
+def project_tag(root: Path) -> str:
+    """Tag oz puts in front of Telegram messages: .oz.json project, else the folder name."""
+    try:
+        project = json.loads((root / ".oz.json").read_text(encoding="utf-8")).get("project")
+    except (OSError, ValueError, AttributeError):
+        project = None
+    return str(project).strip() if project and str(project).strip() else root.name
+
+
+def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str], qa: list[str], telegram: Path, tag: str) -> dict:
     names = plane.state_names()
     issues = plane.issues()
     state = load_state(state_path)
@@ -548,7 +557,7 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
                 cleanups.append({"target": prev_target, "reason": f"task reached {now}", "issue": issue.get("sequence_id"), "error": str(exc)})
         # A ticket already Done at the first look is history, not news.
         if now == "done" and seen and seen != "done":
-            sent = notify_telegram(telegram, f"✅ {ticket(issue)} completato: {plain(issue.get('name'), 200)}")
+            sent = notify_telegram(telegram, f"[{tag}] ✅ {ticket(issue)} completato: {plain(issue.get('name'), 200)}")
             actions.append({"issue": issue.get("sequence_id"), "id": issue["id"], "from": seen, "to": "done", "telegram": sent})
         if seen != now:
             record["state"] = now
@@ -609,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
     def cycle() -> dict:
         session = Session(tmux.resolve_session(args.session, args.tmux_bin), args.tmux_bin)
         with cycle_lock(root):
-            report = run_cycle(plane, session, state_path, devs, qa, telegram)
+            report = run_cycle(plane, session, state_path, devs, qa, telegram, project_tag(root))
             # Housekeeping after the delegation decisions: failures are reported
             # but never stop the watcher.
             try:

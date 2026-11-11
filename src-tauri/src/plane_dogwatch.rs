@@ -368,6 +368,22 @@ pub fn fingerprint(issue: &Value, state: &str) -> String {
         .collect()
 }
 
+// The tag oz puts in front of Telegram messages: the "project" key of .oz.json,
+// else the folder name.
+pub fn resolve_project_tag(root: &Path) -> String {
+    std::fs::read_to_string(root.join(".oz.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|oz| oz["project"].as_str().map(|p| p.trim().to_string()))
+        .filter(|p| !p.is_empty())
+        .or_else(|| {
+            root.file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
 fn ticket(issue: &Value) -> String {
     format!("Ticket [{}] (UUID: {})", issue["sequence_id"], id(issue))
 }
@@ -1060,7 +1076,9 @@ fn try_cycle(
     let Some(_lock) = try_lock(root) else {
         return Ok(None);
     };
-    let report = run_cycle(&planes[project].1, &agents, &root.join(STATE_FILE), notify)?;
+    let tag = resolve_project_tag(root);
+    let tagged = |text: &str| notify(&format!("[{tag}] {text}"));
+    let report = run_cycle(&planes[project].1, &agents, &root.join(STATE_FILE), &tagged)?;
     prune_opencode_sessions(root, now_secs());
     Ok(Some(report))
 }
@@ -1575,6 +1593,23 @@ mod tests {
     }
 
     #[test]
+    fn project_tag_comes_from_oz_json_then_from_the_folder_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("my-project");
+        std::fs::create_dir(&root).unwrap();
+        assert_eq!(resolve_project_tag(&root), "my-project");
+
+        std::fs::write(root.join(".oz.json"), "not json").unwrap();
+        assert_eq!(resolve_project_tag(&root), "my-project", "broken file");
+
+        std::fs::write(root.join(".oz.json"), r#"{"project":"  "}"#).unwrap();
+        assert_eq!(resolve_project_tag(&root), "my-project", "blank key");
+
+        std::fs::write(root.join(".oz.json"), r#"{"version":1,"project":"MIRADA"}"#).unwrap();
+        assert_eq!(resolve_project_tag(&root), "MIRADA");
+    }
+
+    #[test]
     fn done_is_notified_once_and_only_for_a_ticket_seen_before() {
         let b = scenario(vec![issue(1, "s-done"), issue(2, "s-progress")]);
         let a = agents(&[]);
@@ -1588,7 +1623,8 @@ mod tests {
         let r = b.cycle(&a);
         assert_eq!(
             b.notified.borrow().as_slice(),
-            ["✅ Ticket [2] (UUID: issue-2) completato: Ticket title 2"]
+            ["✅ Ticket [2] (UUID: issue-2) completato: Ticket title 2"],
+            "run_cycle sends the bare text: the project tag is added by try_cycle"
         );
         assert_eq!(r.actions[0].telegram.as_deref(), Some("sent"));
         assert_eq!(
