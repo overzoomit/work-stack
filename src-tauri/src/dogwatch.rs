@@ -4,7 +4,8 @@
 use crate::{store, tmux};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -14,6 +15,7 @@ const SCAN_LINES: &str = "-30";
 const TAIL_LINES: usize = 12;
 const ESCALATION_FILE: &str = ".claude/escalation_to_pm.json";
 const STATE_FILE: &str = ".claude/dogwatch_state.json";
+const RELAY_FILE: &str = ".claude/dogwatch_relay.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -55,6 +57,7 @@ pub struct Pending {
     pub target: String,
     #[serde(flatten)]
     pub prompt: Prompt,
+    pub relayed_to_pm: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,6 +77,7 @@ impl Inspection {
                 Some(Pending {
                     target: w.name.clone(),
                     prompt: w.prompt.clone()?,
+                    relayed_to_pm: false,
                 })
             })
             .collect()
@@ -748,11 +752,126 @@ fn refresh_escalation(root: &Path, pending: &[Pending]) {
     }
 }
 
-// Polls the session of every open project. On a change it refreshes the
-// escalation file (only if there is something to say, or a stale file to
-// clear) and calls on_change(project, session, pending, live, windows); live is
-// false when the project has no tmux session to watch. The windows carry the
-// real agent detected in each pane, so the renderer can update its badges.
+// ── Relay to the PM ──────────────────────────────────────────
+//
+// A blocked worker's question reaches the PM's window once, while the PM is
+// idle. What was relayed is kept in RELAY_FILE (target -> fingerprint), shared
+// with scripts/tmux-dogwatch.py, so neither side repeats the other's message.
+
+pub type Relayed = BTreeMap<String, String>;
+
+#[derive(Serialize, Deserialize, Default)]
+struct RelayFile {
+    #[serde(default)]
+    relayed: Relayed,
+}
+
+// Same digest as the script: SHA-256 over the fields joined by \x1e, options
+// joined by \x1f, first 8 bytes in hex. A new question gets a new fingerprint.
+pub fn fingerprint(target: &str, prompt: &Prompt) -> String {
+    let kind = serde_json::to_value(prompt.prompt_type).unwrap_or_default();
+    let kind = kind.as_str().unwrap_or_default();
+    let options = prompt.options.join("\x1f");
+    let raw = [target, kind, prompt.question.as_str(), options.as_str()].join("\x1e");
+    Sha256::digest(raw.as_bytes())
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+pub fn format_pm_escalation(target: &str, agent: &str, prompt: &Prompt) -> String {
+    let kind = serde_json::to_value(prompt.prompt_type).unwrap_or_default();
+    let kind = kind.as_str().unwrap_or_default();
+    let options = if prompt.options.is_empty() {
+        "nessuna".to_string()
+    } else {
+        prompt.options.join(" | ")
+    };
+    format!(
+        "[DOGWATCH] {target} ({agent}) è bloccato. Tipo: {kind}. Domanda: {question}. Opzioni: {options}. \
+Se è una questione tecnica nota o una conferma di routine, rispondi tu: python3 scripts/tmux-dogwatch.py answer {target} \"<risposta>\". \
+Altrimenti inoltra all'utente con python3 scripts/telegram-pm.py send \"<messaggio>\" e, appena arriva la sua risposta, passala con python3 scripts/tmux-dogwatch.py answer {target} \"<risposta>\".",
+        question = prompt.question,
+    )
+}
+
+// Marks what the PM already has and sends the first unseen question while the
+// PM is idle. One send per call: the PM is busy afterwards, so the rest wait
+// for its next idle look. A target that stops being pending forgets its
+// fingerprint, so its next block is relayed again. Returns whether `relayed`
+// changed and must be saved.
+pub fn relay_to_pm(
+    relayed: &mut Relayed,
+    windows: &[WindowState],
+    pending: &mut [Pending],
+    send: impl FnOnce(&str) -> Result<(), String>,
+) -> bool {
+    let before = relayed.clone();
+    relayed.retain(|target, fp| {
+        pending
+            .iter()
+            .any(|p| &p.target == target && fingerprint(&p.target, &p.prompt) == *fp)
+    });
+    for entry in pending.iter_mut() {
+        entry.relayed_to_pm =
+            relayed.get(&entry.target) == Some(&fingerprint(&entry.target, &entry.prompt));
+    }
+
+    let pm_idle = windows
+        .iter()
+        .any(|w| w.name.eq_ignore_ascii_case("pm") && w.state == AgentState::Idle);
+    if pm_idle {
+        if let Some(entry) = pending.iter_mut().find(|e| !e.relayed_to_pm) {
+            let agent = windows
+                .iter()
+                .find(|w| w.name == entry.target)
+                .and_then(|w| w.agent.as_deref())
+                .unwrap_or("generic");
+            let text = format_pm_escalation(&entry.target, agent, &entry.prompt);
+            if send(&text).is_ok() {
+                relayed.insert(
+                    entry.target.clone(),
+                    fingerprint(&entry.target, &entry.prompt),
+                );
+                entry.relayed_to_pm = true;
+            }
+        }
+    }
+    *relayed != before
+}
+
+fn load_relayed(root: &Path) -> Relayed {
+    std::fs::read_to_string(root.join(RELAY_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<RelayFile>(&text).ok())
+        .map(|file| file.relayed)
+        .unwrap_or_default()
+}
+
+fn save_relayed(root: &Path, relayed: &Relayed) -> std::io::Result<()> {
+    store::save(
+        &root.join(RELAY_FILE),
+        &serde_json::json!({ "relayed": relayed }),
+    )
+}
+
+fn relay_pending(root: &Path, session: &str, windows: &[WindowState], pending: &mut [Pending]) {
+    let mut relayed = load_relayed(root);
+    let changed = relay_to_pm(&mut relayed, windows, pending, |text| {
+        answer(session, "pm", text)
+    });
+    if changed {
+        let _ = save_relayed(root, &relayed);
+    }
+}
+
+// Polls the session of every open project. On a change it relays new questions
+// to the PM, refreshes the escalation file (only if there is something to say,
+// or a stale file to clear) and calls on_change(project, session, pending, live,
+// windows); live is false when the project has no tmux session to watch. The
+// windows carry the real agent detected in each pane, so the renderer can
+// update its badges.
 pub fn spawn(
     projects: impl Fn() -> Vec<String> + Send + 'static,
     on_change: impl Fn(&str, &str, &[Pending], bool, &[WindowState]) + Send + 'static,
@@ -768,7 +887,7 @@ pub fn spawn(
                 let session = tmux::session_for_project(root);
                 let inspection = inspect(&session).ok();
                 let live = inspection.is_some();
-                let (now, states, windows) = match inspection {
+                let (mut now, states, windows) = match inspection {
                     Some(inspection) => {
                         let now = inspection.pending();
                         let states = state_signature(&inspection.windows);
@@ -779,6 +898,7 @@ pub fn spawn(
                 if !changed_full(&mut seen, &project, live, now.clone(), states) {
                     continue;
                 }
+                relay_pending(root, &session, &windows, &mut now);
                 refresh_escalation(root, &now);
                 let _ = write_window_state(root, &session, live, &windows);
                 on_change(&project, &session, &now, live, &windows);
@@ -1061,6 +1181,7 @@ mod tests {
         let p = Pending {
             target: "dev1".into(),
             prompt: prompt("Continue? [y/N]\n"),
+            relayed_to_pm: true,
         };
         let json = serde_json::to_value(&p).unwrap();
         assert_eq!(json["target"], "dev1");
@@ -1074,6 +1195,7 @@ mod tests {
         let pending = vec![Pending {
             target: "qa".into(),
             prompt: prompt("Continue? [y/N]\n"),
+            relayed_to_pm: false,
         }];
         write_escalation(dir.path(), &pending).unwrap();
         let read = || -> serde_json::Value {
@@ -1151,6 +1273,7 @@ mod tests {
             vec![Pending {
                 target: "dev1".into(),
                 prompt: prompt(text),
+                relayed_to_pm: false,
             }]
         };
         assert!(
@@ -1187,6 +1310,7 @@ mod tests {
         let stale = vec![Pending {
             target: "dev1".into(),
             prompt: prompt("Continue? [y/N]\n"),
+            relayed_to_pm: false,
         }];
         write_escalation(dir.path(), &stale).unwrap();
 
@@ -1208,6 +1332,187 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         refresh_escalation(dir.path(), &[]);
         assert!(!dir.path().join(ESCALATION_FILE).exists());
+    }
+
+    fn question(text: &str) -> Prompt {
+        Prompt {
+            prompt_type: PromptType::Confirmation,
+            question: text.into(),
+            options: vec!["Yes".into(), "No".into()],
+        }
+    }
+
+    fn blocked(name: &str, text: &str) -> Pending {
+        Pending {
+            target: name.into(),
+            prompt: question(text),
+            relayed_to_pm: false,
+        }
+    }
+
+    fn window(name: &str, state: AgentState) -> WindowState {
+        WindowState {
+            id: "@0".into(),
+            name: name.into(),
+            prompt: None,
+            agent: Some("codex".into()),
+            state,
+            rule: None,
+        }
+    }
+
+    // Records what would reach the PM window: relay_to_pm needs no tmux.
+    fn relay(
+        relayed: &mut Relayed,
+        windows: &[WindowState],
+        pending: &mut [Pending],
+        sent: &mut Vec<String>,
+    ) -> bool {
+        relay_to_pm(relayed, windows, pending, |text| {
+            sent.push(text.to_string());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn the_fingerprint_matches_the_script_so_both_sides_share_one_memory() {
+        assert_eq!(
+            fingerprint("dev1", &question("Continue? [y/N]")),
+            "ff6de19081094bae"
+        );
+    }
+
+    #[test]
+    fn a_question_reaches_an_idle_pm_once() {
+        let idle = [window("pm", AgentState::Idle)];
+        let mut relayed = Relayed::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        let mut sent = Vec::new();
+
+        assert!(relay(&mut relayed, &idle, &mut pending, &mut sent));
+        assert_eq!(sent.len(), 1);
+        assert!(pending[0].relayed_to_pm);
+
+        let mut again = vec![blocked("dev1", "Continue? [y/N]")];
+        assert!(!relay(&mut relayed, &idle, &mut again, &mut sent));
+        assert_eq!(sent.len(), 1, "the same block is not announced twice");
+        assert!(again[0].relayed_to_pm);
+    }
+
+    #[test]
+    fn a_busy_pm_gets_nothing_until_it_is_idle() {
+        let mut relayed = Relayed::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        let mut sent = Vec::new();
+
+        let busy = [window("pm", AgentState::Working)];
+        assert!(!relay(&mut relayed, &busy, &mut pending, &mut sent));
+        assert!(sent.is_empty());
+        assert!(!pending[0].relayed_to_pm);
+
+        let idle = [window("pm", AgentState::Idle)];
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+        assert_eq!(sent.len(), 1);
+    }
+
+    #[test]
+    fn a_missing_pm_window_is_never_a_reason_to_send() {
+        let mut relayed = Relayed::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        let mut sent = Vec::new();
+        relay(
+            &mut relayed,
+            &[window("dev1", AgentState::Blocked)],
+            &mut pending,
+            &mut sent,
+        );
+        assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn one_send_per_idle_look_and_the_rest_follow_later() {
+        let idle = [window("pm", AgentState::Idle)];
+        let mut relayed = Relayed::new();
+        let mut sent = Vec::new();
+        let both = || {
+            vec![
+                blocked("dev1", "Continue? [y/N]"),
+                blocked("qa1", "Deploy now? [y/N]"),
+            ]
+        };
+
+        let mut pending = both();
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("dev1"));
+        assert!(!pending[1].relayed_to_pm);
+
+        let mut pending = both();
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+        assert_eq!(sent.len(), 2);
+        assert!(sent[1].contains("qa1"));
+    }
+
+    #[test]
+    fn an_unblocked_target_forgets_its_block_so_the_next_one_is_relayed() {
+        let idle = [window("pm", AgentState::Idle)];
+        let mut relayed = Relayed::new();
+        let mut sent = Vec::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+
+        let mut none: Vec<Pending> = Vec::new();
+        assert!(relay(&mut relayed, &idle, &mut none, &mut sent));
+        assert!(
+            relayed.is_empty(),
+            "the key is cleared once the window unblocks"
+        );
+
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+        assert_eq!(
+            sent.len(),
+            2,
+            "a new block of the same question is relayed again"
+        );
+    }
+
+    #[test]
+    fn a_new_question_from_the_same_target_is_relayed_again() {
+        let idle = [window("pm", AgentState::Idle)];
+        let mut relayed = Relayed::new();
+        let mut sent = Vec::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+
+        let mut pending = vec![blocked("dev1", "Delete the branch? [y/N]")];
+        relay(&mut relayed, &idle, &mut pending, &mut sent);
+        assert_eq!(sent.len(), 2);
+    }
+
+    #[test]
+    fn the_relayed_map_survives_a_restart_through_the_shared_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            load_relayed(dir.path()).is_empty(),
+            "no file, nothing relayed"
+        );
+
+        let mut relayed = Relayed::new();
+        relayed.insert(
+            "dev1".into(),
+            fingerprint("dev1", &question("Continue? [y/N]")),
+        );
+        save_relayed(dir.path(), &relayed).unwrap();
+        assert_eq!(load_relayed(dir.path()), relayed);
+    }
+
+    #[test]
+    fn the_prompt_sent_to_the_pm_carries_both_ways_to_answer() {
+        let text = format_pm_escalation("dev1", "opencode", &question("Continue? [y/N]"));
+        assert!(text.contains("tmux-dogwatch.py answer dev1"));
+        assert!(text.contains("telegram-pm.py send"));
+        assert!(text.contains("Opzioni: Yes | No"));
     }
 
     fn wait_for(what: &str, mut done: impl FnMut() -> bool) {

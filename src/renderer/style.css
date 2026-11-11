@@ -1553,6 +1553,9 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-needs-type {
   font: 600 9.5px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--orange);
 }
+.tp-needs-relay {
+  font: 600 9.5px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2);
+}
 .tp-needs-question {
   margin-bottom: 8px; padding: 6px 8px; border-left: 3px solid var(--orange); border-radius: 4px;
   background: rgba(255, 159, 10, .08); color: var(--text);

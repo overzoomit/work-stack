@@ -381,6 +381,7 @@ function needsYouCard(entry) {
         <span class="tp-status-dot waiting"></span>
         <span class="tp-role-badge ${roleBadgeClass(target)}">[${esc(String(target).toUpperCase())}]</span>
         <span class="tp-needs-type">${esc(entry.prompt_type || 'question')}</span>
+        ${entry.relayed_to_pm ? '<span class="tp-needs-relay" title="The PM has this question">Relayed to PM</span>' : ''}
         <div class="spacer"></div>
         <button class="icon-btn tp-act-btn" data-act="dw-focus" data-target="${esc(target)}" title="Open the ${esc(target)} terminal">→</button>
       </div>

@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -32,7 +33,7 @@ except ModuleNotFoundError:  # Python < 3.11
     tomllib = None
 
 # Team windows the watchdog must watch: dev1, qa1, doc1, agent1...
-AGENT_WINDOW = re.compile(r"^(?:dev\d+|qa\d*|doc\d*|agent\d+|generico)$", re.IGNORECASE)
+AGENT_WINDOW = re.compile(r"^(?:pm|dev\d+|qa\d*|doc\d*|agent\d+|generico)$", re.IGNORECASE)
 
 # Declarative manifests shared with the Rust dogwatch (src-tauri/detect/manifests).
 MANIFEST_DIR = Path(__file__).resolve().parent.parent / "src-tauri" / "detect" / "manifests"
@@ -42,6 +43,7 @@ BARE_FLAG = re.compile(r"^\s*(?:\[[^\]]+\]|\([^)]*\))\s*$")
 
 DEFAULT_FILE = Path(".claude") / "escalation_to_pm.json"
 DEFAULT_STATE = Path(".claude") / "dogwatch_state.json"
+DEFAULT_RELAY = Path(".claude") / "dogwatch_relay.json"
 
 
 def now_iso() -> str:
@@ -330,7 +332,7 @@ def pending_from_windows(windows: list[dict[str, object]], timestamp: str) -> li
         prompt = window.get("prompt")
         if name.lower() == "pm" or not prompt:
             continue  # the PM answers, it is never an escalation target
-        pending.append({"target": name, "timestamp": timestamp, **prompt})
+        pending.append({"target": name, "timestamp": timestamp, "relayed_to_pm": False, **prompt})
     return pending
 
 
@@ -440,6 +442,84 @@ def send_answer(
     return pane
 
 
+def relay_path(root: Path | None = None) -> Path:
+    return (root or Path.cwd()) / DEFAULT_RELAY
+
+
+# Same digest as the Rust side (src-tauri/src/dogwatch.rs): the first 8 bytes of
+# SHA-256 over the fields joined by \x1e, options joined by \x1f.
+def fingerprint(target: str, entry: dict[str, object]) -> str:
+    options = "\x1f".join(str(option) for option in entry.get("options", []))
+    raw = "\x1e".join([target, str(entry["prompt_type"]), str(entry["question"]), options])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def format_pm_escalation(target: str, agent: str, entry: dict[str, object]) -> str:
+    options = " | ".join(str(option) for option in entry.get("options", [])) or "nessuna"
+    return (
+        f"[DOGWATCH] {target} ({agent}) è bloccato. Tipo: {entry['prompt_type']}. "
+        f"Domanda: {entry['question']}. Opzioni: {options}. "
+        "Se è una questione tecnica nota o una conferma di routine, rispondi tu: "
+        f'python3 scripts/tmux-dogwatch.py answer {target} "<risposta>". '
+        "Altrimenti inoltra all'utente con "
+        'python3 scripts/telegram-pm.py send "<messaggio>" e, appena arriva la sua risposta, passala con '
+        f'python3 scripts/tmux-dogwatch.py answer {target} "<risposta>".'
+    )
+
+
+def load_relayed(path: Path) -> dict[str, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    relayed = data.get("relayed") if isinstance(data, dict) else None
+    if not isinstance(relayed, dict):
+        return {}
+    return {str(target): str(fp) for target, fp in relayed.items()}
+
+
+# One send per call, to the first question the PM has not seen, while the PM is
+# idle. The fingerprints live in the shared relay file, so the daemon and the
+# Work app never announce the same block twice.
+def relay_to_pm(
+    pending: list[dict[str, object]],
+    windows: list[dict[str, object]],
+    root: Path | None = None,
+    *,
+    session: str,
+    binary: str | None = None,
+) -> list[dict[str, object]]:
+    path = relay_path(root)
+    before = load_relayed(path)
+    relayed = {
+        target: fp
+        for target, fp in before.items()
+        if any(
+            str(e["target"]) == target and fingerprint(target, e) == fp for e in pending
+        )
+    }
+    for entry in pending:
+        target = str(entry["target"])
+        entry["relayed_to_pm"] = relayed.get(target) == fingerprint(target, entry)
+
+    pm_idle = any(str(w["name"]).lower() == "pm" and w["state"] == "idle" for w in windows)
+    waiting = next((e for e in pending if not e["relayed_to_pm"]), None)
+    if pm_idle and waiting is not None:
+        target = str(waiting["target"])
+        agent = next((w["agent"] for w in windows if w["name"] == target), None) or "generic"
+        try:
+            send_answer("pm", format_pm_escalation(target, str(agent), waiting), session=session, binary=binary)
+        except RuntimeError:
+            pass
+        else:
+            relayed[target] = fingerprint(target, waiting)
+            waiting["relayed_to_pm"] = True
+
+    if relayed != before:
+        _atomic_json(path, {"relayed": relayed})
+    return pending
+
+
 def emit(payload: dict[str, object]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -456,6 +536,12 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--check", action="store_true", help="alias of --once")
     mode.add_argument("--daemon", action="store_true", help="poll continuously")
     parser.add_argument("--interval", type=float, default=5.0, help="daemon poll interval in seconds")
+    parser.add_argument(
+        "--relay-pm",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="send new questions to an idle PM window (default: on in --daemon, off otherwise)",
+    )
 
     sub = parser.add_subparsers(dest="command")
     answer = sub.add_parser("answer", help="send the PM's answer to a target window")
@@ -492,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
         emit({"sent": True, "pane": pane})
         return 0
 
+    relay = args.relay_pm if args.relay_pm is not None else args.daemon
+
     if args.daemon:
         try:
             while True:
@@ -500,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
                 windows, pending = scan_session(
                     resolved, lines=args.lines, binary=binary, timestamp=stamp
                 )
+                if relay:
+                    pending = relay_to_pm(pending, windows, root, session=resolved, binary=binary)
                 write_state(state_path(root), resolved, windows, stamp)
                 emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
                 sys.stdout.flush()
@@ -520,6 +610,8 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as exc:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False))
             return 2
+        if relay:
+            pending = relay_to_pm(pending, windows, root, session=resolved, binary=binary)
         write_state(state_path(root), resolved, windows, stamp)
         emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
         return 0

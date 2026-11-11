@@ -116,6 +116,17 @@ test('il campo personalizzato invia il testo libero dell’utente', async () => 
   env.tmuxAvailable = false;
 });
 
+test('una card con relayed_to_pm mostra che il PM ha già la domanda', () => {
+  const relayed = Team.needsYouHtml([
+    { target: 'dev1', prompt_type: 'question', question: 'Why?', relayed_to_pm: true },
+  ]);
+  assert.match(relayed, /Relayed to PM/);
+  const pending = Team.needsYouHtml([
+    { target: 'dev1', prompt_type: 'question', question: 'Why?', relayed_to_pm: false },
+  ]);
+  assert.doesNotMatch(pending, /Relayed to PM/, 'senza inoltro nessuna etichetta');
+});
+
 test('needsYouHtml aggrega più agenti, esclude le voci senza target e scappa il testo', () => {
   const html = Team.needsYouHtml([
     { target: 'dev1', prompt_type: 'confirmation', question: 'Proceed? [y/N]', options: ['Yes', 'No'] },
