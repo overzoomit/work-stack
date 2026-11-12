@@ -174,6 +174,13 @@ test('work.planeDogwatch exposes status, syncNow and the update event', async ()
   assert.equal(reports[0].project, '/p', 'one report object, not spread');
 });
 
+test('work.state.snapshot reads the shared state of a project', async () => {
+  const calls = [];
+  const { work } = load((cmd, _wait, args) => { calls.push([cmd, args.project]); return { windows: [] }; });
+  assert.deepEqual(await work.state.snapshot('/p'), { windows: [] });
+  assert.deepEqual(calls, [['work_state_snapshot', '/p']]);
+});
+
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {
   const calls = [];
   const { work } = load((cmd) => { calls.push(cmd); return null; });

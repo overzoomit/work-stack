@@ -1,7 +1,7 @@
 // Dogwatch: finds the agent windows of a project's tmux session that wait for
 // input and relays the PM's answers. The same job as scripts/tmux-dogwatch.py,
 // built into Work: a watcher thread, two IPC commands and an event.
-use crate::{store, tmux};
+use crate::{state_db, store, tmux};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,6 +16,8 @@ const TAIL_LINES: usize = 12;
 const ESCALATION_FILE: &str = ".claude/escalation_to_pm.json";
 const STATE_FILE: &str = ".claude/dogwatch_state.json";
 const RELAY_FILE: &str = ".claude/dogwatch_relay.json";
+const TAIL_PREVIEW: usize = 8;
+const ACTIVITY_CHARS: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +52,21 @@ pub struct WindowState {
     pub state: AgentState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
+    // Unix seconds since the window entered `state`, from .claude/work.db.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_changed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity_line: Option<String>,
+    #[serde(skip)]
+    pub output: Output,
+}
+
+// What the window shows once the chrome is gone: kept in .claude/work.db only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Output {
+    pub hash: Option<String>,
+    pub tail: Option<String>,
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -555,6 +572,37 @@ fn is_chrome(line: &str) -> bool {
         || hint.iter().any(|h| lower.contains(h))
 }
 
+// Spinner frames, timers and key hints change while nothing else does: they
+// stay out of the hash, so a frozen agent shows a still output.
+fn is_spinner(line: &str) -> bool {
+    line.chars()
+        .next()
+        .is_some_and(|c| ('\u{2800}'..='\u{28ff}').contains(&c) || "·✢✳✶✻✽".contains(c))
+}
+
+// The last meaningful line, the SHA-256 of the cleaned output and its last lines.
+pub fn read_output(capture: &str) -> (Option<String>, Output) {
+    let lines: Vec<&str> = capture
+        .lines()
+        .map(|l| trim_box(l).trim())
+        .filter(|l| !l.is_empty() && !is_chrome(l) && !is_spinner(l))
+        .collect();
+    let digest = Sha256::digest(lines.join("\n").as_bytes());
+    let tail = lines[lines.len().saturating_sub(TAIL_PREVIEW)..].join("\n");
+    let last = lines
+        .last()
+        .map(|l| match l.char_indices().nth(ACTIVITY_CHARS) {
+            Some((at, _)) => format!("{}…", &l[..at]),
+            None => l.to_string(),
+        });
+    let output = Output {
+        hash: Some(digest.iter().map(|b| format!("{b:02x}")).collect()),
+        tail: Some(tail),
+        command: None,
+    };
+    (last, output)
+}
+
 fn has_yes_no(lower: &str) -> bool {
     ["[y/n]", "(y/n)", "yes/no", "yes / no"]
         .iter()
@@ -626,7 +674,8 @@ pub fn inspect(session: &str) -> Result<Inspection, String> {
         .into_iter()
         .filter(|w| is_agent_window(&w.name))
         .map(|w| {
-            let manifest = engine.detect_agent(&w.name, &window_command(session, &w.id));
+            let command = window_command(session, &w.id);
+            let manifest = engine.detect_agent(&w.name, &command);
             let captured = capture(session, &w.id);
             let classification = match captured.as_deref() {
                 Some(text) => engine.classify(manifest, text),
@@ -641,6 +690,13 @@ pub fn inspect(session: &str) -> Result<Inspection, String> {
             let prompt = captured
                 .as_deref()
                 .and_then(|text| prompt_from(&classification, text));
+            let (last_activity_line, mut output) =
+                captured.as_deref().map(read_output).unwrap_or_default();
+            output.command = command
+                .split('\t')
+                .nth(1)
+                .filter(|c| !c.is_empty())
+                .map(String::from);
             WindowState {
                 prompt,
                 id: w.id,
@@ -648,6 +704,9 @@ pub fn inspect(session: &str) -> Result<Inspection, String> {
                 agent: Some(manifest.id.clone()),
                 state: classification.state,
                 rule: classification.rule,
+                state_changed_at: None,
+                last_activity_line,
+                output,
             }
         })
         .collect();
@@ -878,13 +937,71 @@ fn save_relayed(root: &Path, relayed: &Relayed) -> std::io::Result<()> {
     )
 }
 
-fn relay_pending(root: &Path, session: &str, windows: &[WindowState], pending: &mut [Pending]) {
+// True when a question was typed into the PM window.
+fn relay_pending(
+    root: &Path,
+    session: &str,
+    windows: &[WindowState],
+    pending: &mut [Pending],
+) -> bool {
     let mut relayed = load_relayed(root);
+    let mut sent = false;
     let changed = relay_to_pm(&mut relayed, windows, pending, |text| {
-        answer(session, "pm", text)
+        answer(session, "pm", text)?;
+        sent = true;
+        Ok(())
     });
     if changed {
         let _ = save_relayed(root, &relayed);
+    }
+    sent
+}
+
+// ── Shared database ──────────────────────────────────────────
+
+// A project without a session gets no database until it has one to describe.
+fn open_db(root: &Path, live: bool) -> Option<rusqlite::Connection> {
+    let path = root.join(state_db::DB_FILE);
+    (live || path.is_file())
+        .then(|| state_db::open(&path).ok())
+        .flatten()
+}
+
+// Persists the look and runs the watchdog; returns the active anomalies as a
+// signature, so a new or resolved one counts as a change for the renderer.
+fn track(
+    db: &mut rusqlite::Connection,
+    session: &str,
+    live: bool,
+    windows: &mut [WindowState],
+) -> String {
+    let now = state_db::now();
+    let _ = state_db::sync_windows(db, session, live, windows, now);
+    state_db::evaluate_anomalies(db, now)
+        .unwrap_or_default()
+        .iter()
+        .map(|a| format!("{}:{}", a.id, a.window_name))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// The window answered from Work: its session's folder holds the database.
+fn record_answer(session: &str, window: &str, text: &str) {
+    let Ok(dir) = tmux::run_tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &format!("={session}:"),
+        "#{session_path}",
+    ]) else {
+        return;
+    };
+    let path = Path::new(dir.trim()).join(state_db::DB_FILE);
+    if !path.is_file() {
+        return;
+    }
+    if let Ok(db) = state_db::open(&path) {
+        let _ = state_db::record_answer(&db, window, text, "work-ui", state_db::now());
     }
 }
 
@@ -909,21 +1026,31 @@ pub fn spawn(
                 let session = tmux::session_for_project(root);
                 let inspection = inspect(&session).ok();
                 let live = inspection.is_some();
-                let (mut now, states, windows) = match inspection {
-                    Some(inspection) => {
-                        let now = inspection.pending();
-                        let states = state_signature(&inspection.windows);
-                        (now, states, inspection.windows)
+                let (mut now, mut windows) = inspection
+                    .map(|i| (i.pending(), i.windows))
+                    .unwrap_or_default();
+                let mut db = open_db(root, live);
+                let anomalies = db
+                    .as_mut()
+                    .map(|db| track(db, &session, live, &mut windows))
+                    .unwrap_or_default();
+                let states = format!("{}#{anomalies}", state_signature(&windows));
+                let mut sent = false;
+                if changed_full(&mut seen, &project, live, now.clone(), states) {
+                    sent = relay_pending(root, &session, &windows, &mut now);
+                    refresh_escalation(root, &now);
+                    if let Some(db) = db.as_mut() {
+                        let _ = state_db::sync_escalations(db, &now, state_db::now());
                     }
-                    None => (Vec::new(), String::new(), Vec::new()),
-                };
-                if !changed_full(&mut seen, &project, live, now.clone(), states) {
-                    continue;
+                    let _ = write_window_state(root, &session, live, &windows);
+                    on_change(&project, &session, &now, live, &windows);
                 }
-                relay_pending(root, &session, &windows, &mut now);
-                refresh_escalation(root, &now);
-                let _ = write_window_state(root, &session, live, &windows);
-                on_change(&project, &session, &now, live, &windows);
+                // One message per look: a relayed question already reached the PM.
+                if let (Some(db), false) = (db.as_ref(), sent) {
+                    let _ = state_db::alert_pm(db, state_db::now(), |text| {
+                        answer(&session, "pm", text)
+                    });
+                }
             }
             std::thread::sleep(POLL);
         }
@@ -967,7 +1094,9 @@ pub fn dogwatch_explain(session: String, window: String) -> Result<Explanation, 
 
 #[tauri::command]
 pub fn dogwatch_answer(session: String, window: String, answer: String) -> Result<(), String> {
-    self::answer(&session, &window, &answer)
+    self::answer(&session, &window, &answer)?;
+    record_answer(&session, &window, &answer);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1176,6 +1305,9 @@ mod tests {
                     agent: Some("antigravity".into()),
                     state: AgentState::Blocked,
                     rule: Some("antigravity-confirmation".into()),
+                    state_changed_at: None,
+                    last_activity_line: None,
+                    output: Output::default(),
                 },
                 WindowState {
                     id: "@1".into(),
@@ -1184,6 +1316,9 @@ mod tests {
                     agent: Some("opencode".into()),
                     state: AgentState::Blocked,
                     rule: Some("opencode-confirmation".into()),
+                    state_changed_at: None,
+                    last_activity_line: None,
+                    output: Output::default(),
                 },
             ],
         };
@@ -1244,6 +1379,9 @@ mod tests {
                 agent: Some("opencode".into()),
                 state: AgentState::Blocked,
                 rule: Some("opencode-permission".into()),
+                state_changed_at: None,
+                last_activity_line: None,
+                output: Output::default(),
             },
             WindowState {
                 id: "@1".into(),
@@ -1252,6 +1390,9 @@ mod tests {
                 agent: Some("codex".into()),
                 state: AgentState::Working,
                 rule: Some("codex-spinner".into()),
+                state_changed_at: None,
+                last_activity_line: None,
+                output: Output::default(),
             },
         ];
         write_window_state(dir.path(), "work_state", true, &windows).unwrap();
@@ -1279,6 +1420,9 @@ mod tests {
                 agent: Some(agent.into()),
                 state: AgentState::Working,
                 rule: Some("opencode-spinner".into()),
+                state_changed_at: None,
+                last_activity_line: None,
+                output: Output::default(),
             }]
         };
         assert_ne!(
@@ -1380,6 +1524,9 @@ mod tests {
             agent: Some("codex".into()),
             state,
             rule: None,
+            state_changed_at: None,
+            last_activity_line: None,
+            output: Output::default(),
         }
     }
 
@@ -1527,6 +1674,83 @@ mod tests {
         );
         save_relayed(dir.path(), &relayed).unwrap();
         assert_eq!(load_relayed(dir.path()), relayed);
+    }
+
+    #[test]
+    fn the_activity_line_skips_chrome_and_the_hash_ignores_spinners() {
+        let busy = "⏺ Running the tests\n  npm test passed\n✻ Thinking… (12s · esc to interrupt)\n╭───╮\n│ > │\n╰───╯\n";
+        let (line, output) = read_output(busy);
+        assert_eq!(line.as_deref(), Some("npm test passed"));
+        assert_eq!(
+            output.tail.as_deref(),
+            Some("⏺ Running the tests\nnpm test passed")
+        );
+        // scripts/work_db.py computes the same digest (test/work-agent.test.mjs).
+        assert_eq!(
+            output.hash.as_deref(),
+            Some("c226aa322ef97bd9a89063feb23d72fadff39516ef444cc4295a7b781fc28351")
+        );
+
+        let later = busy.replace("12s", "13s").replace('✻', "✶");
+        assert_eq!(
+            read_output(&later).1.hash,
+            output.hash,
+            "a ticking spinner is not new output"
+        );
+        let moved = format!("{busy}done\n");
+        assert_ne!(read_output(&moved).1.hash, output.hash);
+    }
+
+    #[test]
+    fn the_activity_line_is_clipped_and_the_tail_keeps_eight_lines() {
+        let long = "x".repeat(300);
+        assert_eq!(
+            read_output(&long).0.unwrap().chars().count(),
+            ACTIVITY_CHARS + 1
+        );
+        let many: String = (1..=12).map(|n| format!("line {n}\n")).collect();
+        let tail = read_output(&many).1.tail.unwrap();
+        assert_eq!(tail.lines().count(), 8);
+        assert!(tail.starts_with("line 5"));
+        assert_eq!(read_output("").0, None);
+    }
+
+    #[test]
+    fn the_state_file_carries_the_state_start_and_the_activity_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = vec![WindowState {
+            id: "@1".into(),
+            name: "dev1".into(),
+            prompt: None,
+            agent: Some("claude".into()),
+            state: AgentState::Working,
+            rule: None,
+            state_changed_at: None,
+            last_activity_line: Some("cargo test".into()),
+            output: read_output("cargo test\n").1,
+        }];
+        let mut db = state_db::open(&dir.path().join(state_db::DB_FILE)).unwrap();
+        assert_eq!(track(&mut db, "work_s", true, &mut windows), "");
+        assert!(windows[0].state_changed_at.is_some());
+        write_window_state(dir.path(), "work_s", true, &windows).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(json["windows"][0]["last_activity_line"], "cargo test");
+        assert!(json["windows"][0]["state_changed_at"].is_u64());
+        assert!(json["windows"][0].get("output").is_none());
+    }
+
+    #[test]
+    fn a_project_without_a_session_gets_no_database() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(open_db(dir.path(), false).is_none());
+        assert!(!dir.path().join(state_db::DB_FILE).exists());
+        assert!(open_db(dir.path(), true).is_some());
+        assert!(
+            open_db(dir.path(), false).is_some(),
+            "an existing one is kept up to date"
+        );
     }
 
     #[test]

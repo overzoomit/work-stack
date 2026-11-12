@@ -11,6 +11,11 @@ Commands:
     work-agent prompt [--clean|--no-clean] <target_role> "<instruction>"
     work-agent wait [--clean] <target_role> [--until blocked|idle|done] [--timeout SEC]
     work-agent read <target_role> [--lines N] [--clean]
+    work-agent status [--json]
+    work-agent log [--window W] [--limit N] [--json]
+    work-agent inspect <window> [--json]
+
+status, log and inspect read the shared database .claude/work.db.
 
 Exit codes: 0 success, 1 error, 2 timeout.
 """
@@ -28,9 +33,14 @@ from pathlib import Path
 from typing import NoReturn
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import work_db  # noqa: E402
+
 DEFAULT_STATE = Path(".claude") / "dogwatch_state.json"
 WAIT_POLL = 0.2
 DEFAULT_TIMEOUT = 300.0
+# status refreshes from tmux when no dogwatch wrote the database for this long.
+STALE_POLL = 60
 # Local marker written by `prompt` and read by `wait`: it closes the race where
 # an idle snapshot taken before the agent starts would look like "done".
 PROMPT_MARKS = "work-agent_prompts.json"
@@ -223,7 +233,29 @@ def prompt_mark(state_path: Path, session: str, target: str) -> float | None:
     return stamp
 
 
+def db_file(state_path: Path) -> Path:
+    return state_path.with_name("work.db")
+
+
+def read_barrier(state_path: Path, target: str) -> dict | None:
+    if not db_file(state_path).is_file():
+        return None
+    found: dict = {}
+    work_db.safely(db_file(state_path), lambda db: found.update(dict(work_db.barrier(db, target) or {})))
+    return found or None
+
+
+def sender_name(tmux, binary: str | None) -> str | None:
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        return None
+    out = tmux.run_tmux(["display-message", "-p", "-t", pane, "#W"], binary)
+    return (out.stdout.strip() or None) if out.returncode == 0 else None
+
+
 def clear_mark(state_path: Path, session: str, target: str) -> None:
+    if db_file(state_path).is_file():
+        work_db.safely(db_file(state_path), lambda db: work_db.clear_barrier(db, target))
     path = marks_path(state_path)
     marks = read_marks(state_path)
     if marks.pop(_mark_key(session, target), None) is None:
@@ -355,6 +387,8 @@ def cmd_prompt(args, tmux, root: Path, path: Path, session: str) -> int:
     # The agent may still look idle for one Dogwatch poll: remember the prompt
     # so an immediate `wait --until done` cannot accept that pre-start snapshot.
     write_mark(path, session, target)
+    sender = sender_name(tmux, args.tmux_bin)
+    work_db.safely(db_file(path), lambda db: work_db.set_barrier(db, session, target, sender, text))
     try:
         live_state(tmux, path, session, args.tmux_bin)
     except AgentError:
@@ -391,7 +425,11 @@ def cmd_wait(args, tmux, root: Path, path: Path, session: str) -> int:
     deadline = None if timeout <= 0 else time.monotonic() + timeout
     # A prompt just sent by this CLI is a barrier: after it, an "idle" snapshot
     # is meaningful only once the agent has actually started working.
-    mark = prompt_mark(path, session, target)
+    shared = read_barrier(path, target)
+    if shared and shared.get("session") not in (None, session):
+        shared = None
+    stamps = [m for m in (prompt_mark(path, session, target), shared and shared["sent_at_ms"] / 1000) if m]
+    mark = max(stamps) if stamps else None
     barrier = mark is not None and time.time() - mark <= PROMPT_BARRIER
     # Never trust a snapshot written before the wait started: take one now.
     state = live_state(tmux, path, session, args.tmux_bin)
@@ -435,6 +473,9 @@ def cmd_wait(args, tmux, root: Path, path: Path, session: str) -> int:
             live = target_live_state(tmux, session, target, args.tmux_bin)
             if live in ("working", "blocked"):
                 note(live, last_mtime)
+            elif (read_barrier(path, target) or {}).get("observed_busy_at_ms"):
+                # Work's dogwatch saw it busy between two of these probes.
+                note("working", last_mtime)
 
         matched = value == until or (until == "done" and value == "idle")
         if matched:
@@ -489,6 +530,163 @@ def cmd_read(args, tmux, root: Path, path: Path, session: str) -> int:
     return 0
 
 
+# ── PM dashboard: status / log / inspect ─────────────────────
+
+
+def fmt_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+
+
+def fmt_time(stamp: int) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stamp))
+
+
+def open_db(path: Path):
+    if not db_file(path).is_file():
+        raise AgentError(f"no shared state yet ({db_file(path)}): start Work or scripts/tmux-dogwatch.py")
+    try:
+        return work_db.connect(db_file(path))
+    except Exception as exc:  # noqa: BLE001 - sqlite3 or filesystem
+        raise AgentError(f"cannot open {db_file(path)}: {exc}") from exc
+
+
+def ticket_label(issue: dict | None) -> str:
+    if not issue:
+        return "-"
+    return f"[{issue.get('sequence_id') or '?'}] {issue.get('state')}"
+
+
+def dashboard(path: Path) -> dict:
+    db = open_db(path)
+    try:
+        stamp = work_db.now()
+        held = {a["assigned_window"]: a for a in work_db.assignments(db)}
+        windows = []
+        for w in work_db.windows(db):
+            w["duration"] = stamp - w["state_changed_at"]
+            w["ticket"] = held.get(w["name"])
+            windows.append(w)
+        return {
+            "now": stamp,
+            "meta": work_db.meta(db),
+            "windows": windows,
+            "escalations": work_db.open_escalations(db),
+            "anomalies": work_db.active_anomalies(db),
+        }
+    finally:
+        db.close()
+
+
+def emit_json(payload: object) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_status(args, tmux, root: Path, path: Path, session: str | None) -> int:
+    last_poll = None
+    if db_file(path).is_file():
+        db = open_db(path)
+        last_poll = work_db.meta(db).get("dogwatch_last_poll_at")
+        db.close()
+    # Without Work or the sentinel running, the database is refreshed here.
+    if session and (last_poll is None or work_db.now() - int(last_poll) > STALE_POLL):
+        try:
+            live_state(tmux, path, session, args.tmux_bin)
+        except AgentError:
+            pass
+    data = dashboard(path)
+    if args.json:
+        emit_json(data)
+        return 0
+    meta = data["meta"]
+    polled = meta.get("dogwatch_last_poll_at")
+    age = f"{fmt_duration(data['now'] - int(polled))} ago" if polled else "never"
+    print(f"session {meta.get('session_name', '-')} · last dogwatch look {age}")
+    rows = [("WINDOW", "STATE", "FOR", "AGENT", "TICKET", "LAST ACTIVITY")]
+    for w in data["windows"]:
+        rows.append((
+            w["name"], w["state"], fmt_duration(w["duration"]), w.get("agent") or "-",
+            ticket_label(w["ticket"]), w.get("last_activity_line") or "",
+        ))
+    widths = [max(len(str(r[i])) for r in rows) for i in range(5)]
+    for r in rows:
+        print("  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r[:5])) + f"  {r[5]}".rstrip())
+    if data["escalations"]:
+        print("\npending questions:")
+        for e in data["escalations"]:
+            options = " | ".join(json.loads(e["options_json"] or "[]"))
+            print(f"  {e['window_name']} ({e['status']}, {fmt_duration(data['now'] - e['created_at'])}): {e['question']}"
+                  + (f" [{options}]" if options else ""))
+    if data["anomalies"]:
+        print("\nanomalies:")
+        for a in data["anomalies"]:
+            print(f"  {a['window_name']} {a['kind']}: {a['message']}")
+    return 0
+
+
+def print_events(events: list[dict]) -> None:
+    for e in events:
+        print(f"{fmt_time(e['timestamp'])}  {e['category']}/{e['kind']}  {e.get('window_name') or '-'}  {e['summary']}")
+
+
+def cmd_log(args, tmux, root: Path, path: Path, session: str | None) -> int:
+    db = open_db(path)
+    try:
+        events = work_db.events(db, args.window, max(1, args.limit))
+    finally:
+        db.close()
+    if args.json:
+        emit_json(events)
+    elif not events:
+        print("(no events)")
+    else:
+        print_events(events)
+    return 0
+
+
+def cmd_inspect(args, tmux, root: Path, path: Path, session: str | None) -> int:
+    data = dashboard(path)
+    window = next((w for w in data["windows"] if w["name"].lower() == args.target.lower()), None)
+    if window is None:
+        raise AgentError(f"window {args.target!r} not found in {db_file(path)}")
+    name = window["name"]
+    db = open_db(path)
+    try:
+        events = work_db.events(db, name, 10)
+    finally:
+        db.close()
+    card = {
+        "window": window,
+        "escalation": next((e for e in data["escalations"] if e["window_name"] == name), None),
+        "anomalies": [a for a in data["anomalies"] if a["window_name"] == name],
+        "events": events,
+    }
+    if args.json:
+        emit_json(card)
+        return 0
+    ticket = window["ticket"]
+    print(f"{name} · {window['state']} for {fmt_duration(window['duration'])} · agent {window.get('agent') or '-'}"
+          + (f" · rule {window['rule']}" if window.get("rule") else ""))
+    print(f"ticket: {ticket_label(ticket)}" + (f" {ticket.get('title') or ''}" if ticket else ""))
+    print(f"command: {window.get('current_command') or '-'}")
+    print(f"last activity: {window.get('last_activity_line') or '-'}")
+    if card["escalation"]:
+        print(f"pending question ({card['escalation']['status']}): {card['escalation']['question']}")
+    for a in card["anomalies"]:
+        print(f"anomaly {a['kind']}: {a['message']}")
+    print("--- tail ---")
+    print(window.get("tail_preview") or "")
+    print("--- recent events ---")
+    print_events(events)
+    return 0
+
+
 def add_common(parser: argparse.ArgumentParser, *, suppress: bool = False) -> None:
     default = argparse.SUPPRESS if suppress else None
     parser.add_argument("--session", default=default, help="tmux session (default: current project session)")
@@ -532,6 +730,21 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--lines", type=int, default=200, help="pane lines to read (default: 200)")
     read.add_argument("--clean", action="store_true", help="drop ANSI, box borders and key-hint chrome")
 
+    status = sub.add_parser("status", help="every agent window with state, duration, ticket and anomalies")
+    add_common(status, suppress=True)
+    status.add_argument("--json", action="store_true", help="print JSON")
+
+    log = sub.add_parser("log", help="latest events from the shared database")
+    add_common(log, suppress=True)
+    log.add_argument("--window", help="only this window's events")
+    log.add_argument("--limit", type=int, default=20, help="events to show (default: 20)")
+    log.add_argument("--json", action="store_true", help="print JSON")
+
+    inspect = sub.add_parser("inspect", help="detailed card of one agent window")
+    add_common(inspect, suppress=True)
+    inspect.add_argument("target", help="window name, e.g. dev1")
+    inspect.add_argument("--json", action="store_true", help="print JSON")
+
     return parser
 
 
@@ -541,12 +754,21 @@ def main(argv: list[str] | None = None) -> int:
     path = args.state or (root / DEFAULT_STATE)
     tmux = load_tmux_module()
     try:
-        session = resolve_session(tmux, root, args.session, args.tmux_bin)
+        try:
+            session = resolve_session(tmux, root, args.session, args.tmux_bin)
+        except AgentError:
+            # The database is readable without a live tmux session.
+            if args.command not in ("status", "log", "inspect"):
+                raise
+            session = None
         commands = {
             "list": cmd_list,
             "prompt": cmd_prompt,
             "wait": cmd_wait,
             "read": cmd_read,
+            "status": cmd_status,
+            "log": cmd_log,
+            "inspect": cmd_inspect,
         }
         return commands[args.command](args, tmux, root, path, session)
     except AgentError as exc:

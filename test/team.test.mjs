@@ -594,6 +594,62 @@ test('an agent row shows the Plane ticket the plane dogwatch gave it', () => {
   assert.equal(Team.ticketLine([], 'dev1'), '');
 });
 
+test('formatDuration reads seconds, minutes and hours', () => {
+  assert.equal(Team.formatDuration(0), '0s');
+  assert.equal(Team.formatDuration(45.9), '45s');
+  assert.equal(Team.formatDuration(252), '4m 12s');
+  assert.equal(Team.formatDuration(7500), '2h 05m');
+  assert.equal(Team.formatDuration(-3), '0s', 'a clock skew never shows a negative time');
+});
+
+test('an agent row shows how long it has been in its state, its last line and the watchdog anomalies', () => {
+  const snapshot = {
+    windows: [
+      { name: 'dev1', state: 'idle', state_changed_at: 1000, last_activity_line: 'npm <test> passed' },
+      { name: 'qa1', state: 'working', state_changed_at: 900, last_activity_line: null },
+    ],
+    anomalies: [{ window_name: 'dev1', kind: 'orphan_ticket', message: 'dev1 è idle da 120s' }],
+  };
+  const dev1 = Team.activityLine(snapshot, 'dev1', 1120);
+  assert.match(dev1, /<span class="tp-anomaly" title="dev1 è idle da 120s">⚠ Orphan ticket<\/span>/);
+  assert.match(dev1, /<span class="tp-duration">for 2m 00s<\/span> · <span class="tp-last-line" title="npm &lt;test&gt; passed">npm &lt;test&gt; passed<\/span>/);
+  assert.equal(Team.activityLine(snapshot, 'qa1', 1200), '<div class="tp-activity"><span class="tp-duration">for 5m 00s</span></div>');
+  assert.equal(Team.activityLine(snapshot, 'dev2', 1200), '', 'a window the database does not know');
+  assert.equal(Team.activityLine(null, 'dev1'), '', 'no snapshot yet');
+});
+
+test('the team popover reads the shared state snapshot of the project', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_snapshot_test';
+  env.tmuxWindows = [{ id: '@1', name: 'dev1', active: false, path: '/home/u/snap-proj' }];
+  const asked = [];
+  window.work.state = {
+    snapshot: async (project) => {
+      asked.push(project);
+      return {
+        windows: [{ name: 'dev1', state: 'working', state_changed_at: Date.now() / 1000 - 75, last_activity_line: 'cargo test' }],
+        anomalies: [{ window_name: 'dev1', kind: 'frozen_working', message: 'output still' }],
+      };
+    },
+  };
+  const project = { path: '/home/u/snap-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  Team.initTeam({ activeProject: () => project });
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  await tick();
+  assert.deepEqual(asked, ['/home/u/snap-proj']);
+  assert.match(pop.innerHTML, /⚠ Frozen/);
+  assert.match(pop.innerHTML, /for 1m 1\ds/);
+  assert.match(pop.innerHTML, /cargo test/);
+
+  Team.closeTeamMenu();
+  delete window.work.state;
+  for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
+  await tick(50);
+  env.tmuxAvailable = false;
+});
+
 // ── Role skills: editable init prompts ──────────────────────
 
 test('role skill defaults exist for every family and interpolate the project name', () => {
@@ -631,6 +687,9 @@ test('workers start in standby: they ping the PM and never pick tickets from Pla
   const pm = Team.initPromptFor(project, 'pm');
   assert.doesNotMatch(pm, /Sono pronto e a disposizione del PM/, 'the PM does not ping itself');
   assert.match(pm, /Sei l'unico ad assegnare i ticket/);
+  assert.match(pm, /scripts\/work-agent\.py status/, 'the PM knows the team dashboard');
+  assert.match(pm, /work-agent\.py log/);
+  assert.match(pm, /work-agent\.py inspect <finestra>/);
 });
 
 test('skillFamily maps numbered windows to their role family', () => {

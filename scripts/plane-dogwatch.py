@@ -564,6 +564,7 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
             record["timestamp"] = tmux.now_iso()
 
     save_state(state_path, state)
+    record_issues(state_path, issues, names, records, current, actions)
     return {
         "session": session.name,
         "timestamp": tmux.now_iso(),
@@ -576,6 +577,28 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
         "cleanups": cleanups,
         "waiting": waiting,
     }
+
+
+def record_issues(state_path: Path, issues: list[dict], names: dict, records: dict, current: dict, actions: list[dict]) -> None:
+    """Mirror the cycle into .claude/work.db, next to the state file."""
+    display = {name.lower(): name for name in names.values()}
+    rows = []
+    for issue in issues:
+        record = records.get(issue["id"], {})
+        action = next((a for a in actions if a["id"] == issue["id"] and a.get("target")), None)
+        rows.append({
+            "issue_id": issue["id"],
+            "sequence_id": issue.get("sequence_id"),
+            "title": issue.get("name"),
+            "state": display.get(current[issue["id"]], current[issue["id"]]),
+            "role": record.get("role") or None,
+            "assigned_window": record.get("target") or None,
+            "fingerprint": record.get("hash") or None,
+            "handled_state": record.get("handled") or None,
+            "delegated": action is not None,
+            "last_error": action.get("error") if action else None,
+        })
+    tmux.work_db.safely(state_path.with_name("work.db"), lambda db: tmux.work_db.sync_plane_issues(db, rows))
 
 
 # ── CLI ──────────────────────────────────────────────────────

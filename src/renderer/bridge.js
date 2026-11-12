@@ -183,6 +183,9 @@
       answer: call('dogwatch_answer', 'session', 'window', 'answer'),
       onUpdate: listen('dogwatch:update'),
     },
+    state: {
+      snapshot: call('work_state_snapshot', 'project'),
+    },
     planeDogwatch: {
       status: call('plane_dogwatch_status'),
       syncNow: call('plane_dogwatch_sync_now'),

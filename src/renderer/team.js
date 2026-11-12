@@ -132,7 +132,7 @@ const STANDBY =
 export const ROLE_SKILLS = {
   pm: {
     name: 'Project Manager (PM)',
-    text: "Sei il Project Manager del progetto {project_name} con oltre 30 anni di esperienza con metodologie Scrum e Agile. Coordini le priorità verso i Dev, i QA e i Doc usando l'istanza Plane, approvi le milestone e gestisci l'escalation. Sei l'unico ad assegnare i ticket: gli agenti restano in attesa finché non assegni loro un ticket, direttamente o tramite plane-dogwatch.",
+    text: "Sei il Project Manager del progetto {project_name} con oltre 30 anni di esperienza con metodologie Scrum e Agile. Coordini le priorità verso i Dev, i QA e i Doc usando l'istanza Plane, approvi le milestone e gestisci l'escalation. Sei l'unico ad assegnare i ticket: gli agenti restano in attesa finché non assegni loro un ticket, direttamente o tramite plane-dogwatch. Per lo stato della squadra usa python3 scripts/work-agent.py status (finestre, durata dello stato, ticket, domande pendenti e anomalie), python3 scripts/work-agent.py log [--window <finestra>] per lo storico degli eventi e python3 scripts/work-agent.py inspect <finestra> per la scheda di un agente. I messaggi [WATCHDOG] segnalano ticket orfani, agenti fermi o domande senza risposta.",
   },
   dev: {
     name: 'Developer (DEV)',
@@ -523,6 +523,31 @@ export function ticketLine(assignments, name) {
   const a = assignments.find((x) => x.window === name);
   if (!a) return '';
   return `<div class="tp-ticket" title="${esc(a.name)}">Ticket [${esc(a.issue ?? '?')}]: ${esc(a.state)}</div>`;
+}
+
+export function formatDuration(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+}
+
+const ANOMALY_LABELS = { orphan_ticket: 'Orphan ticket', frozen_working: 'Frozen', long_blocked: 'Long wait' };
+
+// How long the window has been in its state, the last line it printed and
+// the watchdog anomalies, from the shared .claude/work.db snapshot.
+export function activityLine(snapshot, name, now = Date.now() / 1000) {
+  const win = snapshot?.windows?.find((w) => w.name === name);
+  const anomalies = (snapshot?.anomalies ?? []).filter((a) => a.window_name === name);
+  if (!win && !anomalies.length) return '';
+  const badges = anomalies
+    .map((a) => `<span class="tp-anomaly" title="${esc(a.message)}">⚠ ${esc(ANOMALY_LABELS[a.kind] ?? a.kind)}</span>`)
+    .join('');
+  const since = win?.state_changed_at != null ? `<span class="tp-duration">for ${formatDuration(now - win.state_changed_at)}</span>` : '';
+  const line = win?.last_activity_line
+    ? `<span class="tp-last-line" title="${esc(win.last_activity_line)}">${esc(win.last_activity_line)}</span>`
+    : '';
+  return `<div class="tp-activity">${badges}${since}${since && line ? ' · ' : ''}${line}</div>`;
 }
 
 // The Info button opens this guide in the shared modal. Only the PM is wired
@@ -958,6 +983,7 @@ async function renderPopContent(probeMcp = true) {
   const telegram = pmActive && work?.telegram?.status ? await work.telegram.status().catch(() => null) : null;
   const plane = await work?.planeDogwatch?.status().catch(() => null);
   const assignments = plane?.projects.find((r) => r.project === p.path)?.assignments ?? [];
+  const snapshot = isRemote(p) ? null : await work?.state?.snapshot(p.path).catch(() => null);
 
   pop.innerHTML = `
     <header class="tp-head">
@@ -992,6 +1018,7 @@ async function renderPopContent(probeMcp = true) {
                 ${statusBadge(states, 'pm')}
               </div>
               ${roleDescription(agents, 'pm', 'Senior PM &amp; Architect')}
+              ${activityLine(snapshot, 'pm')}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="reconfig-role" data-role="pm" title="Reconfigure or change agent for PM">⚙</button>
@@ -1023,6 +1050,7 @@ async function renderPopContent(probeMcp = true) {
               </div>
               ${roleDescription(agents, devName, 'Developer')}
               ${ticketLine(assignments, devName)}
+              ${activityLine(snapshot, devName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(devName)}" title="Terminate window ${esc(devName)}">✕</button>
@@ -1051,6 +1079,7 @@ async function renderPopContent(probeMcp = true) {
               </div>
               ${roleDescription(agents, qaName, 'QA Engineer')}
               ${ticketLine(assignments, qaName)}
+              ${activityLine(snapshot, qaName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(qaName)}" title="Terminate window ${esc(qaName)}">✕</button>
@@ -1079,6 +1108,7 @@ async function renderPopContent(probeMcp = true) {
               </div>
               ${roleDescription(agents, docName, 'Documentation Specialist')}
               ${ticketLine(assignments, docName)}
+              ${activityLine(snapshot, docName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(docName)}" title="Terminate window ${esc(docName)}">✕</button>
@@ -1107,6 +1137,7 @@ async function renderPopContent(probeMcp = true) {
               </div>
               ${roleDescription(agents, agentName, 'Generic agent')}
               ${ticketLine(assignments, agentName)}
+              ${activityLine(snapshot, agentName)}
             </div>
             <div class="tp-row-actions">
               <button class="icon-btn tp-act-btn" data-act="kill-role" data-role="${esc(agentName)}" title="Terminate window ${esc(agentName)}">✕</button>

@@ -341,3 +341,136 @@ test('wait --clean resets the OpenCode session once the task is done', { skip: !
     box.cleanup();
   }
 });
+
+// ── Shared database (.claude/work.db): status / log / inspect ──
+
+const SCRIPTS = fileURLToPath(new URL('../scripts/', import.meta.url));
+
+// Runs Python with scripts/ importable; `db` is the box's work.db.
+const py = (box, code) => {
+  const out = spawnSync('python3', ['-c', `import sys; sys.path.insert(0, ${JSON.stringify(SCRIPTS)})\nimport work_db\ndb = work_db.connect(work_db.Path(${JSON.stringify(join(box.dir, '.claude', 'work.db'))}))\n${code}\ndb.close()`], {
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+  assert.equal(out.status, 0, out.stderr);
+  return out.stdout;
+};
+
+function seedTeam(box) {
+  py(box, `
+work_db.sync_plane_issues(db, [{"issue_id": "i-66", "sequence_id": 66, "title": "SQLite state", "state": "In Progress", "role": "dev", "assigned_window": "dev1", "delegated": True}])
+db.execute("INSERT INTO anomalies(window_name, kind, message, detected_at) VALUES('qa1', 'frozen_working', 'qa1 output still for 400s', 1)")
+`);
+}
+
+test('status refreshes from tmux when no dogwatch ran and lists windows, tickets, questions and anomalies', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const first = run(box, ['status', '--json']);
+    assert.equal(first.status, 0, first.stderr);
+    assert.deepEqual(JSON.parse(first.stdout).windows.map((w) => [w.name, w.state]), [['dev1', 'blocked'], ['qa1', 'idle']]);
+    seedTeam(box);
+    py(box, `work_db.sync_escalations(db, [{"target": "dev1", "prompt_type": "permission", "question": "Do you want to proceed?", "options": ["Yes", "No"], "relayed_to_pm": True}], lambda t, e: "fp1")`);
+
+    const data = JSON.parse(run(box, ['status', '--json']).stdout);
+    const dev1 = data.windows.find((w) => w.name === 'dev1');
+    assert.equal(dev1.ticket.sequence_id, 66);
+    assert.equal(typeof dev1.duration, 'number');
+    assert.equal(dev1.last_activity_line, 'Do you want to proceed?');
+    assert.equal(data.escalations[0].status, 'relayed');
+    assert.equal(data.anomalies[0].kind, 'frozen_working');
+
+    const text = run(box, ['status']);
+    assert.equal(text.status, 0, text.stderr);
+    assert.match(text.stdout, /^session work_test · last dogwatch look \d+s ago/);
+    assert.match(text.stdout, /dev1\s+blocked\s+\d+s\s+opencode\s+\[66\] In Progress\s+Do you want to proceed\?/);
+    assert.match(text.stdout, /pending questions:\n {2}dev1 \(relayed, \d+s\): Do you want to proceed\? \[Yes \| No\]/);
+    assert.match(text.stdout, /anomalies:\n {2}qa1 frozen_working: qa1 output still for 400s/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('status without a database or a tmux session says how to get one', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = runBare(box, ['status'], { TMUX_SESSIONS: 'other_project\\n' });
+    assert.equal(out.status, 1);
+    assert.match(out.stderr, /no shared state yet/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('log prints the newest events, filtered by window and limit', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    py(box, `
+for i in range(5):
+    work_db.log_event(db, 1700000000 + i, "dev1" if i % 2 == 0 else "qa1", "window", "state", f"event {i}")
+`);
+    const all = JSON.parse(run(box, ['log', '--json']).stdout);
+    assert.deepEqual(all.map((e) => e.summary), ['event 0', 'event 1', 'event 2', 'event 3', 'event 4']);
+    const dev1 = JSON.parse(run(box, ['log', '--window', 'dev1', '--limit', '2', '--json']).stdout);
+    assert.deepEqual(dev1.map((e) => e.summary), ['event 2', 'event 4'], 'oldest first, newest kept');
+    const text = run(box, ['log', '--limit', '1']);
+    assert.match(text.stdout.trim(), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d {2}window\/state {2}dev1 {2}event 4$/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('inspect shows one window card with ticket, tail and recent events', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    run(box, ['status']);
+    seedTeam(box);
+    const out = run(box, ['inspect', 'dev1']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /^dev1 · blocked for \d+s · agent opencode/);
+    assert.match(out.stdout, /ticket: \[66\] In Progress SQLite state/);
+    assert.match(out.stdout, /--- tail ---\nDo you want to proceed\?\n/);
+    assert.match(out.stdout, /--- recent events ---\n.*dev1 new -> blocked/);
+    const card = JSON.parse(run(box, ['inspect', 'qa1', '--json']).stdout);
+    assert.equal(card.window.name, 'qa1');
+    assert.equal(card.anomalies[0].kind, 'frozen_working');
+
+    const missing = run(box, ['inspect', 'dev9']);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /window 'dev9' not found/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prompt leaves a shared barrier that the dogwatch marks busy and wait clears', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    assert.equal(run(box, ['prompt', 'dev1', 'run', 'the', 'tests']).status, 0);
+    const barrier = JSON.parse(py(box, 'import json; print(json.dumps(dict(work_db.barrier(db, "dev1"))))'));
+    assert.equal(barrier.session, 'work_test');
+    assert.equal(barrier.instruction_preview, 'run the tests');
+    assert.equal(typeof barrier.sent_at_ms, 'number');
+    assert.equal(typeof barrier.observed_busy_at_ms, 'number', 'the refresh after the prompt saw dev1 blocked');
+
+    const out = run(box, ['wait', 'dev1', '--until', 'blocked', '--timeout', '5']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(py(box, 'print(work_db.barrier(db, "dev1"))').trim(), 'None');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('the cleaned-output hash is the one dogwatch.rs computes', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const sample = '⏺ Running the tests\n  npm test passed\n✻ Thinking… (12s · esc to interrupt)\n╭───╮\n│ > │\n╰───╯\n';
+    const out = JSON.parse(py(box, `import json; print(json.dumps(work_db.activity(${JSON.stringify(sample)})))`));
+    assert.equal(out.output_hash, 'c226aa322ef97bd9a89063feb23d72fadff39516ef444cc4295a7b781fc28351');
+    assert.equal(out.last_activity_line, 'npm test passed');
+    assert.equal(out.tail_preview, '⏺ Running the tests\nnpm test passed');
+  } finally {
+    box.cleanup();
+  }
+});

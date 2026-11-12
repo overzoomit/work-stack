@@ -199,3 +199,32 @@ test('le finestre doc1/doc2 sono agenti validi, "docs" no', { skip: !hasPython }
     box.cleanup();
   }
 });
+
+test('--once fills .claude/work.db and answer records the reply on the open question', { skip: !hasPython }, () => {
+  const box = sandbox();
+  const db = join(box.dir, '.claude', 'work.db');
+  const query = (sql) => {
+    const out = spawnSync('python3', ['-c', `import json, sqlite3; c = sqlite3.connect(${JSON.stringify(db)}); c.row_factory = sqlite3.Row; print(json.dumps([dict(r) for r in c.execute(${JSON.stringify(sql)})]))`], { encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    return JSON.parse(out.stdout);
+  };
+  try {
+    assert.equal(run(box, ['answer', 'dev1', 'yes']).status, 0);
+    assert.equal(existsSync(db), false, 'answer never creates the database');
+
+    assert.equal(run(box, ['--once', '--session', 'work_test']).status, 0);
+    const windows = query('SELECT name, state, last_activity_line FROM windows ORDER BY name');
+    assert.deepEqual(windows.map((w) => [w.name, w.state]), [['agent1', 'blocked'], ['dev1', 'blocked'], ['dev2', 'idle'], ['qa', 'blocked']]);
+    assert.equal(windows.find((w) => w.name === 'dev2').last_activity_line, 'just working');
+    const shared = JSON.parse(readFileSync(join(box.dir, '.claude', 'dogwatch_state.json'), 'utf8'));
+    assert.equal(typeof shared.windows[0].state_changed_at, 'number');
+    assert.deepEqual(query("SELECT window_name, status FROM escalations ORDER BY window_name").map((e) => [e.window_name, e.status]),
+      [['agent1', 'pending'], ['dev1', 'pending'], ['qa', 'pending']]);
+
+    assert.equal(run(box, ['answer', 'dev1', 'yes']).status, 0);
+    const [dev1] = query("SELECT answer_text, answered_by, status FROM escalations WHERE window_name = 'dev1'");
+    assert.deepEqual(dev1, { answer_text: 'yes', answered_by: 'pm', status: 'pending' });
+  } finally {
+    box.cleanup();
+  }
+});

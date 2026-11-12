@@ -17,6 +17,7 @@ mod pty;
 mod remote;
 mod runconfigs;
 mod settings;
+mod state_db;
 mod store;
 mod sysstats;
 mod telegram;
@@ -313,6 +314,7 @@ fn main() {
             dogwatch::dogwatch_answer,
             plane_dogwatch::plane_dogwatch_status,
             plane_dogwatch::plane_dogwatch_sync_now,
+            state_db::work_state_snapshot,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
             ngrok::ngrok_start,

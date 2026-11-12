@@ -27,6 +27,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import work_db  # noqa: E402
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11
@@ -410,6 +413,7 @@ def scan_windows(
             "state": state,
             "rule": rule,
             "prompt": prompt,
+            **(work_db.activity(text) if text.strip() else {}),
         })
     return windows
 
@@ -480,6 +484,8 @@ def write_state(
     *,
     live: bool = True,
 ) -> dict[str, object]:
+    # The database first: it gives each window its state_changed_at.
+    work_db.safely(path.with_name("work.db"), lambda db: work_db.sync_windows(db, session, windows, live))
     payload = {
         "updated_at": timestamp or now_iso(),
         "session": session,
@@ -609,6 +615,19 @@ def relay_to_pm(
     return pending
 
 
+def record_escalations(root: Path | None, pending: list[dict[str, object]]) -> None:
+    work_db.safely(
+        work_db.db_path(root or Path.cwd()),
+        lambda db: work_db.sync_escalations(db, pending, fingerprint),
+    )
+
+
+def record_answer(root: Path | None, target: str, text: str) -> None:
+    path = work_db.db_path(root or Path.cwd())
+    if path.is_file():
+        work_db.safely(path, lambda db: work_db.record_answer(db, target, text, "pm"))
+
+
 def emit(payload: dict[str, object]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -664,6 +683,7 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as exc:
             print(json.dumps({"error": str(exc)}, ensure_ascii=False))
             return 2
+        record_answer(root, args.target, " ".join(args.text))
         emit({"sent": True, "pane": pane})
         return 0
 
@@ -680,6 +700,7 @@ def main(argv: list[str] | None = None) -> int:
                 if relay:
                     pending = relay_to_pm(pending, windows, root, session=resolved, binary=binary)
                 write_state(state_path(root), resolved, windows, stamp)
+                record_escalations(root, pending)
                 emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
                 sys.stdout.flush()
                 time.sleep(max(0.1, args.interval))
@@ -702,6 +723,7 @@ def main(argv: list[str] | None = None) -> int:
         if relay:
             pending = relay_to_pm(pending, windows, root, session=resolved, binary=binary)
         write_state(state_path(root), resolved, windows, stamp)
+        record_escalations(root, pending)
         emit({"session": resolved, **write_escalation(path, pending, timestamp=stamp)})
         return 0
 

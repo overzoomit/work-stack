@@ -1428,6 +1428,10 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-agent-name { color: var(--text); font-weight: 600; }
 .tp-ticket { margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tp-cmd { font: 10px var(--mono); color: var(--muted); margin-top: 1px; }
+.tp-activity { margin-top: 2px; font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-duration { font-variant-numeric: tabular-nums; }
+.tp-last-line { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.tp-anomaly { margin-right: 6px; font-weight: 600; color: var(--orange); }
 .tp-badge-status { font-size: 11px; color: var(--text-2); font-weight: 500; }
 .tp-badge-status.active, .tp-badge-status.working { color: var(--green); }
 .tp-badge-status.waiting, .tp-waiting { color: var(--orange); }

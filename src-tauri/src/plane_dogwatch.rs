@@ -9,7 +9,7 @@
 //   Todo     to the first free dev, moved to "In Progress";
 //   Test     to the QA agent, who moves it to "Done" or "Re-open";
 //   Done     the PM is told on Telegram, for a ticket seen before it was done.
-use crate::{dogwatch, store, tmux};
+use crate::{dogwatch, state_db, store, tmux};
 use reqwest::Method;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -1001,6 +1001,7 @@ pub fn run_cycle(
             }
         })
         .collect();
+    record_issues(state_path, &issues, &run, &display);
     Ok(Report {
         issues: active,
         actions: run.actions,
@@ -1008,6 +1009,43 @@ pub fn run_cycle(
         assignments,
         ..Default::default()
     })
+}
+
+// Mirrors the cycle into .claude/work.db, next to the state file: what each
+// ticket is, who holds it and whether it was delegated just now.
+fn record_issues(state_path: &Path, issues: &[Value], run: &Run, display: &dyn Fn(&str) -> String) {
+    let Ok(mut db) = state_db::open(&state_path.with_file_name("work.db")) else {
+        return;
+    };
+    let rows: Vec<state_db::IssueRow> = issues
+        .iter()
+        .map(|i| {
+            let record = &run.state["issues"][id(i)];
+            let text = |key: &str| {
+                record[key]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+            };
+            let action = run
+                .actions
+                .iter()
+                .find(|a| a.id == id(i) && a.target.is_some());
+            state_db::IssueRow {
+                issue_id: id(i).into(),
+                sequence_id: i["sequence_id"].as_u64(),
+                title: title(i),
+                state: display(&run.current[id(i)]),
+                role: text("role"),
+                assigned_window: text("target"),
+                fingerprint: text("hash"),
+                handled_state: text("handled"),
+                delegated: action.is_some(),
+                last_error: action.and_then(|a| a.error.clone()),
+            }
+        })
+        .collect();
+    let _ = state_db::sync_plane_issues(&mut db, &rows, state_db::now());
 }
 
 // ── Watcher ──────────────────────────────────────────────────
@@ -1472,6 +1510,50 @@ mod tests {
             ("dev1", "In Progress")
         );
         assert_eq!(r.issues[0].state, "In Progress");
+    }
+
+    #[test]
+    fn a_cycle_records_tickets_and_delegations_in_the_shared_database() {
+        let b = scenario(vec![
+            issue(1, "s-todo"),
+            issue(3, "s-test"),
+            issue(4, "s-done"),
+        ]);
+        b.cycle(&agents(&["dev1", "dev2", "qa"]));
+        let db = state_db::open(&b.state_path().with_file_name("work.db")).unwrap();
+        let snap = state_db::snapshot(&db, state_db::now()).unwrap();
+        let held: Vec<(&str, &str, u64)> = snap["assignments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["assigned_window"].as_str().unwrap(),
+                    r["state"].as_str().unwrap(),
+                    r["sequence_id"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(held, [("dev1", "In Progress", 1), ("qa", "Test", 3)]);
+        assert!(snap["assignments"][0]["delegated_at"].is_i64());
+        let delegated = snap["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "delegated")
+            .count();
+        assert_eq!(delegated, 2);
+        assert!(snap["meta"]["plane_dogwatch_last_poll_at"].is_string());
+
+        b.cycle(&agents(&["dev1", "dev2", "qa"]));
+        let snap = state_db::snapshot(&db, state_db::now()).unwrap();
+        let delegated = snap["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "delegated")
+            .count();
+        assert_eq!(delegated, 2, "an unchanged ticket is not delegated again");
     }
 
     #[test]
