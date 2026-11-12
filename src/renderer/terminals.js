@@ -179,6 +179,57 @@ function currentPaneOf(project) {
   return list.length ? list[list.length - 1].pane : null;
 }
 
+// ── Agent team layout ────────────────────────────────────────
+// PM on the left half at full height, devs on the top right, QA then doc,
+// generic and plain shells on the bottom right.
+
+const SQUAD = /^(pm|dev|qa|doc|agent|generico|generic)(\d*)$/;
+const BOTTOM_ORDER = ['qa', 'doc', 'generic', 'shell'];
+
+// The tmux name keeps the number (qa2) that the role (qa) loses.
+export function squadSlot(pane) {
+  for (const raw of [pane?.tmuxName, pane?.title, pane?.role]) {
+    const m = String(raw || '').trim().toLowerCase().match(SQUAD);
+    if (!m) continue;
+    const family = m[1] === 'agent' || m[1] === 'generico' ? 'generic' : m[1];
+    return { family, n: m[2] ? Number(m[2]) : 0 };
+  }
+  return { family: 'shell', n: 0 };
+}
+
+const hasSquad = (panes) => panes.some((p) => squadSlot(p).family !== 'shell');
+
+// Equal parts: each split hands 1/n to its first pane and the rest onwards.
+function evenSplit(panes, dir) {
+  if (panes.length === 1) return leafNode(panes[0]);
+  return { type: 'split', dir, ratio: 1 / panes.length, a: leafNode(panes[0]), b: evenSplit(panes.slice(1), dir) };
+}
+
+export function buildSquadLayout(panes) {
+  if (!panes.length) return null;
+  const slotted = panes.map((pane, i) => ({ pane, i, ...squadSlot(pane) }));
+  const rank = (x) => (x.family === 'dev' ? 0 : BOTTOM_ORDER.indexOf(x.family));
+  slotted.sort((x, y) => rank(x) - rank(y) || x.n - y.n || x.i - y.i);
+  const pm = slotted.filter((x) => x.family === 'pm').map((x) => x.pane);
+  const top = slotted.filter((x) => x.family === 'dev').map((x) => x.pane);
+  const bottom = slotted.filter((x) => x.family !== 'pm' && x.family !== 'dev').map((x) => x.pane);
+  const right = top.length && bottom.length
+    ? { type: 'split', dir: 'col', ratio: 0.5, a: evenSplit(top, 'row'), b: evenSplit(bottom, 'row') }
+    : (top.length || bottom.length) ? evenSplit(top.length ? top : bottom, 'col') : null;
+  if (!pm.length) return right;
+  const left = evenSplit(pm, 'col');
+  return right ? { type: 'split', dir: 'row', ratio: 0.5, a: left, b: right } : left;
+}
+
+// Rebuilds the project's tree when a team member is among its panes; manual
+// splits and drags go through insertLeaf/moveLeaf and never come here.
+export function applySquadLayout(project) {
+  const panes = leaves(layoutFor(project)).map((l) => l.pane);
+  if (!hasSquad(panes)) return false;
+  setLayout(project, buildSquadLayout(panes));
+  return true;
+}
+
 // A serialisable view of the tree, for tests and diagnostics.
 export function layoutSnapshot(project) {
   const snap = (node) => {
@@ -503,6 +554,7 @@ export async function openTerminal(project, { cwd, command, title, kind = 'shell
   if (!container) {
     const after = splitFrom && splitFrom.project === project ? splitFrom : currentPaneOf(project);
     insertLeaf(project, t, { after, direction: splitDirection || 'horizontal' });
+    if (!splitDirection && !splitFrom) applySquadLayout(project);
     // A newcomer must be visible: leave maximize before laying it out.
     if (project.maximizedId) {
       project.maximizedId = null;
@@ -1076,6 +1128,7 @@ export function closeTerminal(id) {
   // Take the rectangle out of the tree now: the survivors grow while the
   // closing pane plays its exit animation in the space it last occupied.
   removeLeaf(p, t);
+  applySquadLayout(p);
   disposeTimeMachine(t);
   t.search?.dispose();
   t.dispose?.();

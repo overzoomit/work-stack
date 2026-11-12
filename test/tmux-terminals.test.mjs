@@ -67,7 +67,8 @@ test('ensureInitialTerminal re-attaches every window the tmux session kept alive
   const opened = await T.ensureInitialTerminal(p);
   assert.equal(opened.length, 4);
   const panes = T.terminalsOf(p);
-  assert.deepEqual(panes.map((t) => [t.title, t.tmuxWindow]), [['shell', '@0'], ['pm', '@1'], ['dev1', '@2'], ['qa', '@3']]);
+  // Screen order of the team layout: PM, devs, QA, then plain shells.
+  assert.deepEqual(panes.map((t) => [t.title, t.tmuxWindow]), [['pm', '@1'], ['dev1', '@2'], ['qa', '@3'], ['shell', '@0']]);
   assert.ok(panes.every((t) => t.tmuxSession === 'work_work-stack_123456'));
   assert.deepEqual(env.createdWindows, [], 'attaches the existing windows, creates none');
 
@@ -97,10 +98,11 @@ test('after closing a pane, a restart reopens only the tmux windows that were st
   assert.equal((await T.ensureInitialTerminal(before)).length, 4, 'no saved state yet: every window of the session');
   T.closeTerminal(T.terminalsOf(before).find((t) => t.title === 'pm').id);
   const saved = JSON.parse(JSON.stringify(T.terminalLayout(before)));
+  // Screen order of the team layout: devs, QA, then plain shells.
   assert.deepEqual(saved, [
-    { title: 'shell', tmuxWindow: '@0', tmuxName: 'shell', cwd: '/home/u/porto-genova' },
     { title: 'dev1', tmuxWindow: '@2', tmuxName: 'dev1', cwd: '/home/u/porto-genova', role: 'dev1', agentId: 'ollama', command: 'ollama launch opencode --model deepseek-v4.1-flash:cloud' },
     { title: 'qa', tmuxWindow: '@3', tmuxName: 'qa', cwd: '/home/u/porto-genova', role: 'qa', agentId: 'codex', command: 'codex --dangerously-bypass-approvals-and-sandbox' },
+    { title: 'shell', tmuxWindow: '@0', tmuxName: 'shell', cwd: '/home/u/porto-genova' },
   ]);
   await closeAll(before);
 
@@ -109,8 +111,8 @@ test('after closing a pane, a restart reopens only the tmux windows that were st
   const after = { path: '/home/u/porto-genova', focusedId: null, maximizedId: null, savedTerminals: saved };
   T.showProject(after);
   const reopened = await T.ensureInitialTerminal(after);
-  assert.deepEqual(reopened.map((t) => [t.title, t.tmuxWindow]), [['shell', '@0'], ['dev1', '@2'], ['qa', '@3']]);
-  assert.deepEqual(env.created.map((o) => o.tmux_window), ['@0', '@2', '@3'], 'attaches the saved windows only');
+  assert.deepEqual(reopened.map((t) => [t.title, t.tmuxWindow]), [['dev1', '@2'], ['qa', '@3'], ['shell', '@0']]);
+  assert.deepEqual(env.created.map((o) => o.tmux_window), ['@2', '@3', '@0'], 'attaches the saved windows only');
   assert.deepEqual(env.createdWindows, [], 'creates no window');
   assert.deepEqual(after.savedTerminals, [], 'restored once');
 

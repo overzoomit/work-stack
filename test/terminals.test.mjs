@@ -442,3 +442,128 @@ test('updateTerminalAgentBadge corregge il badge di un pannello già montato: te
   T.closeTerminal(t.id);
   await tick(700);
 });
+
+// ── Agent team layout ────────────────────────────────────────
+
+// Each pane's rectangle as [x, y, w, h] fractions of the grid.
+function rects(node, box = [0, 0, 1, 1], out = {}) {
+  if (!node) return out;
+  if (!node.dir) {
+    out[node.pane] = box.map((v) => Math.round(v * 1000) / 1000);
+    return out;
+  }
+  const [x, y, w, h] = box;
+  if (node.dir === 'row') {
+    rects(node.a, [x, y, w * node.ratio, h], out);
+    rects(node.b, [x + w * node.ratio, y, w * (1 - node.ratio), h], out);
+  } else {
+    rects(node.a, [x, y, w, h * node.ratio], out);
+    rects(node.b, [x, y + h * node.ratio, w, h * (1 - node.ratio)], out);
+  }
+  return out;
+}
+
+async function squad(path, names) {
+  const p = { path, focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const panes = {};
+  for (const name of names) panes[name] = await T.openTerminal(p, { title: name, tmuxName: name });
+  const layout = () => {
+    const byId = rects(T.layoutSnapshot(p));
+    return Object.fromEntries(Object.entries(panes).filter(([, t]) => byId[t.id]).map(([n, t]) => [n, byId[t.id]]));
+  };
+  const close = async () => {
+    for (const t of T.terminalsOf(p)) T.closeTerminal(t.id);
+    await tick(700);
+  };
+  return { p, panes, layout, close };
+}
+
+test('team layout: pm + dev1 split the screen in two full-height halves', async () => {
+  const s = await squad('/squad-2', ['pm', 'dev1']);
+  assert.deepEqual(s.layout(), { pm: [0, 0, 0.5, 1], dev1: [0.5, 0, 0.5, 1] });
+  await s.close();
+});
+
+test('team layout: pm on the left, dev1 top right, qa1 bottom right', async () => {
+  const s = await squad('/squad-3', ['pm', 'dev1', 'qa1']);
+  assert.deepEqual(s.layout(), { pm: [0, 0, 0.5, 1], dev1: [0.5, 0, 0.5, 0.5], qa1: [0.5, 0.5, 0.5, 0.5] });
+  await s.close();
+});
+
+test('team layout: qa1 and doc1 side by side on the bottom right', async () => {
+  const s = await squad('/squad-4', ['pm', 'dev1', 'qa1', 'doc1']);
+  assert.deepEqual(s.layout(), {
+    pm: [0, 0, 0.5, 1],
+    dev1: [0.5, 0, 0.5, 0.5],
+    qa1: [0.5, 0.5, 0.25, 0.5],
+    doc1: [0.75, 0.5, 0.25, 0.5],
+  });
+  await s.close();
+});
+
+test('team layout: devs side by side on top, QA below, in number order whatever the opening order', async () => {
+  const s = await squad('/squad-5', ['qa2', 'dev2', 'pm', 'qa1', 'dev1']);
+  assert.deepEqual(s.layout(), {
+    pm: [0, 0, 0.5, 1],
+    dev1: [0.5, 0, 0.25, 0.5],
+    dev2: [0.75, 0, 0.25, 0.5],
+    qa1: [0.5, 0.5, 0.25, 0.5],
+    qa2: [0.75, 0.5, 0.25, 0.5],
+  });
+  await s.close();
+});
+
+test('team layout: a PM added after the others still takes the whole left half', async () => {
+  const s = await squad('/squad-late-pm', ['dev1', 'qa1']);
+  assert.deepEqual(s.layout(), { dev1: [0, 0, 1, 0.5], qa1: [0, 0.5, 1, 0.5] }, 'no PM: devs on top, QA below');
+  s.panes.pm = await T.openTerminal(s.p, { title: 'pm', tmuxName: 'pm' });
+  assert.deepEqual(s.layout(), { dev1: [0.5, 0, 0.5, 0.5], qa1: [0.5, 0.5, 0.5, 0.5], pm: [0, 0, 0.5, 1] });
+  await s.close();
+});
+
+test('team layout: one group alone stacks on the right, three thirds for three devs', async () => {
+  const s = await squad('/squad-devs', ['pm', 'dev1', 'dev2', 'dev3']);
+  assert.deepEqual(s.layout(), {
+    pm: [0, 0, 0.5, 1],
+    dev1: [0.5, 0, 0.5, 0.333],
+    dev2: [0.5, 0.333, 0.5, 0.333],
+    dev3: [0.5, 0.667, 0.5, 0.333],
+  });
+  await s.close();
+});
+
+test('team layout: closing a member lays the team out again', async () => {
+  const s = await squad('/squad-close', ['pm', 'dev1', 'qa1']);
+  T.closeTerminal(s.panes.dev1.id);
+  delete s.panes.dev1;
+  assert.deepEqual(s.layout(), { pm: [0, 0, 0.5, 1], qa1: [0.5, 0, 0.5, 1] });
+  await s.close();
+});
+
+test('team layout: a manual split stays manual, and plain shells keep the old layout', async () => {
+  const s = await squad('/squad-manual', ['pm', 'dev1']);
+  const extra = await T.splitTerminal(s.panes.dev1.id, 'horizontal');
+  const snap = T.layoutSnapshot(s.p);
+  assert.deepEqual(snap.b, { dir: 'row', ratio: 0.5, a: { pane: s.panes.dev1.id }, b: { pane: extra.id } }, 'split next to dev1, as asked');
+  await s.close();
+
+  const p = { path: '/no-squad', focusedId: null, maximizedId: null };
+  T.showProject(p);
+  const a = await T.openTerminal(p);
+  const b = await T.openTerminal(p);
+  assert.deepEqual(T.layoutSnapshot(p), { dir: 'row', ratio: 0.5, a: { pane: a.id }, b: { pane: b.id } });
+  T.closeTerminal(a.id);
+  T.closeTerminal(b.id);
+  await tick(700);
+});
+
+test('buildSquadLayout: nothing, one pane, and the slot of each name', () => {
+  assert.equal(T.buildSquadLayout([]), null);
+  const only = { id: 1, tmuxName: 'pm' };
+  assert.deepEqual(T.buildSquadLayout([only]), { type: 'leaf', pane: only });
+  assert.deepEqual(T.squadSlot({ tmuxName: 'QA2' }), { family: 'qa', n: 2 });
+  assert.deepEqual(T.squadSlot({ tmuxName: 'Terminal 3', role: 'doc' }), { family: 'doc', n: 0 }, 'the role is the fallback');
+  assert.deepEqual(T.squadSlot({ tmuxName: 'generico' }), { family: 'generic', n: 0 });
+  assert.deepEqual(T.squadSlot({ title: 'Browser preview' }), { family: 'shell', n: 0 });
+});
