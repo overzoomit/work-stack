@@ -355,6 +355,10 @@ def _stamp_prune(path: Path, stamp: float) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"last_prune": stamp}) + "\n", encoding="utf-8")
     tmp.replace(path)
+    tmux.work_db.safely(
+        path.with_name("work.db"),
+        lambda db: tmux.work_db.set_meta(db, "opencode_last_prune_at", str(int(stamp)), int(stamp)),
+    )
 
 
 def prune_opencode_sessions(root: Path, *, now: float | None = None) -> dict:

@@ -87,14 +87,15 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    // opencode_last_prune_at is "0" until the first OpenCode prune.
     conn.execute(
-        "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?1, ?2)",
+        "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?1, ?2), ('opencode_last_prune_at', '0', ?2)",
         params![SCHEMA_VERSION, now()],
     )?;
     Ok(())
 }
 
-fn set_meta(conn: &Connection, key: &str, value: &str, now: i64) -> rusqlite::Result<()> {
+pub fn set_meta(conn: &Connection, key: &str, value: &str, now: i64) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO meta(key, value, updated_at) VALUES(?1, ?2, ?3)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
@@ -687,6 +688,11 @@ mod tests {
         }
         let version: String = one(&conn, "SELECT value FROM meta WHERE key = 'schema_version'");
         assert_eq!(version, SCHEMA_VERSION);
+        let pruned: String = one(
+            &conn,
+            "SELECT value FROM meta WHERE key = 'opencode_last_prune_at'",
+        );
+        assert_eq!(pruned, "0", "present before the first prune");
     }
 
     #[test]

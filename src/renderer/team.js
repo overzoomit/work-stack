@@ -543,12 +543,23 @@ export function activityLine(snapshot, name, now = Date.now() / 1000) {
   const badges = anomalies
     .map((a) => `<span class="tp-anomaly" title="${esc(a.message)}">⚠ ${esc(ANOMALY_LABELS[a.kind] ?? a.kind)}</span>`)
     .join('');
-  const since = win?.state_changed_at != null ? `<span class="tp-duration">for ${formatDuration(now - win.state_changed_at)}</span>` : '';
+  const since = win?.state_changed_at != null
+    ? `<span class="tp-duration" data-since="${Number(win.state_changed_at)}">for ${formatDuration(now - win.state_changed_at)}</span>`
+    : '';
   const line = win?.last_activity_line
     ? `<span class="tp-last-line" title="${esc(win.last_activity_line)}">${esc(win.last_activity_line)}</span>`
     : '';
   return `<div class="tp-activity">${badges}${since}${since && line ? ' · ' : ''}${line}</div>`;
 }
+
+// Durations move every second from the start time each span carries: no IPC
+// and no re-render, so a half-typed field or the MCP probe are left alone.
+export function tickDurations(root, now = Date.now() / 1000) {
+  for (const el of root?.querySelectorAll?.('[data-since]') ?? []) {
+    el.textContent = `for ${formatDuration(now - Number(el.dataset.since))}`;
+  }
+}
+let durationTicker = null;
 
 // The Info button opens this guide in the shared modal. Only the PM is wired
 // to the bot: dev and QA never get a token or a chat.
@@ -654,6 +665,10 @@ async function launchBrowser(id) {
 export function initTeam({ activeProject, saveProjects = null }) {
   getProject = activeProject;
   persistProjects = saveProjects;
+  if (!durationTicker) {
+    durationTicker = setInterval(() => pop && tickDurations(pop), 1000);
+    durationTicker?.unref?.();
+  }
   work?.dogwatch?.onUpdate((project, session, pending = [], live, windows = []) => {
     liveByProject.set(project, live === true);
     pendingByProject.set(project, { session, pending: pending || [] });

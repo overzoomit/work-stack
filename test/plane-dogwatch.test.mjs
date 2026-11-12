@@ -345,6 +345,16 @@ esac
     ]);
     assert.deepEqual(out.json().opencode_cleanup.deleted, ['b', 'c']);
     assert.equal(existsSync(join(box.dir, '.claude', 'opencode_cleanup.json')), true, 'the next prune waits for the interval');
+
+    const pruneMeta = () => spawnSync('python3', ['-c', `import sqlite3; print(sqlite3.connect(${JSON.stringify(join(box.dir, '.claude', 'work.db'))}).execute("SELECT value FROM meta WHERE key = 'opencode_last_prune_at'").fetchone()[0])`], { encoding: 'utf8' }).stdout.trim();
+    const stamped = pruneMeta();
+    assert.match(stamped, /^\d{10}$/, 'meta.opencode_last_prune_at follows the prune');
+    const cleanup = JSON.parse(readFileSync(join(box.dir, '.claude', 'opencode_cleanup.json'), 'utf8'));
+    assert.equal(stamped, String(Math.trunc(cleanup.last_prune)));
+
+    const skipped = await run(box, ['--once'], { WORK_OPENCODE_PRUNE: '1', WORK_OPENCODE_BIN: bin, OPENCODE_LOG: log });
+    assert.equal(skipped.json().opencode_cleanup.skipped, 'interval');
+    assert.equal(pruneMeta(), stamped, 'a skipped prune leaves the time alone');
   });
 });
 

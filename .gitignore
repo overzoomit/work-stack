@@ -13,4 +13,7 @@ src-tauri/gen/
 .claude/work-agent_prompts.json
 .claude/analytics_cache.json
 .claude/analytics_history.json
+.claude/work.db
+.claude/work.db-wal
+.claude/work.db-shm
 log/

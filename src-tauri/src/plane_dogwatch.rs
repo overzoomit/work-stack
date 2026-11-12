@@ -633,10 +633,19 @@ fn prune_opencode_sessions(root: &Path, now: u64) {
             .current_dir(root)
             .output();
     }
+    stamp_prune(root, now);
+}
+
+// The JSON file for older readers, meta.opencode_last_prune_at for the PM.
+fn stamp_prune(root: &Path, now: u64) {
+    let path = root.join(PRUNE_FILE);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let _ = std::fs::write(&path, json!({ "last_prune": now }).to_string());
+    if let Ok(db) = state_db::open(&root.join(state_db::DB_FILE)) {
+        let _ = state_db::set_meta(&db, "opencode_last_prune_at", &now.to_string(), now as i64);
+    }
 }
 
 // flock, released when the file closes; the script takes the same one.
@@ -2038,6 +2047,31 @@ mod tests {
             "the last action is ticket 2's prompt, not a reset that would wipe it"
         );
         assert_eq!(moves(&second)[0].0, Some(2));
+    }
+
+    #[test]
+    fn the_prune_time_reaches_meta_and_a_skipped_prune_leaves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let pruned = || -> String {
+            let db = state_db::open(&dir.path().join(state_db::DB_FILE)).unwrap();
+            db.query_row(
+                "SELECT value FROM meta WHERE key = 'opencode_last_prune_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        stamp_prune(dir.path(), 1_000);
+        assert_eq!(pruned(), "1000");
+        let file = std::fs::read_to_string(dir.path().join(PRUNE_FILE)).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&file).unwrap()["last_prune"],
+            1000
+        );
+
+        // Within the interval nothing runs and nothing is stamped.
+        prune_opencode_sessions(dir.path(), 1_000 + PRUNE_INTERVAL_SECS - 1);
+        assert_eq!(pruned(), "1000");
     }
 
     #[test]

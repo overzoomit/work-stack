@@ -612,10 +612,57 @@ test('an agent row shows how long it has been in its state, its last line and th
   };
   const dev1 = Team.activityLine(snapshot, 'dev1', 1120);
   assert.match(dev1, /<span class="tp-anomaly" title="dev1 è idle da 120s">⚠ Orphan ticket<\/span>/);
-  assert.match(dev1, /<span class="tp-duration">for 2m 00s<\/span> · <span class="tp-last-line" title="npm &lt;test&gt; passed">npm &lt;test&gt; passed<\/span>/);
-  assert.equal(Team.activityLine(snapshot, 'qa1', 1200), '<div class="tp-activity"><span class="tp-duration">for 5m 00s</span></div>');
+  assert.match(dev1, /<span class="tp-duration" data-since="1000">for 2m 00s<\/span> · <span class="tp-last-line" title="npm &lt;test&gt; passed">npm &lt;test&gt; passed<\/span>/);
+  assert.equal(Team.activityLine(snapshot, 'qa1', 1200), '<div class="tp-activity"><span class="tp-duration" data-since="900">for 5m 00s</span></div>');
   assert.equal(Team.activityLine(snapshot, 'dev2', 1200), '', 'a window the database does not know');
   assert.equal(Team.activityLine(null, 'dev1'), '', 'no snapshot yet');
+});
+
+test('durations tick from the start time of each span, without a re-render', () => {
+  const spans = [
+    { dataset: { since: '1000' }, textContent: 'for 0s' },
+    { dataset: { since: '940' }, textContent: 'for 0s' },
+  ];
+  const asked = [];
+  const root = { querySelectorAll: (sel) => { asked.push(sel); return spans; } };
+  Team.tickDurations(root, 1065);
+  assert.deepEqual(asked, ['[data-since]']);
+  assert.deepEqual(spans.map((s) => s.textContent), ['for 1m 05s', 'for 2m 05s']);
+  Team.tickDurations(null);
+  Team.tickDurations({}, 1065);
+});
+
+test('a dogwatch update with a new activity line refreshes the card', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_activity_test';
+  env.tmuxWindows = [{ id: '@1', name: 'dev1', active: false, path: '/home/u/activity-proj' }];
+  let line = 'cargo build';
+  let onUpdate;
+  const working = () => ({ session: 'work_activity_test', windows: [{ id: '@1', name: 'dev1', prompt: null, state: 'working', rule: 'claude-spinner', last_activity_line: line }] });
+  window.work.dogwatch = { onUpdate: (cb) => { onUpdate = cb; }, inspect: async () => working() };
+  window.work.state = {
+    snapshot: async () => ({ windows: [{ name: 'dev1', state: 'working', state_changed_at: Date.now() / 1000 - 30, last_activity_line: line }], anomalies: [] }),
+  };
+  const project = { path: '/home/u/activity-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+  Team.initTeam({ activeProject: () => project });
+  await Team.openTeamMenu();
+  const pop = document.body.children.filter((c) => c.className?.includes('team-pop')).at(-1);
+  await tick();
+  assert.match(pop.innerHTML, /cargo build/);
+
+  line = 'cargo test: 433 passed';
+  onUpdate(project.path, 'work_activity_test', [], true, working().windows);
+  await tick();
+  assert.match(pop.innerHTML, /cargo test: 433 passed/, 'same state, new line: the card follows');
+  assert.doesNotMatch(pop.innerHTML, /cargo build/);
+
+  Team.closeTeamMenu();
+  delete window.work.dogwatch;
+  delete window.work.state;
+  for (const pane of T.terminalsOf(project)) T.closeTerminal(pane.id);
+  await tick(50);
+  env.tmuxAvailable = false;
 });
 
 test('the team popover reads the shared state snapshot of the project', async () => {

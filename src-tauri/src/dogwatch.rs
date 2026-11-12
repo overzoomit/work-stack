@@ -789,16 +789,19 @@ fn write_window_state(
 
 type Seen = HashMap<String, (bool, Vec<Pending>, String)>;
 
+// The last activity line is part of it, so the team card follows an agent
+// that keeps printing; spinners and timers never reach that line.
 fn state_signature(windows: &[WindowState]) -> String {
     windows
         .iter()
         .map(|w| {
             format!(
-                "{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}",
                 w.name,
                 serde_json::to_string(&w.state).unwrap_or_default(),
                 w.rule.as_deref().unwrap_or(""),
-                w.agent.as_deref().unwrap_or("")
+                w.agent.as_deref().unwrap_or(""),
+                w.last_activity_line.as_deref().unwrap_or("")
             )
         })
         .collect::<Vec<_>>()
@@ -1429,6 +1432,37 @@ mod tests {
             state_signature(&window("codex")),
             state_signature(&window("opencode")),
             "the badge must be refreshed when the real agent changes"
+        );
+    }
+
+    #[test]
+    fn a_new_activity_line_alone_is_a_state_change_regression() {
+        let window = |capture: &str| {
+            let (last_activity_line, output) = read_output(capture);
+            vec![WindowState {
+                id: "@0".into(),
+                name: "dev1".into(),
+                prompt: None,
+                agent: Some("claude".into()),
+                state: AgentState::Working,
+                rule: Some("claude-interrupt-hint".into()),
+                state_changed_at: None,
+                last_activity_line,
+                output,
+            }]
+        };
+        let first = state_signature(&window("cargo build\n✻ Working… (3s · esc to interrupt)\n"));
+        assert_ne!(
+            first,
+            state_signature(&window(
+                "cargo build\ncargo test\n✻ Working… (3s · esc to interrupt)\n"
+            )),
+            "the card must show the new line"
+        );
+        assert_eq!(
+            first,
+            state_signature(&window("cargo build\n✶ Working… (9s · esc to interrupt)\n")),
+            "a ticking spinner is not news"
         );
     }
 

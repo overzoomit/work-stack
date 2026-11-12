@@ -91,8 +91,9 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    # opencode_last_prune_at is "0" until the first OpenCode prune.
     conn.execute(
-        "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?, ?)",
+        "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?1, ?2), ('opencode_last_prune_at', '0', ?2)",
         (SCHEMA_VERSION, now()),
     )
     return conn

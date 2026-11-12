@@ -474,3 +474,11 @@ test('the cleaned-output hash is the one dogwatch.rs computes', { skip: !hasPyth
     box.cleanup();
   }
 });
+
+test('the shared database and its WAL files are never committed', () => {
+  const repo = fileURLToPath(new URL('..', import.meta.url));
+  for (const file of ['.claude/work.db', '.claude/work.db-wal', '.claude/work.db-shm']) {
+    const out = spawnSync('git', ['check-ignore', '-q', file], { cwd: repo });
+    assert.equal(out.status, 0, `${file} must be ignored`);
+  }
+});
