@@ -65,6 +65,8 @@ ON CONFLICT(issue_id) DO UPDATE SET
 """
 
 HELD = "((role = 'dev' AND lower(state) = 'in progress') OR (role = 'qa' AND lower(state) = 'test'))"
+# The standby ping every new worker sends (READY_PING in state_db.rs).
+READY_PING = "Sono pronto e a disposizione del PM"
 
 # The chrome dogwatch.rs leaves out of the hash (is_chrome + is_spinner there).
 # capture-pane -p carries no escapes; a stub or `-e` capture might.
@@ -211,13 +213,40 @@ def activity(text: str) -> dict[str, str | None]:
 # ── Writers ──────────────────────────────────────────────────
 
 
+def drop_window(conn: sqlite3.Connection, name: str, stamp: int) -> None:
+    """A team member that left: its row goes, with what was still open for it."""
+    conn.execute("DELETE FROM windows WHERE name = ?", (name,))
+    conn.execute("UPDATE anomalies SET resolved_at = ? WHERE window_name = ? AND resolved_at IS NULL", (stamp, name))
+    conn.execute(
+        "UPDATE escalations SET status = 'cleared', resolved_at = ? WHERE window_name = ? AND status IN ('pending', 'relayed')",
+        (stamp, name),
+    )
+    conn.execute("DELETE FROM prompt_barriers WHERE lower(window_name) = lower(?)", (name,))
+    conn.execute("UPDATE plane_issues SET assigned_window = NULL WHERE assigned_window = ?", (name,))
+    log_event(conn, stamp, name, "team", "removed", f"{name} removed from team")
+
+
+def stays_ready(conn: sqlite3.Connection, w: dict, before: str | None) -> bool:
+    """Idle with no ticket, once registered as ready or after the standby ping."""
+    if w.get("state", "idle") != "idle":
+        return False
+    pinged = any(READY_PING in str(w.get(k) or "") for k in ("tail_preview", "last_activity_line"))
+    if before != "ready" and not pinged:
+        return False
+    held = conn.execute(f"SELECT 1 FROM plane_issues WHERE assigned_window = ? AND {HELD}", (str(w["name"]),)).fetchone()
+    return held is None
+
+
 def sync_windows(conn: sqlite3.Connection, session: str, windows: list[dict], live: bool = True, stamp: int | None = None) -> None:
-    """Upsert every agent window, log each transition, put the missing ones offline."""
+    """Upsert every agent window, log each transition, drop the ones that left the session."""
     stamp = now() if stamp is None else stamp
     with transaction(conn):
         for w in windows:
-            name, state = str(w["name"]), str(w.get("state") or "idle")
+            name = str(w["name"])
             row = conn.execute("SELECT state FROM windows WHERE name = ?", (name,)).fetchone()
+            if stays_ready(conn, w, row["state"] if row else None):
+                w["state"] = "ready"
+            state = str(w.get("state") or "idle")
             conn.execute(
                 UPSERT_WINDOW,
                 (
@@ -237,14 +266,9 @@ def sync_windows(conn: sqlite3.Connection, session: str, windows: list[dict], li
             changed = conn.execute("SELECT state_changed_at FROM windows WHERE name = ?", (name,)).fetchone()
             w["state_changed_at"] = changed["state_changed_at"]
         names = {str(w["name"]) for w in windows}
-        for row in conn.execute("SELECT name FROM windows WHERE state != 'offline'").fetchall():
-            if row["name"] in names:
-                continue
-            conn.execute(
-                "UPDATE windows SET state = 'offline', state_changed_at = ?, updated_at = ? WHERE name = ?",
-                (stamp, stamp, row["name"]),
-            )
-            log_event(conn, stamp, row["name"], "window", "state", f"{row['name']} -> offline")
+        for row in conn.execute("SELECT name FROM windows").fetchall():
+            if row["name"] not in names:
+                drop_window(conn, row["name"], stamp)
         set_meta(conn, "session_name", session, stamp)
         set_meta(conn, "session_live", "1" if live else "0", stamp)
         set_meta(conn, "dogwatch_last_poll_at", str(stamp), stamp)

@@ -53,19 +53,20 @@ predicates.line_regex = ['\?\s*$']
 id = "opencode-spinner"
 state = "working"
 priority = 50
-region = "last_non_empty_line"
+# OpenCode draws its spinner above the "Build · model" bar and the footer.
+region = "bottom_non_empty_lines(6)"
 predicates.regex = ['[\u{2800}-\u{28FF}]']
 
 [[rules]]
 id = "opencode-interrupt-hint"
 state = "working"
 priority = 50
-region = "bottom_non_empty_lines(3)"
-predicates.contains = ["esc to interrupt", "esc to stop", "esc to cancel"]
+region = "bottom_non_empty_lines(6)"
+predicates.contains = ["esc to interrupt", "esc to stop", "esc to cancel", "esc interrupt"]
 
 [[rules]]
 id = "opencode-thinking"
 state = "working"
 priority = 40
-region = "last_non_empty_line"
+region = "bottom_non_empty_lines(6)"
 predicates.regex = ['\b(thinking|working|analyzing|running|executing)\b\s*(…|\.\.\.)']

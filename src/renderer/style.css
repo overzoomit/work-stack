@@ -1436,6 +1436,7 @@ body.sidebar-hidden .sidebar-toggle:not([data-agents=""]) .sb-badge { opacity: 1
 .tp-badge-status.active, .tp-badge-status.working { color: var(--green); }
 .tp-badge-status.waiting, .tp-waiting { color: var(--orange); }
 .tp-badge-status.idle { color: var(--text-2); }
+.tp-badge-status.ready { color: var(--accent); }
 .tp-spinner {
   display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: -1px;
   border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;

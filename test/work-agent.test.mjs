@@ -552,3 +552,36 @@ test('prompt to a role picks its first idle window running the required agent', 
     box.cleanup();
   }
 });
+
+// ── Ready teammates ──
+
+test('wait --until idle and done accept a ready teammate', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, [{ id: '@1', name: 'qa1', agent: 'codex', state: 'ready', rule: null, prompt: null }]);
+    py(box, `db.execute("INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('qa1', 'ready', 1, 1, 1)")`);
+    const out = run(box, ['wait', 'qa1', '--until', 'idle', '--timeout', '5']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(out.stdout.trim(), 'qa1\tready');
+    const done = run(box, ['wait', 'qa1', '--until', 'done', '--timeout', '5']);
+    assert.equal(done.stdout.trim(), 'qa1\tdone');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('the live scan keeps a registered teammate ready, drops the ones gone and status shows only the team', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    py(box, `
+db.execute("INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('qa1', 'ready', 1, 1, 1)")
+db.execute("INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('dev9', 'idle', 1, 1, 1)")
+`);
+    const data = JSON.parse(run(box, ['status', '--json']).stdout);
+    assert.deepEqual(data.windows.map((w) => [w.name, w.state]), [['dev1', 'blocked'], ['qa1', 'ready']]);
+    assert.equal(py(box, `print(db.execute("SELECT summary FROM events WHERE kind = 'removed'").fetchone()[0])`).trim(), 'dev9 removed from team');
+    assert.match(run(box, ['list']).stdout, /^qa1\tready\tcodex$/m);
+  } finally {
+    box.cleanup();
+  }
+});

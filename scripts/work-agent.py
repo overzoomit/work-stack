@@ -344,6 +344,8 @@ def clean_output(text: str) -> str:
 
 
 ROLES = ("pm", "dev", "qa", "doc", "generic")
+# Free for a task: ready is idle with nothing assigned yet.
+IDLE_LIKE = ("idle", "ready")
 
 
 def role_of(window: dict) -> str:
@@ -397,7 +399,7 @@ def pick_role_window(state: dict, role: str, need: str | None) -> dict:
     """The first idle window of the role (tmux index order) running the agent."""
     members = [w for w in state.get("windows", []) if role_of(w) == role]
     for window in members:
-        if window.get("state") == "idle" and (need is None or window.get("agent") == need):
+        if window.get("state") in IDLE_LIKE and (need is None or window.get("agent") == need):
             return window
     seen = ", ".join(f"{w['name']}: {w.get('agent') or '-'} {w.get('state')}" for w in members) or "none"
     wanted = f" running {need}" if need else ""
@@ -427,7 +429,7 @@ def cmd_prompt(args, tmux, root: Path, path: Path, session: str) -> int:
     # context). --clean forces it, --no-clean disables the automatic reset.
     opencode = target_is_opencode(tmux, session, target, window, args.tmux_bin)
     if args.clean is None:
-        do_clean = opencode and str(window.get("state", "idle")) == "idle"
+        do_clean = opencode and str(window.get("state", "idle")) in IDLE_LIKE
     else:
         do_clean = bool(args.clean) and opencode
         if args.clean and not opencode:
@@ -528,7 +530,7 @@ def cmd_wait(args, tmux, root: Path, path: Path, session: str) -> int:
                 # Work's dogwatch saw it busy between two of these probes.
                 note("working", last_mtime)
 
-        matched = value == until or (until == "done" and value == "idle")
+        matched = value == until or (until in ("idle", "done") and value in IDLE_LIKE)
         if matched:
             pre_start = barrier and until in ("idle", "done") and not seen_active
             stale = (
@@ -620,7 +622,8 @@ def dashboard(path: Path) -> dict:
         stamp = work_db.now()
         held = {a["assigned_window"]: a for a in work_db.assignments(db)}
         windows = []
-        for w in work_db.windows(db):
+        # Only members still in the team: an older database may hold offline rows.
+        for w in (w for w in work_db.windows(db) if w["state"] != "offline"):
             w["duration"] = stamp - w["state_changed_at"]
             w["ticket"] = held.get(w["name"])
             windows.append(w)

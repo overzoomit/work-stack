@@ -181,6 +181,17 @@ test('work.state.snapshot reads the shared state of a project', async () => {
   assert.deepEqual(calls, [['work_state_snapshot', '/p']]);
 });
 
+test('work.state registers and removes a team member', async () => {
+  const calls = [];
+  const { work } = load((cmd, _wait, args) => { calls.push([cmd, JSON.stringify(args)]); return null; });
+  await work.state.registerMember('/p', 's', 'dev2', '@4', 'dev', 'claude', 'claude --model opus', 'opus');
+  await work.state.removeMember('/p', 'dev2');
+  assert.deepEqual(calls, [
+    ['work_state_register_member', JSON.stringify({ project: '/p', session: 's', name: 'dev2', windowId: '@4', role: 'dev', agent: 'claude', startCommand: 'claude --model opus', model: 'opus' })],
+    ['work_state_remove_member', JSON.stringify({ project: '/p', name: 'dev2' })],
+  ]);
+});
+
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {
   const calls = [];
   const { work } = load((cmd) => { calls.push(cmd); return null; });

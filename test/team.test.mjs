@@ -131,6 +131,50 @@ test('createTeamMember creates and attaches a window with the chosen agent', asy
   env.tmuxAvailable = false;
 });
 
+test('a new teammate is registered as ready in the shared database at once, and removed on kill', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_ready_test';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  const calls = [];
+  window.work.state = {
+    registerMember: async (...args) => { calls.push(['register', ...args]); },
+    removeMember: async (...args) => { calls.push(['remove', ...args]); },
+  };
+  const project = { path: '/home/u/ready-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+
+  const claude = Launcher.AGENTS.find((a) => a.id === 'claude');
+  const pane = await Team.createTeamMember(project, 'dev2', claude);
+  assert.deepEqual(calls[0].slice(0, 7), ['register', '/home/u/ready-proj', 'work_ready_test', 'dev2', '@0', 'dev', 'claude']);
+  assert.ok(calls[0][7].includes('claude'), 'the start command');
+
+  await Team.killTeamRole(project, 'dev2');
+  assert.deepEqual(calls.at(-1), ['remove', '/home/u/ready-proj', 'dev2']);
+
+  await Team.registerMember({ path: '/r', remote: { host: 'h' } }, 's', 'dev1', '@1', 'claude', 'claude');
+  assert.equal(calls.length, 2, 'a remote project has no local database');
+  assert.equal(calls.filter((c) => c[0] === 'register').length, 1);
+
+  if (T.terminalsOf(project).includes(pane)) T.closeTerminal(pane.id);
+  delete window.work.state;
+  await tick(50);
+  env.tmuxAvailable = false;
+});
+
+test('registerMember reads the model from the command line', async () => {
+  const calls = [];
+  window.work.state = { registerMember: async (...args) => { calls.push(args); } };
+  await Team.registerMember({ path: '/p' }, 's', 'qa1', '@2', 'ollama', 'ollama launch opencode --model deepseek-v4.1-flash:cloud');
+  assert.deepEqual(calls[0], ['/p', 's', 'qa1', '@2', 'qa', 'ollama', 'ollama launch opencode --model deepseek-v4.1-flash:cloud', 'deepseek-v4.1-flash:cloud']);
+  delete window.work.state;
+});
+
+test('statusBadge shows a ready teammate', () => {
+  const states = new Map([['dev2', { state: 'ready' }]]);
+  assert.match(Team.statusBadge(states, 'dev2'), /class="tp-badge-status ready"[^>]*>Ready</);
+});
+
 test('initializeTeam on tmux creates missing windows and attaches them', async () => {
   env.tmuxAvailable = true;
   env.tmuxSession = 'work_team_proj';

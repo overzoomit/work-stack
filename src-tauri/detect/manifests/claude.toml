@@ -50,7 +50,8 @@ predicates.line_regex = ['\?\s*$']
 id = "claude-spinner"
 state = "working"
 priority = 50
-region = "last_non_empty_line"
+# The progress line sits above the input box and a multi-line statusline.
+region = "bottom_non_empty_lines(12)"
 predicates.regex = ['[\u{2800}-\u{28FF}]']
 
 [[rules]]
@@ -64,5 +65,6 @@ predicates.contains = ["esc to interrupt", "esc to stop", "esc to cancel"]
 id = "claude-thinking"
 state = "working"
 priority = 40
-region = "last_non_empty_line"
-predicates.regex = ['\b(thinking|working|analyzing|running|executing)\b\s*(…|\.\.\.)']
+region = "bottom_non_empty_lines(12)"
+# "✢ Cooking… (2m · thinking)": the active progress line; "✻ Cooked for 2m" is done.
+predicates.line_regex = ['^\s*[✢✻✶✳✽·]\s+\S+…\s*\(', '^\s*\b(thinking|working|analyzing|running|executing)\b\s*(…|\.\.\.)\s*$']

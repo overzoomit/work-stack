@@ -36,6 +36,9 @@ pub enum AgentState {
     Working,
     Blocked,
     Idle,
+    // Idle and free: just added to the team, or standing by after its ping.
+    // Only the shared database decides it (state_db::sync_windows).
+    Ready,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1125,9 +1128,9 @@ pub fn relay_to_pm(
             relayed.get(&entry.target) == Some(&fingerprint(&entry.target, &entry.prompt));
     }
 
-    let pm_idle = windows
-        .iter()
-        .any(|w| w.name.eq_ignore_ascii_case("pm") && w.state == AgentState::Idle);
+    let pm_idle = windows.iter().any(|w| {
+        w.name.eq_ignore_ascii_case("pm") && matches!(w.state, AgentState::Idle | AgentState::Ready)
+    });
     if pm_idle {
         if let Some(entry) = pending.iter_mut().find(|e| !e.relayed_to_pm) {
             let agent = windows
@@ -1421,6 +1424,37 @@ mod tests {
         let idle = classified("gemini", include_str!("../detect/fixtures/gemini_idle.txt"));
         assert_eq!(idle.state, AgentState::Idle);
         assert!(idle.rule.is_none());
+    }
+
+    #[test]
+    fn opencode_working_above_its_build_bar_is_working() {
+        let busy = "  ⠦ Thinking…\n  ■■■■■■⬝⬝ esc interrupt\n┃\n┃  Build · deepseek-v4.1-flash:cloud\n╹▀▀▀▀▀▀▀▀▀\n  …/work-st…  shift+tab agents  ctrl+p commands\n  ⊙ 1 MCP\n";
+        assert_eq!(classified("opencode", busy).state, AgentState::Working);
+        let idle = "  done\n┃  Ask anything… \"What is the tech stack\"\n┃\n┃  Build · deepseek-v4.1-flash:cloud\n╹▀▀▀▀▀▀▀▀▀\n  …/work-st…  shift+tab agents  ctrl+p commands\n  ⊙ 1 MCP\n";
+        assert_eq!(classified("opencode", idle).state, AgentState::Idle);
+    }
+
+    #[test]
+    fn claude_cooking_under_a_multi_line_statusline_is_working() {
+        let busy = "⏺ Reading src/main.rs\n\n✢ Cooking… (2m · ↓ 3.1k tokens · thinking)\n\n╭──────────────╮\n│ >            │\n╰──────────────╯\n  ~/work-stack (main) · Opus\n  ctx 42% · $1.20\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
+        let working = classified("claude", busy);
+        assert_eq!(working.state, AgentState::Working);
+        assert_eq!(working.rule.as_deref(), Some("claude-thinking"));
+        let done = busy.replace(
+            "✢ Cooking… (2m · ↓ 3.1k tokens · thinking)",
+            "✻ Cooked for 2m 3s",
+        );
+        assert_eq!(classified("claude", &done).state, AgentState::Idle);
+    }
+
+    #[test]
+    fn a_ready_pm_gets_the_relayed_question() {
+        let ready = [window("pm", AgentState::Ready)];
+        let mut relayed = Relayed::new();
+        let mut pending = vec![blocked("dev1", "Continue? [y/N]")];
+        let mut sent = Vec::new();
+        assert!(relay(&mut relayed, &ready, &mut pending, &mut sent));
+        assert_eq!(sent.len(), 1);
     }
 
     #[test]

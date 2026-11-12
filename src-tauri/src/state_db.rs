@@ -72,6 +72,8 @@ ON CONFLICT(issue_id) DO UPDATE SET
 
 const HELD: &str =
     "((role = 'dev' AND lower(state) = 'in progress') OR (role = 'qa' AND lower(state) = 'test'))";
+// The standby ping every new worker sends (STANDBY in src/renderer/team.js).
+pub const READY_PING: &str = "Sono pronto e a disposizione del PM";
 
 pub fn now() -> i64 {
     SystemTime::now()
@@ -168,7 +170,94 @@ fn state_name(state: AgentState) -> &'static str {
         AgentState::Working => "working",
         AgentState::Blocked => "blocked",
         AgentState::Idle => "idle",
+        AgentState::Ready => "ready",
     }
+}
+
+// A team member that left: its row goes, with what was still open for it.
+fn drop_window(conn: &Connection, name: &str, now: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM windows WHERE name = ?1", [name])?;
+    conn.execute(
+        "UPDATE anomalies SET resolved_at = ?1 WHERE window_name = ?2 AND resolved_at IS NULL",
+        params![now, name],
+    )?;
+    conn.execute(
+        "UPDATE escalations SET status = 'cleared', resolved_at = ?1 WHERE window_name = ?2 AND status IN ('pending', 'relayed')",
+        params![now, name],
+    )?;
+    conn.execute(
+        "DELETE FROM prompt_barriers WHERE lower(window_name) = lower(?1)",
+        [name],
+    )?;
+    conn.execute(
+        "UPDATE plane_issues SET assigned_window = NULL WHERE assigned_window = ?1",
+        [name],
+    )?;
+    log_event(
+        conn,
+        now,
+        Some(name),
+        "team",
+        "removed",
+        &format!("{name} removed from team"),
+    )
+}
+
+// Ready while idle with no ticket, once registered as ready or after the ping.
+fn stays_ready(conn: &Connection, w: &WindowState, before: Option<&str>) -> rusqlite::Result<bool> {
+    if w.state != AgentState::Idle {
+        return Ok(false);
+    }
+    let pinged = [w.output.tail.as_deref(), w.last_activity_line.as_deref()]
+        .iter()
+        .flatten()
+        .any(|t| t.contains(READY_PING));
+    if before != Some("ready") && !pinged {
+        return Ok(false);
+    }
+    let held = conn
+        .query_row(
+            &format!("SELECT 1 FROM plane_issues WHERE assigned_window = ?1 AND {HELD}"),
+            [&w.name],
+            |_| Ok(()),
+        )
+        .optional()?;
+    Ok(held.is_none())
+}
+
+// Work registers a new teammate at once, before the next dogwatch look.
+#[allow(clippy::too_many_arguments)]
+pub fn register_member(
+    conn: &Connection,
+    session: &str,
+    name: &str,
+    window_id: Option<&str>,
+    role: &str,
+    agent: &str,
+    start_command: Option<&str>,
+    model: Option<&str>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO windows(name, window_id, session, agent, state, state_changed_at, last_output_change_at, last_activity_line, updated_at, role, start_command, model)
+         VALUES(?1, ?2, ?3, ?4, 'ready', ?5, ?5, 'READY', ?5, ?6, ?7, ?8)
+         ON CONFLICT(name) DO UPDATE SET
+           window_id = excluded.window_id, session = excluded.session, agent = excluded.agent,
+           state = 'ready', rule = NULL, state_changed_at = excluded.state_changed_at,
+           last_output_change_at = excluded.last_output_change_at, output_hash = NULL,
+           last_activity_line = 'READY', tail_preview = NULL, current_command = NULL,
+           role = excluded.role, start_command = excluded.start_command, model = excluded.model,
+           updated_at = excluded.updated_at",
+        params![name, window_id, session, agent, now, role, start_command, model],
+    )?;
+    let summary = format!("{name} ({agent}) added to team [READY]");
+    log_event(conn, now, Some(name), "team", "added", &summary)
+}
+
+pub fn remove_member(conn: &mut Connection, name: &str, now: i64) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    drop_window(&tx, name, now)?;
+    tx.commit()
 }
 
 // One dogwatch look: upserts every agent window, puts the ones that left the
@@ -182,7 +271,6 @@ pub fn sync_windows(
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     for w in windows.iter_mut() {
-        let state = state_name(w.state);
         let before: Option<String> = tx
             .query_row(
                 "SELECT state FROM windows WHERE name = ?1",
@@ -190,6 +278,10 @@ pub fn sync_windows(
                 |r| r.get(0),
             )
             .optional()?;
+        if stays_ready(&tx, w, before.as_deref())? {
+            w.state = AgentState::Ready;
+        }
+        let state = state_name(w.state);
         tx.execute(
             UPSERT_WINDOW,
             params![
@@ -231,26 +323,16 @@ pub fn sync_windows(
             .map(|t| t as u64);
     }
     let gone: Vec<String> = {
-        let mut stmt = tx.prepare("SELECT name FROM windows WHERE state != 'offline'")?;
+        let mut stmt = tx.prepare("SELECT name FROM windows")?;
         let names = stmt.query_map([], |r| r.get::<_, String>(0))?;
         names
             .filter_map(Result::ok)
             .filter(|n| !windows.iter().any(|w| &w.name == n))
             .collect()
     };
+    // A window gone from the session (or the session itself) leaves the team.
     for name in gone {
-        tx.execute(
-            "UPDATE windows SET state = 'offline', state_changed_at = ?1, updated_at = ?1 WHERE name = ?2",
-            params![now, name],
-        )?;
-        log_event(
-            &tx,
-            now,
-            Some(&name),
-            "window",
-            "state",
-            &format!("{name} -> offline"),
-        )?;
+        drop_window(&tx, &name, now)?;
     }
     set_meta(&tx, "session_name", session, now)?;
     set_meta(&tx, "session_live", if live { "1" } else { "0" }, now)?;
@@ -428,7 +510,7 @@ fn found_anomalies(conn: &Connection, now: i64) -> rusqlite::Result<Vec<Found>> 
     let mut orphan = conn.prepare(&format!(
         "SELECT w.name, p.issue_id, p.sequence_id, p.state, ?1 - w.state_changed_at FROM windows w
          JOIN (SELECT * FROM plane_issues WHERE {HELD}) p ON p.assigned_window = w.name
-         WHERE w.state = 'idle' AND w.state_changed_at <= ?1 - ?2 AND COALESCE(p.delegated_at, 0) <= ?1 - ?2"
+         WHERE w.state IN ('idle', 'ready') AND w.state_changed_at <= ?1 - ?2 AND COALESCE(p.delegated_at, 0) <= ?1 - ?2"
     ))?;
     let rows = orphan.query_map(params![now, ORPHAN_AFTER], |r| {
         let (name, issue, seq, state, idle): (String, String, Option<i64>, String, i64) =
@@ -530,7 +612,7 @@ pub fn alert_pm(
 ) -> rusqlite::Result<bool> {
     let pm_idle = conn
         .query_row(
-            "SELECT 1 FROM windows WHERE lower(name) = 'pm' AND state = 'idle' AND state_changed_at <= ?1",
+            "SELECT 1 FROM windows WHERE lower(name) = 'pm' AND state IN ('idle', 'ready') AND state_changed_at <= ?1",
             [now - PM_SETTLE],
             |_| Ok(()),
         )
@@ -619,6 +701,51 @@ pub fn snapshot(conn: &Connection, now: i64) -> rusqlite::Result<Value> {
         "anomalies": json_rows(conn, "SELECT * FROM anomalies WHERE resolved_at IS NULL ORDER BY id", [])?,
         "events": json_rows(conn, "SELECT * FROM events ORDER BY id DESC LIMIT ?1", [SNAPSHOT_EVENTS])?,
     }))
+}
+
+fn project_db(roots: &Roots, project: &str) -> Result<Connection, String> {
+    let root = guard(&roots.get(), Path::new(project), true)?;
+    open(&root.join(DB_FILE))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn work_state_register_member(
+    roots: State<'_, Roots>,
+    project: String,
+    session: String,
+    name: String,
+    window_id: Option<String>,
+    role: String,
+    agent: String,
+    start_command: Option<String>,
+    model: Option<String>,
+) -> Result<(), String> {
+    let conn = project_db(&roots, &project)?;
+    // "ollama" from a role default is the opencode manifest dogwatch reports.
+    let agent = crate::dogwatch::canonical_agent(&agent);
+    register_member(
+        &conn,
+        &session,
+        &name,
+        window_id.as_deref(),
+        &role,
+        &agent,
+        start_command.as_deref(),
+        model.as_deref(),
+        now(),
+    )
+    .map_err(|e| format!("registrazione di {name}: {e}"))
+}
+
+#[tauri::command]
+pub async fn work_state_remove_member(
+    roots: State<'_, Roots>,
+    project: String,
+    name: String,
+) -> Result<(), String> {
+    let mut conn = project_db(&roots, &project)?;
+    remove_member(&mut conn, &name, now()).map_err(|e| format!("rimozione di {name}: {e}"))
 }
 
 // The shared state of an open project; an empty one before the first look.
@@ -865,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_that_leaves_the_session_goes_offline() {
+    fn a_window_that_leaves_the_session_leaves_the_team() {
         let (_dir, mut conn) = db();
         sync(
             &mut conn,
@@ -875,14 +1002,173 @@ mod tests {
             ],
             100,
         );
+        sync_escalations(&mut conn, &[pending("qa1", "Go?", true)], 100).unwrap();
         sync(&mut conn, &mut [win("dev1", AgentState::Idle, "h")], 110);
-        let state: String = one(&conn, "SELECT state FROM windows WHERE name = 'qa1'");
-        assert_eq!(state, "offline");
-        let at: i64 = one(
+        let rows: i64 = one(&conn, "SELECT COUNT(*) FROM windows WHERE name = 'qa1'");
+        assert_eq!(rows, 0, "no offline leftover");
+        let status: String = one(
             &conn,
-            "SELECT state_changed_at FROM windows WHERE name = 'qa1'",
+            "SELECT status FROM escalations WHERE window_name = 'qa1'",
         );
-        assert_eq!(at, 110);
+        assert_eq!(status, "cleared");
+        let removed: String = one(
+            &conn,
+            "SELECT summary FROM events WHERE category = 'team' AND kind = 'removed'",
+        );
+        assert_eq!(removed, "qa1 removed from team");
+    }
+
+    fn registered(conn: &Connection, name: &str, now: i64) {
+        register_member(
+            conn,
+            "work_t",
+            name,
+            Some("@4"),
+            "dev",
+            "claude",
+            Some("claude --model opus"),
+            Some("opus"),
+            now,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_registered_member_is_ready_at_once_and_logged() {
+        let (_dir, conn) = db();
+        registered(&conn, "dev2", 50);
+        let row: (String, i64, String, String, String) = conn
+            .query_row(
+                "SELECT state, state_changed_at, last_activity_line, role, model FROM windows WHERE name = 'dev2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                "ready".into(),
+                50,
+                "READY".into(),
+                "dev".into(),
+                "opus".into()
+            )
+        );
+        let added: String = one(
+            &conn,
+            "SELECT summary FROM events WHERE category = 'team' AND kind = 'added'",
+        );
+        assert_eq!(added, "dev2 (claude) added to team [READY]");
+    }
+
+    #[test]
+    fn ready_holds_through_idle_looks_until_the_member_works() {
+        let (_dir, mut conn) = db();
+        registered(&conn, "dev2", 50);
+        let mut w = [win("dev2", AgentState::Idle, "h")];
+        sync(&mut conn, &mut w, 60);
+        assert_eq!(w[0].state, AgentState::Ready);
+        assert_eq!(
+            w[0].state_changed_at,
+            Some(50),
+            "still the same ready spell"
+        );
+
+        sync(&mut conn, &mut [win("dev2", AgentState::Working, "h2")], 70);
+        let mut w = [win("dev2", AgentState::Idle, "h3")];
+        sync(&mut conn, &mut w, 80);
+        assert_eq!(
+            w[0].state,
+            AgentState::Idle,
+            "after a task it is idle, not ready"
+        );
+
+        let mut pinged = win("dev2", AgentState::Idle, "h4");
+        pinged.output.tail =
+            Some("Sono pronto e a disposizione del PM per ricevere un task.".into());
+        let mut w = [pinged];
+        sync(&mut conn, &mut w, 90);
+        assert_eq!(
+            w[0].state,
+            AgentState::Ready,
+            "the standby ping makes it ready again"
+        );
+    }
+
+    #[test]
+    fn a_member_holding_a_ticket_is_not_ready_and_can_be_an_orphan() {
+        let (_dir, mut conn) = db();
+        registered(&conn, "dev1", 0);
+        sync_plane_issues(&mut conn, &[held("dev1", "In Progress", true)], 0).unwrap();
+        let mut w = [win("dev1", AgentState::Idle, "h")];
+        sync(&mut conn, &mut w, 5);
+        assert_eq!(w[0].state, AgentState::Idle);
+
+        let (_dir, mut conn) = db();
+        registered(&conn, "dev1", 0);
+        sync_plane_issues(&mut conn, &[held("dev1", "In Progress", true)], 0).unwrap();
+        let active = evaluate_anomalies(&mut conn, 100).unwrap();
+        assert_eq!(
+            kinds(&active),
+            [("dev1".into(), "orphan_ticket".into())],
+            "a ready window that never started its ticket"
+        );
+    }
+
+    #[test]
+    fn removing_a_member_clears_what_was_open_for_it() {
+        let (_dir, mut conn) = db();
+        registered(&conn, "dev1", 0);
+        sync_plane_issues(&mut conn, &[held("dev1", "In Progress", true)], 0).unwrap();
+        sync_escalations(&mut conn, &[pending("dev1", "Go?", true)], 0).unwrap();
+        conn.execute(
+            "INSERT INTO prompt_barriers(window_name, sent_at_ms) VALUES('dev1', 1)",
+            [],
+        )
+        .unwrap();
+        evaluate_anomalies(&mut conn, 500).unwrap();
+
+        remove_member(&mut conn, "dev1", 600).unwrap();
+        for (sql, want) in [
+            ("SELECT COUNT(*) FROM windows", 0),
+            ("SELECT COUNT(*) FROM prompt_barriers", 0),
+            (
+                "SELECT COUNT(*) FROM anomalies WHERE resolved_at IS NULL",
+                0,
+            ),
+            (
+                "SELECT COUNT(*) FROM escalations WHERE status = 'cleared'",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM plane_issues WHERE assigned_window IS NULL",
+                1,
+            ),
+        ] {
+            assert_eq!(one::<i64>(&conn, sql), want, "{sql}");
+        }
+        let removed: String = one(&conn, "SELECT summary FROM events WHERE kind = 'removed'");
+        assert_eq!(removed, "dev1 removed from team");
+    }
+
+    #[test]
+    fn the_pm_counts_as_idle_when_ready() {
+        let (_dir, mut conn) = db();
+        sync(&mut conn, &mut [win("dev1", AgentState::Working, "h")], 0);
+        evaluate_anomalies(&mut conn, 400).unwrap();
+        register_member(
+            &conn,
+            "work_t",
+            "pm",
+            None,
+            "pm",
+            "antigravity",
+            None,
+            None,
+            390,
+        )
+        .unwrap();
+        assert!(alert_pm(&conn, 400, |_| Ok(())).unwrap());
     }
 
     #[test]

@@ -315,6 +315,8 @@ fn main() {
             plane_dogwatch::plane_dogwatch_status,
             plane_dogwatch::plane_dogwatch_sync_now,
             state_db::work_state_snapshot,
+            state_db::work_state_register_member,
+            state_db::work_state_remove_member,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
             ngrok::ngrok_start,

@@ -185,6 +185,8 @@
     },
     state: {
       snapshot: call('work_state_snapshot', 'project'),
+      registerMember: call('work_state_register_member', 'project', 'session', 'name', 'windowId', 'role', 'agent', 'startCommand', 'model'),
+      removeMember: call('work_state_remove_member', 'project', 'name'),
     },
     planeDogwatch: {
       status: call('plane_dogwatch_status'),

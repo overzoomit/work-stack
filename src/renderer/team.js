@@ -491,6 +491,9 @@ export function statusBadge(states, name) {
   if (entry.state === 'working') {
     return '<span class="tp-badge-status working" title="Agent is working"><span class="tp-spinner" aria-hidden="true"></span>Working</span>';
   }
+  if (entry.state === 'ready') {
+    return '<span class="tp-badge-status ready" title="In the team, waiting for a task">Ready</span>';
+  }
   return '<span class="tp-badge-status idle" title="Agent is idle">Idle</span>';
 }
 
@@ -784,8 +787,25 @@ export async function openOrFocusRole(project, roleName) {
 }
 
 // Terminates a team role window and closes its UI pane
+// The shared .claude/work.db learns about a teammate at once, not at the next
+// dogwatch look: added as ready, removed with what was open for it. Remote
+// projects keep no local database.
+export function registerMember(project, session, name, windowId, agentId, command) {
+  if (!project || isRemote(project) || !work?.state?.registerMember) return Promise.resolve();
+  const model = /(?:^|\s)(?:--model|-m)(?:=|\s+)["']?([^\s"']+)/.exec(command || '')?.[1] || null;
+  return work.state
+    .registerMember(project.path, session || '', name, windowId || null, skillFamily(name) || 'generic', agentId || 'generic', command || null, model)
+    .catch(() => {});
+}
+
+export function removeMember(project, name) {
+  if (!project || isRemote(project) || !work?.state?.removeMember) return Promise.resolve();
+  return work.state.removeMember(project.path, name).catch(() => {});
+}
+
 export async function killTeamRole(project, roleName) {
   if (!project || !roleName) return;
+  removeMember(project, roleName);
   const isTmux = await tmuxReady(project);
   if (isTmux) {
     const session = await tmuxSessionFor(project).catch(() => null);
@@ -825,6 +845,7 @@ export async function createTeamMember(project, roleName, agent) {
         closeTerminal(existingPane.id);
       }
       const newWinId = await work.tmux.newWindow(session, roleName, project.remote?.remotePath || project.path, cmd, project.remote || null);
+      registerMember(project, session, roleName, newWinId, agent.id, cmd);
       const pane = await openTerminal(project, {
         cwd: project.remote?.remotePath || project.path,
         title: roleName,
@@ -999,6 +1020,10 @@ async function renderPopContent(probeMcp = true) {
   const plane = await work?.planeDogwatch?.status().catch(() => null);
   const assignments = plane?.projects.find((r) => r.project === p.path)?.assignments ?? [];
   const snapshot = isRemote(p) ? null : await work?.state?.snapshot(p.path).catch(() => null);
+  // Only the shared database knows "ready": tmux alone sees an idle prompt.
+  for (const w of snapshot?.windows ?? []) {
+    if (w.state === 'ready' && states.get(w.name)?.state === 'idle') states.set(w.name, { ...states.get(w.name), state: 'ready' });
+  }
 
   pop.innerHTML = `
     <header class="tp-head">
@@ -1481,6 +1506,7 @@ export async function launchTeamMember(project, role) {
         await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
         const updated = await work.tmux.listWindows(session, project.remote || null).catch(() => []);
         const newWin = updated.find((w) => w.name === role.name);
+        registerMember(project, session, role.name, newWin?.id, meta.agentId, role.command);
         const pane = await openTerminal(project, {
           cwd: project.remote?.remotePath || project.path,
           title: role.name,
@@ -1519,7 +1545,8 @@ export async function initializeTeam(project) {
       for (const role of TEAM_ROLES) {
         const exists = windows.some((w) => w.name === role.name);
         if (!exists) {
-          await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
+          const winId = await work.tmux.newWindow(session, role.name, project.remote?.remotePath || project.path, role.command, project.remote || null);
+          registerMember(project, session, role.name, winId, role.agentId, role.command);
           injectInitPrompt(project, role.name, session).catch(() => {});
         }
       }

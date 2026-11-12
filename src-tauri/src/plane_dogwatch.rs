@@ -34,8 +34,9 @@ const CAPTURE_LINES: &str = "-40";
 const DEVS: [&str; 2] = ["dev1", "dev2"];
 const QA: [&str; 2] = ["qa1", "qa"];
 // Agent TUIs show these while they run.
-const BUSY: [&str; 4] = [
+const BUSY: [&str; 5] = [
     "esc to interrupt",
+    "esc interrupt",
     "esc to cancel",
     "ctrl+c to interrupt",
     "ctrl+c to stop",
@@ -2032,6 +2033,10 @@ mod tests {
 
     #[test]
     fn an_idle_pane_shows_an_input_line_and_nothing_running() {
+        assert!(
+            !is_idle("■■■■■■⬝⬝ esc interrupt\n┃  Build · deepseek\n> "),
+            "OpenCode's own interrupt hint"
+        );
         assert!(is_idle("done\nuser@host:~/p$ "));
         assert!(is_idle("output\n│ > \n"));
         assert!(
