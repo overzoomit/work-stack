@@ -10,7 +10,7 @@ an orchestrated AI agent squad, docked browser, Git/GitHub, Fleet Analytics, and
 </p>
 
 <p>
-  <a href="https://github.com/overzoomit/work-stack/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.17.0-7c3aed?style=flat-square"></a>
+  <a href="https://github.com/overzoomit/work-stack/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.18.0-7c3aed?style=flat-square"></a>
   <img alt="Rust 2021" src="https://img.shields.io/badge/Rust-2021-dea584?style=flat-square&logo=rust&logoColor=white">
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Linux and macOS" src="https://img.shields.io/badge/Linux%20%C2%B7%20macOS-supported-0ea5e9?style=flat-square&logo=linux&logoColor=white">
@@ -274,7 +274,7 @@ Single-column sidebar with collapsible **accordion** sections in VS Code style:
 | **Settings Modal** | Centralized tabbed modal for Plane, Jev, Environment, Audio, and Portability, private credentials | ✅ |
 | **Appearance** | 10 themes, custom font sizes, cursor styles, translucent glass materials, native icons | ✅ |
 
-> ✅ = Stable in release **v2.17.0**.
+> ✅ = Stable in release **v2.18.0**.
 
 ### Keyboard Shortcuts
 
