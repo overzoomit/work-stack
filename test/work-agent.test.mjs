@@ -383,7 +383,7 @@ test('status refreshes from tmux when no dogwatch ran and lists windows, tickets
     const text = run(box, ['status']);
     assert.equal(text.status, 0, text.stderr);
     assert.match(text.stdout, /^session work_test · last dogwatch look \d+s ago/);
-    assert.match(text.stdout, /dev1\s+blocked\s+\d+s\s+opencode\s+\[66\] In Progress\s+Do you want to proceed\?/);
+    assert.match(text.stdout, /dev1\s+dev\s+blocked\s+\d+s\s+opencode \(x\)\s+\[66\] In Progress\s+Do you want to proceed\?/);
     assert.match(text.stdout, /pending questions:\n {2}dev1 \(relayed, \d+s\): Do you want to proceed\? \[Yes \| No\]/);
     assert.match(text.stdout, /anomalies:\n {2}qa1 frozen_working: qa1 output still for 400s/);
   } finally {
@@ -480,5 +480,75 @@ test('the shared database and its WAL files are never committed', () => {
   for (const file of ['.claude/work.db', '.claude/work.db-wal', '.claude/work.db-shm']) {
     const out = spawnSync('git', ['check-ignore', '-q', file], { cwd: repo });
     assert.equal(out.status, 0, `${file} must be ignored`);
+  }
+});
+
+// ── Roles and real agents ──
+
+test('status shows the role, the agent with its model and a summary per role, with filters', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = run(box, ['status']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /^roles: dev=dev1:opencode\(x\) · qa=qa1:codex$/m);
+    assert.match(out.stdout, /^WINDOW\s+ROLE\s+STATE\s+FOR\s+AGENT\s+TICKET\s+LAST ACTIVITY$/m);
+    assert.match(out.stdout, /^qa1\s+qa\s+idle\s+\d+s\s+codex\s+-\s+all good$/m);
+
+    const qa = JSON.parse(run(box, ['status', '--role', 'qa', '--json']).stdout);
+    assert.deepEqual(qa.windows.map((w) => [w.name, w.role, w.agent]), [['qa1', 'qa', 'codex']]);
+    assert.equal(qa.roles, 'roles: dev=dev1:opencode(x) · qa=qa1:codex', 'the summary covers the whole team');
+    const dev1 = JSON.parse(run(box, ['status', '--agent', 'ollama', '--json']).stdout).windows;
+    assert.deepEqual(dev1.map((w) => [w.name, w.model, w.start_command]), [['dev1', 'x', 'ollama launch opencode --model x']]);
+    assert.equal(run(box, ['status', '--role', 'boss']).status, 1, 'an unknown role is a usage error');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('list filters by role and by agent', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    assert.deepEqual(run(box, ['list', '--role', 'qa']).stdout.trim().split('\n'), ['qa1\tidle\tcodex']);
+    assert.deepEqual(run(box, ['list', '--agent', 'opencode']).stdout.trim().split('\n'), ['dev1\tworking\topencode\topencode-spinner']);
+    assert.equal(run(box, ['list', '--role', 'doc']).stdout.trim(), '(no agent windows)');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prompt --require-agent refuses a window running another agent', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows());
+    const wrong = run(box, ['prompt', 'qa1', 'run e2e', '--require-agent', 'claude']);
+    assert.equal(wrong.status, 1);
+    assert.match(wrong.stderr, /qa1 runs codex, not claude/);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /send-keys -t work_test:qa1/);
+
+    const right = run(box, ['prompt', 'qa1', 'run e2e', '--require-agent', 'codex']);
+    assert.equal(right.status, 0, right.stderr);
+    assert.equal(right.stdout.trim(), 'sent\tqa1');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prompt to a role picks its first idle window running the required agent', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    const out = run(box, ['prompt', 'qa', 'run', 'e2e', '--require-agent', 'codex']);
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(out.stdout.trim(), 'sent\tqa1');
+    assert.match(readFileSync(box.log, 'utf8'), /send-keys -t work_test:qa1 -l -- run e2e/);
+
+    const none = run(box, ['prompt', 'qa', 'run e2e', '--require-agent', 'claude']);
+    assert.equal(none.status, 1);
+    assert.match(none.stderr, /no idle qa window running claude \(qa1: codex idle\)/);
+    const busy = run(box, ['prompt', 'dev', 'fix it']);
+    assert.equal(busy.status, 1, 'dev1 is waiting for an answer, not idle');
+    assert.match(busy.stderr, /no idle dev window \(dev1: opencode blocked\)/);
+  } finally {
+    box.cleanup();
   }
 });

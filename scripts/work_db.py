@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 DB_FILE = Path(".claude") / "work.db"
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 MAX_EVENTS = 1000
 TAIL_PREVIEW = 8
 ACTIVITY_CHARS = 200
@@ -25,7 +25,7 @@ ACTIVITY_CHARS = 200
 # Keep in step with SCHEMA in src-tauri/src/state_db.rs.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS windows(name TEXT PRIMARY KEY, window_id TEXT, session TEXT, agent TEXT, state TEXT NOT NULL, rule TEXT, state_changed_at INTEGER NOT NULL, last_output_change_at INTEGER NOT NULL, output_hash TEXT, last_activity_line TEXT, tail_preview TEXT, current_command TEXT, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS windows(name TEXT PRIMARY KEY, window_id TEXT, session TEXT, agent TEXT, state TEXT NOT NULL, rule TEXT, state_changed_at INTEGER NOT NULL, last_output_change_at INTEGER NOT NULL, output_hash TEXT, last_activity_line TEXT, tail_preview TEXT, current_command TEXT, updated_at INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'generic', start_command TEXT, model TEXT);
 CREATE TABLE IF NOT EXISTS escalations(id INTEGER PRIMARY KEY AUTOINCREMENT, window_name TEXT NOT NULL, fingerprint TEXT NOT NULL, prompt_type TEXT NOT NULL, question TEXT NOT NULL, options_json TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, relayed_at INTEGER, resolved_at INTEGER, answer_text TEXT, answered_by TEXT);
 CREATE TABLE IF NOT EXISTS plane_issues(issue_id TEXT PRIMARY KEY, sequence_id INTEGER, title TEXT, state TEXT NOT NULL, role TEXT, assigned_window TEXT, fingerprint TEXT, handled_state TEXT, delegated_at INTEGER, state_updated_at INTEGER, last_error TEXT);
 CREATE TABLE IF NOT EXISTS prompt_barriers(window_name TEXT PRIMARY KEY, session TEXT, sender TEXT, instruction_preview TEXT, sent_at_ms INTEGER NOT NULL, observed_busy_at_ms INTEGER);
@@ -33,11 +33,15 @@ CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, timestam
 CREATE TABLE IF NOT EXISTS anomalies(id INTEGER PRIMARY KEY AUTOINCREMENT, window_name TEXT NOT NULL, issue_id TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, detected_at INTEGER NOT NULL, notified_to_pm_at INTEGER, resolved_at INTEGER);
 """
 
+# Columns added after schema 1 (WINDOW_COLUMNS in state_db.rs).
+WINDOW_COLUMNS = (("role", "TEXT NOT NULL DEFAULT 'generic'"), ("start_command", "TEXT"), ("model", "TEXT"))
+
 UPSERT_WINDOW = """
-INSERT INTO windows(name, window_id, session, agent, state, rule, state_changed_at, last_output_change_at, output_hash, last_activity_line, tail_preview, current_command, updated_at)
-VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?7)
+INSERT INTO windows(name, window_id, session, agent, state, rule, state_changed_at, last_output_change_at, output_hash, last_activity_line, tail_preview, current_command, updated_at, role, start_command, model)
+VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?7, ?12, ?13, ?14)
 ON CONFLICT(name) DO UPDATE SET
   window_id = excluded.window_id, session = excluded.session, agent = excluded.agent, rule = excluded.rule,
+  role = excluded.role, start_command = excluded.start_command, model = excluded.model,
   state_changed_at = CASE WHEN windows.state = excluded.state THEN windows.state_changed_at ELSE excluded.state_changed_at END,
   state = excluded.state,
   last_output_change_at = CASE WHEN excluded.output_hash IS NULL OR windows.output_hash IS excluded.output_hash THEN windows.last_output_change_at ELSE excluded.last_output_change_at END,
@@ -91,12 +95,41 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    migrate(conn)
     # opencode_last_prune_at is "0" until the first OpenCode prune.
     conn.execute(
         "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?1, ?2), ('opencode_last_prune_at', '0', ?2)",
         (SCHEMA_VERSION, now()),
     )
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Add the newer windows columns to an old database; idempotent."""
+    present = {row[1] for row in conn.execute("PRAGMA table_info(windows)")}
+    for column, ddl in WINDOW_COLUMNS:
+        if column in present:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE windows ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
+    set_meta(conn, "schema_version", SCHEMA_VERSION, now())
+
+
+def role_of(name: str) -> str:
+    """pm, dev, qa, doc or generic (role_of in dogwatch.rs)."""
+    name = name.lower()
+    if name == "pm":
+        return "pm"
+    if re.fullmatch(r"dev\d+", name):
+        return "dev"
+    if re.fullmatch(r"qa\d*", name):
+        return "qa"
+    if re.fullmatch(r"doc\d*", name):
+        return "doc"
+    return "generic"
 
 
 @contextlib.contextmanager
@@ -190,6 +223,7 @@ def sync_windows(conn: sqlite3.Connection, session: str, windows: list[dict], li
                 (
                     name, w.get("id"), session, w.get("agent"), state, w.get("rule"), stamp,
                     w.get("output_hash"), w.get("last_activity_line"), w.get("tail_preview"), w.get("current_command"),
+                    w.get("role") or role_of(name), w.get("start_command"), w.get("model"),
                 ),
             )
             before = row["state"] if row else None

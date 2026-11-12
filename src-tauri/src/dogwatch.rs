@@ -5,8 +5,10 @@ use crate::{state_db, store, tmux};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -49,6 +51,12 @@ pub struct WindowState {
     pub name: String,
     pub prompt: Option<Prompt>,
     pub agent: Option<String>,
+    // pm, dev, qa, doc or generic: see role_of.
+    pub role: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub state: AgentState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
@@ -316,22 +324,39 @@ impl ManifestEngine {
             .unwrap_or_else(|| self.manifests.last().expect("at least one manifest"))
     }
 
-    // The window's command is the strongest hint; the tmux window name (the
-    // team role: pm, dev1, qa1…) is the fallback when no command is visible.
+    #[cfg(test)]
     pub fn detect_agent(&self, name: &str, command: &str) -> &AgentManifest {
-        let command = command.to_lowercase();
-        let role = name.to_lowercase();
-        let specific = self.manifests.iter().filter(|m| m.id != "generic");
-        for manifest in specific.clone() {
-            if manifest
-                .aliases
-                .iter()
-                .any(|alias| command_has_alias(&command, alias))
-            {
-                return manifest;
+        self.detect_agent_in(name, &[command.to_string()]).0
+    }
+
+    // The hints go strongest first (see agent_hints): the first one naming an
+    // agent wins and is returned with it. The tmux window name (the team
+    // role: pm, dev1, qa1…) is the fallback when no hint names one.
+    pub fn detect_agent_in<'h>(
+        &self,
+        name: &str,
+        hints: &'h [String],
+    ) -> (&AgentManifest, Option<&'h str>) {
+        let specific = || self.manifests.iter().filter(|m| m.id != "generic");
+        for hint in hints {
+            let command = hint.to_lowercase();
+            for manifest in specific() {
+                if manifest
+                    .aliases
+                    .iter()
+                    .filter(|alias| !ROLE_ALIASES.contains(&alias.as_str()))
+                    .any(|alias| command_has_alias(&command, alias))
+                {
+                    return (manifest, Some(hint.as_str()));
+                }
             }
         }
-        for manifest in specific {
+        (self.detect_role(name), None)
+    }
+
+    fn detect_role(&self, name: &str) -> &AgentManifest {
+        let role = name.to_lowercase();
+        for manifest in self.manifests.iter().filter(|m| m.id != "generic") {
             if manifest
                 .aliases
                 .iter()
@@ -341,6 +366,18 @@ impl ManifestEngine {
             }
         }
         self.generic()
+    }
+
+    // "ollama" -> "opencode": the manifest id for an id or alias, else the name.
+    pub fn canonical_agent(&self, name: &str) -> String {
+        let name = name.trim().to_lowercase();
+        self.manifests
+            .iter()
+            .find(|m| {
+                m.id == name
+                    || (m.aliases.contains(&name) && !ROLE_ALIASES.contains(&name.as_str()))
+            })
+            .map_or(name, |m| m.id.clone())
     }
 
     fn manifest_for_hint(&self, hint: Option<&str>) -> &AgentManifest {
@@ -381,6 +418,10 @@ impl ManifestEngine {
         self.classify(self.manifest_for_hint(hint), capture)
     }
 }
+
+// Manifest aliases that name a team role, not a CLI: `npm run dev` or a
+// "pm" in a title must not pick an agent.
+const ROLE_ALIASES: &[&str] = &["pm", "dev", "qa", "doc", "agent", "generic", "generico"];
 
 fn command_has_alias(command: &str, alias: &str) -> bool {
     command
@@ -654,28 +695,211 @@ fn capture(session: &str, window_id: &str) -> Option<String> {
     tmux::run_tmux(&["capture-pane", "-p", "-J", "-t", &target, "-S", SCAN_LINES]).ok()
 }
 
-// What the pane runs (the start command for team windows, the foreground
-// process for an agent started by hand) plus its title: the manifest hint.
-fn window_command(session: &str, window_id: &str) -> String {
+// ── Real agent of a window ───────────────────────────────────
+
+// Shells and runtimes that host an agent started by hand: their process
+// tree, not their name, says which agent runs.
+const HOSTS: &[&str] = &["bash", "zsh", "sh", "fish", "dash", "ksh", "node"];
+
+// What tmux knows of the pane: start command (team windows), foreground
+// process, title and the pid of the process it started.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaneCommand {
+    pub start: String,
+    pub current: String,
+    pub title: String,
+    pub pid: Option<u32>,
+}
+
+impl PaneCommand {
+    pub fn parse(raw: &str) -> Self {
+        let mut fields = raw.trim_end_matches(['\r', '\n']).split('\t');
+        let mut next = || fields.next().unwrap_or("").trim().to_string();
+        let (start, current, title, pid) = (next(), next(), next(), next());
+        Self {
+            start,
+            current,
+            title,
+            pid: pid.parse().ok(),
+        }
+    }
+}
+
+fn window_command(session: &str, window_id: &str) -> PaneCommand {
     let target = format!("{session}:{window_id}");
-    tmux::run_tmux(&[
-        "display-message",
-        "-p",
-        "-t",
-        &target,
-        "#{pane_start_command}\t#{pane_current_command}\t#{pane_title}",
-    ])
-    .unwrap_or_default()
+    PaneCommand::parse(
+        &tmux::run_tmux(&[
+            "display-message",
+            "-p",
+            "-t",
+            &target,
+            "#{pane_start_command}\t#{pane_current_command}\t#{pane_title}\t#{pane_pid}",
+        ])
+        .unwrap_or_default(),
+    )
+}
+
+pub type ProcessTable = Vec<(u32, u32, String)>;
+
+// `ps -A -o pid=,ppid=,args=` output: (pid, ppid, args) per process.
+pub fn parse_ps(text: &str) -> ProcessTable {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid = parts.next()?.parse().ok()?;
+            let ppid = parts.next()?.parse().ok()?;
+            Some((pid, ppid, parts.collect::<Vec<_>>().join(" ")))
+        })
+        .collect()
+}
+
+fn process_table() -> ProcessTable {
+    Command::new("ps")
+        .args(["-A", "-o", "pid=,ppid=,args="])
+        .output()
+        .map(|o| parse_ps(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default()
+}
+
+// The descendants of the pane process, parents first: the agent comes
+// before the MCP servers and tools it spawns.
+pub fn tree_commands(table: &ProcessTable, pid: u32) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::from([pid]);
+    let mut queue = VecDeque::from([pid]);
+    while let Some(parent) = queue.pop_front() {
+        for (child, ppid, args) in table {
+            if *ppid == parent && seen.insert(*child) {
+                out.push(args.clone());
+                queue.push_back(*child);
+            }
+        }
+    }
+    out
+}
+
+pub fn hosts_agent(current: &str) -> bool {
+    let name = current
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('-');
+    HOSTS.contains(&name)
+}
+
+// Strongest first: the live process tree (only under a shell or runtime),
+// then the foreground command, the start command and the title.
+pub fn agent_hints(pane: &PaneCommand, tree: &[String]) -> Vec<String> {
+    let mut hints = if hosts_agent(&pane.current) {
+        tree.to_vec()
+    } else {
+        Vec::new()
+    };
+    hints.extend([pane.current.clone(), pane.start.clone(), pane.title.clone()]);
+    hints.retain(|h| !h.is_empty());
+    hints
+}
+
+// "--model x", "--model=x" or "-m x" in a command line.
+pub fn model_of(command: &str) -> Option<String> {
+    static MODEL: OnceLock<Regex> = OnceLock::new();
+    MODEL
+        .get_or_init(|| {
+            Regex::new(r#"(?:^|\s)(?:--model|-m)(?:=|\s+)["']?([^\s"']+)"#).expect("model regex")
+        })
+        .captures(command)
+        .map(|c| c[1].to_string())
+}
+
+pub fn role_of(name: &str) -> &'static str {
+    let name = name.to_ascii_lowercase();
+    let digits = |rest: &str| rest.chars().all(|c| c.is_ascii_digit());
+    if name == "pm" {
+        "pm"
+    } else if name
+        .strip_prefix("dev")
+        .is_some_and(|r| !r.is_empty() && digits(r))
+    {
+        "dev"
+    } else if name.strip_prefix("qa").is_some_and(digits) {
+        "qa"
+    } else if name.strip_prefix("doc").is_some_and(digits) {
+        "doc"
+    } else {
+        "generic"
+    }
+}
+
+struct Detection<'a> {
+    manifest: &'a AgentManifest,
+    start_command: Option<String>,
+    model: Option<String>,
+    current: Option<String>,
+}
+
+// `ps` runs once per look, and only if some pane hosts a shell or runtime.
+fn detect_window<'a>(
+    engine: &'a ManifestEngine,
+    session: &str,
+    window: &tmux::TmuxWindow,
+    table: &OnceCell<ProcessTable>,
+) -> Detection<'a> {
+    let pane = window_command(session, &window.id);
+    let tree = match pane.pid {
+        Some(pid) if hosts_agent(&pane.current) => {
+            tree_commands(table.get_or_init(process_table), pid)
+        }
+        _ => Vec::new(),
+    };
+    let hints = agent_hints(&pane, &tree);
+    let (manifest, matched) = engine.detect_agent_in(&window.name, &hints);
+    // Started in an interactive shell: the child that runs the agent.
+    let start_command = Some(pane.start.clone())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            matched
+                .filter(|m| tree.iter().any(|t| t == m))
+                .map(String::from)
+        })
+        .or_else(|| tree.first().cloned());
+    let model = matched
+        .and_then(model_of)
+        .or_else(|| start_command.as_deref().and_then(model_of));
+    Detection {
+        manifest,
+        start_command,
+        model,
+        current: Some(pane.current).filter(|c| !c.is_empty()),
+    }
+}
+
+// The agent id running in a window of the session, for plane-dogwatch routing.
+pub fn window_agent(session: &str, window: &str) -> Option<String> {
+    let found = tmux::list_windows(session)
+        .ok()?
+        .into_iter()
+        .find(|w| w.name == window)?;
+    Some(
+        detect_window(engine(), session, &found, &OnceCell::new())
+            .manifest
+            .id
+            .clone(),
+    )
+}
+
+pub fn canonical_agent(name: &str) -> String {
+    engine().canonical_agent(name)
 }
 
 pub fn inspect(session: &str) -> Result<Inspection, String> {
     let engine = engine();
+    let table = OnceCell::new();
     let windows = tmux::list_windows(session)?
         .into_iter()
         .filter(|w| is_agent_window(&w.name))
         .map(|w| {
-            let command = window_command(session, &w.id);
-            let manifest = engine.detect_agent(&w.name, &command);
+            let detection = detect_window(engine, session, &w, &table);
+            let manifest = detection.manifest;
             let captured = capture(session, &w.id);
             let classification = match captured.as_deref() {
                 Some(text) => engine.classify(manifest, text),
@@ -692,13 +916,12 @@ pub fn inspect(session: &str) -> Result<Inspection, String> {
                 .and_then(|text| prompt_from(&classification, text));
             let (last_activity_line, mut output) =
                 captured.as_deref().map(read_output).unwrap_or_default();
-            output.command = command
-                .split('\t')
-                .nth(1)
-                .filter(|c| !c.is_empty())
-                .map(String::from);
+            output.command = detection.current;
             WindowState {
                 prompt,
+                role: role_of(&w.name),
+                start_command: detection.start_command,
+                model: detection.model,
                 id: w.id,
                 name: w.name,
                 agent: Some(manifest.id.clone()),
@@ -1075,7 +1298,7 @@ pub fn explain(session: &str, window: &str) -> Result<Explanation, String> {
         .into_iter()
         .find(|w| w.id == window || w.name == window)
         .ok_or_else(|| format!("finestra {window} non trovata in {session}"))?;
-    let manifest = engine.detect_agent(&found.name, &window_command(session, &found.id));
+    let manifest = detect_window(engine, session, &found, &OnceCell::new()).manifest;
     let text = capture(session, &found.id)
         .ok_or_else(|| format!("impossibile catturare la finestra {}", found.name))?;
     let classification = engine.classify(manifest, &text);
@@ -1306,6 +1529,9 @@ mod tests {
                     name: "pm".into(),
                     prompt: Some(prompt.clone()),
                     agent: Some("antigravity".into()),
+                    role: "generic",
+                    start_command: None,
+                    model: None,
                     state: AgentState::Blocked,
                     rule: Some("antigravity-confirmation".into()),
                     state_changed_at: None,
@@ -1317,6 +1543,9 @@ mod tests {
                     name: "dev1".into(),
                     prompt: Some(prompt),
                     agent: Some("opencode".into()),
+                    role: "generic",
+                    start_command: None,
+                    model: None,
                     state: AgentState::Blocked,
                     rule: Some("opencode-confirmation".into()),
                     state_changed_at: None,
@@ -1380,6 +1609,9 @@ mod tests {
                 name: "dev1".into(),
                 prompt: Some(prompt("Do you want to proceed? [y/N]\n")),
                 agent: Some("opencode".into()),
+                role: "generic",
+                start_command: None,
+                model: None,
                 state: AgentState::Blocked,
                 rule: Some("opencode-permission".into()),
                 state_changed_at: None,
@@ -1391,6 +1623,9 @@ mod tests {
                 name: "qa1".into(),
                 prompt: None,
                 agent: Some("codex".into()),
+                role: "generic",
+                start_command: None,
+                model: None,
                 state: AgentState::Working,
                 rule: Some("codex-spinner".into()),
                 state_changed_at: None,
@@ -1421,6 +1656,9 @@ mod tests {
                 name: "qa1".into(),
                 prompt: None,
                 agent: Some(agent.into()),
+                role: "generic",
+                start_command: None,
+                model: None,
                 state: AgentState::Working,
                 rule: Some("opencode-spinner".into()),
                 state_changed_at: None,
@@ -1444,6 +1682,9 @@ mod tests {
                 name: "dev1".into(),
                 prompt: None,
                 agent: Some("claude".into()),
+                role: "generic",
+                start_command: None,
+                model: None,
                 state: AgentState::Working,
                 rule: Some("claude-interrupt-hint".into()),
                 state_changed_at: None,
@@ -1556,6 +1797,9 @@ mod tests {
             name: name.into(),
             prompt: None,
             agent: Some("codex".into()),
+            role: role_of(name),
+            start_command: None,
+            model: None,
             state,
             rule: None,
             state_changed_at: None,
@@ -1757,6 +2001,9 @@ mod tests {
             name: "dev1".into(),
             prompt: None,
             agent: Some("claude".into()),
+            role: "generic",
+            start_command: None,
+            model: None,
             state: AgentState::Working,
             rule: None,
             state_changed_at: None,
@@ -1785,6 +2032,99 @@ mod tests {
             open_db(dir.path(), false).is_some(),
             "an existing one is kept up to date"
         );
+    }
+
+    #[test]
+    fn the_model_comes_from_the_command_line() {
+        assert_eq!(
+            model_of("ollama launch opencode --model deepseek-v4.1-flash:cloud").as_deref(),
+            Some("deepseek-v4.1-flash:cloud")
+        );
+        assert_eq!(
+            model_of("claude --model=opus --yolo").as_deref(),
+            Some("opus")
+        );
+        assert_eq!(
+            model_of("codex -m 'gpt-5' --full-auto").as_deref(),
+            Some("gpt-5")
+        );
+        assert_eq!(model_of("claude --dangerously-skip-permissions"), None);
+        assert_eq!(model_of("npm run build-model"), None);
+    }
+
+    #[test]
+    fn the_role_comes_from_the_window_name() {
+        for (name, role) in [
+            ("pm", "pm"),
+            ("dev1", "dev"),
+            ("DEV12", "dev"),
+            ("qa", "qa"),
+            ("qa2", "qa"),
+            ("doc", "doc"),
+            ("doc1", "doc"),
+            ("agent3", "generic"),
+            ("generico", "generic"),
+            ("dev", "generic"),
+        ] {
+            assert_eq!(role_of(name), role, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_process_tree_lists_the_descendants_parents_first() {
+        let table = parse_ps(
+            "  100     1 -zsh\n  200   100 node /home/u/.npm/bin/claude --model opus\n  300   200 npx @playwright/mcp\n  400     1 codex\n bad line\n",
+        );
+        assert_eq!(table.len(), 4);
+        assert_eq!(
+            tree_commands(&table, 100),
+            [
+                "node /home/u/.npm/bin/claude --model opus",
+                "npx @playwright/mcp"
+            ]
+        );
+        assert!(tree_commands(&table, 999).is_empty());
+    }
+
+    #[test]
+    fn an_agent_started_by_hand_in_a_shell_beats_the_role_default() {
+        let engine = ManifestEngine::builtin();
+        let tree = vec!["node /home/u/.npm/bin/claude --model opus".to_string()];
+        let pane = PaneCommand::parse("\tzsh\tqa1-host\t100\n");
+        assert_eq!(pane.pid, Some(100));
+        let hints = agent_hints(&pane, &tree);
+        let (manifest, matched) = engine.detect_agent_in("qa1", &hints);
+        assert_eq!(
+            manifest.id, "claude",
+            "not the codex default of a qa window"
+        );
+        assert_eq!(matched.and_then(model_of).as_deref(), Some("opus"));
+
+        // Not under a shell: the tree is not read, the foreground command decides.
+        let busy = PaneCommand::parse("opencode\tcodex\t\t100");
+        let (manifest, _) = engine.detect_agent_in("dev1", &agent_hints(&busy, &tree));
+        assert_eq!(
+            manifest.id, "codex",
+            "the foreground command beats the start command"
+        );
+
+        let idle_shell = PaneCommand::parse("\tbash\tdev2\t7");
+        let tree = vec!["npm run dev".to_string()];
+        let hints = agent_hints(&idle_shell, &tree);
+        let (manifest, matched) = engine.detect_agent_in("dev2", &hints);
+        assert_eq!(
+            manifest.id, "opencode",
+            "role fallback, not the token dev in npm run dev"
+        );
+        assert_eq!(matched, None);
+    }
+
+    #[test]
+    fn agent_names_and_aliases_map_to_the_manifest_id() {
+        assert_eq!(canonical_agent("Claude"), "claude");
+        assert_eq!(canonical_agent("ollama"), "opencode");
+        assert_eq!(canonical_agent("qa"), "qa", "a role alias is not an agent");
+        assert_eq!(canonical_agent("aider"), "aider");
     }
 
     #[test]

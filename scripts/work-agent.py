@@ -7,11 +7,11 @@ Work project. It reads the shared Dogwatch snapshot
 colleague does not add noise to the terminal.
 
 Commands:
-    work-agent list
-    work-agent prompt [--clean|--no-clean] <target_role> "<instruction>"
+    work-agent list [--role ROLE] [--agent ID]
+    work-agent prompt [--clean|--no-clean] [--require-agent ID] <window|role> "<instruction>"
     work-agent wait [--clean] <target_role> [--until blocked|idle|done] [--timeout SEC]
     work-agent read <target_role> [--lines N] [--clean]
-    work-agent status [--json]
+    work-agent status [--role ROLE] [--agent ID] [--json]
     work-agent log [--window W] [--limit N] [--json]
     work-agent inspect <window> [--json]
 
@@ -343,10 +343,43 @@ def clean_output(text: str) -> str:
     return "\n".join(out)
 
 
+ROLES = ("pm", "dev", "qa", "doc", "generic")
+
+
+def role_of(window: dict) -> str:
+    return str(window.get("role") or work_db.role_of(str(window.get("name", ""))))
+
+
+def matches(args, tmux, window: dict) -> bool:
+    """--role and --agent filters; an agent alias (ollama) names its manifest (opencode)."""
+    if getattr(args, "role", None) and role_of(window) != args.role:
+        return False
+    agent = getattr(args, "agent", None)
+    return not agent or str(window.get("agent") or "") == tmux.canonical_agent(agent)
+
+
+def agent_label(window: dict, compact: bool = False) -> str:
+    agent = str(window.get("agent") or "-")
+    model = window.get("model")
+    if not model:
+        return agent
+    return f"{agent}({model})" if compact else f"{agent} ({model})"
+
+
+def roles_line(windows: list[dict]) -> str:
+    """roles: dev=dev1:claude · qa=qa1:opencode(model)"""
+    parts = []
+    for role in ROLES:
+        members = [w for w in windows if role_of(w) == role and w.get("state") != "offline"]
+        if members:
+            parts.append(f"{role}=" + ",".join(f"{w['name']}:{agent_label(w, compact=True)}" for w in members))
+    return "roles: " + (" · ".join(parts) if parts else "-")
+
+
 def cmd_list(args, tmux, root: Path, path: Path, session: str) -> int:
     max_age = None if getattr(args, "state", None) else 60.0
     state = current_state(tmux, path, session, args.tmux_bin, max_age=max_age)
-    windows = state.get("windows", [])
+    windows = [w for w in state.get("windows", []) if matches(args, tmux, w)]
     if not windows:
         print("(no agent windows)")
         return 0
@@ -360,15 +393,33 @@ def cmd_list(args, tmux, root: Path, path: Path, session: str) -> int:
     return 0
 
 
+def pick_role_window(state: dict, role: str, need: str | None) -> dict:
+    """The first idle window of the role (tmux index order) running the agent."""
+    members = [w for w in state.get("windows", []) if role_of(w) == role]
+    for window in members:
+        if window.get("state") == "idle" and (need is None or window.get("agent") == need):
+            return window
+    seen = ", ".join(f"{w['name']}: {w.get('agent') or '-'} {w.get('state')}" for w in members) or "none"
+    wanted = f" running {need}" if need else ""
+    raise AgentError(f"no idle {role} window{wanted} ({seen})")
+
+
 def cmd_prompt(args, tmux, root: Path, path: Path, session: str) -> int:
     target = args.target
+    need = tmux.canonical_agent(args.require_agent) if args.require_agent else None
     max_age = None if getattr(args, "state", None) else 60.0
     state = current_state(tmux, path, session, args.tmux_bin, max_age=max_age)
     if window_of(state, target) is None:
         state = live_state(tmux, path, session, args.tmux_bin)
     window = window_of(state, target)
+    # A role instead of a window: its first idle window, read live.
+    if window is None and target.lower() in ROLES:
+        window = pick_role_window(state, target.lower(), need)
+        target = str(window["name"])
     if window is None:
         raise AgentError(f"agent window {target!r} not found in {session}")
+    if need and window.get("agent") != need:
+        raise AgentError(f"{target} runs {window.get('agent') or 'no known agent'}, not {need}")
     text = " ".join(args.text)
     pane = f"{session}:{target}"
     # A new task starts from a clean session: for OpenCode/Ollama only, and
@@ -601,22 +652,25 @@ def cmd_status(args, tmux, root: Path, path: Path, session: str | None) -> int:
         except AgentError:
             pass
     data = dashboard(path)
+    roles = roles_line(data["windows"])
+    data["windows"] = [w for w in data["windows"] if matches(args, tmux, w)]
     if args.json:
-        emit_json(data)
+        emit_json({**data, "roles": roles})
         return 0
     meta = data["meta"]
     polled = meta.get("dogwatch_last_poll_at")
     age = f"{fmt_duration(data['now'] - int(polled))} ago" if polled else "never"
     print(f"session {meta.get('session_name', '-')} · last dogwatch look {age}")
-    rows = [("WINDOW", "STATE", "FOR", "AGENT", "TICKET", "LAST ACTIVITY")]
+    print(roles)
+    rows = [("WINDOW", "ROLE", "STATE", "FOR", "AGENT", "TICKET", "LAST ACTIVITY")]
     for w in data["windows"]:
         rows.append((
-            w["name"], w["state"], fmt_duration(w["duration"]), w.get("agent") or "-",
+            w["name"], role_of(w), w["state"], fmt_duration(w["duration"]), agent_label(w),
             ticket_label(w["ticket"]), w.get("last_activity_line") or "",
         ))
-    widths = [max(len(str(r[i])) for r in rows) for i in range(5)]
+    widths = [max(len(str(r[i])) for r in rows) for i in range(6)]
     for r in rows:
-        print("  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r[:5])) + f"  {r[5]}".rstrip())
+        print("  ".join(str(c).ljust(widths[i]) for i, c in enumerate(r[:6])) + f"  {r[6]}".rstrip())
     if data["escalations"]:
         print("\npending questions:")
         for e in data["escalations"]:
@@ -695,6 +749,11 @@ def add_common(parser: argparse.ArgumentParser, *, suppress: bool = False) -> No
     parser.add_argument("--tmux-bin", default=default, help="tmux executable (tests can point at a stub)")
 
 
+def add_filters(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--role", choices=ROLES, help="only windows of this role")
+    parser.add_argument("--agent", metavar="ID", help="only windows running this agent (claude, opencode, codex…)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = CliParser(description="Coordinate the agents of a Work tmux session.")
     add_common(parser)
@@ -702,10 +761,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     listing = sub.add_parser("list", help="list agent windows with their Dogwatch state")
     add_common(listing, suppress=True)
+    add_filters(listing)
 
     prompt = sub.add_parser("prompt", help="send an instruction to another agent")
     add_common(prompt, suppress=True)
-    prompt.add_argument("target", help="role/window name, e.g. dev1")
+    prompt.add_argument("target", help="window name (dev1) or role (dev, qa, doc, pm, generic)")
     prompt.add_argument("text", nargs="+", help="instruction text")
     clean = prompt.add_mutually_exclusive_group()
     clean.add_argument(
@@ -716,6 +776,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="reset an OpenCode/Ollama session with /new before the prompt (default: only when the target is idle)",
     )
     clean.add_argument("--no-clean", dest="clean", action="store_false", help="never reset the session before the prompt")
+    prompt.add_argument(
+        "--require-agent",
+        metavar="ID",
+        help="fail unless the target runs this agent; with a role as target, pick its first idle window running it",
+    )
 
     wait = sub.add_parser("wait", help="wait until an agent reaches a state")
     add_common(wait, suppress=True)
@@ -733,6 +798,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="every agent window with state, duration, ticket and anomalies")
     add_common(status, suppress=True)
     status.add_argument("--json", action="store_true", help="print JSON")
+    add_filters(status)
 
     log = sub.add_parser("log", help="latest events from the shared database")
     add_common(log, suppress=True)

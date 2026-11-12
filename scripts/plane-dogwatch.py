@@ -278,18 +278,39 @@ class Session:
         self.name = name
         self.binary = binary
         out = tmux.run_tmux(
-            ["list-windows", "-t", name, "-F", "#{window_name}\t#{pane_start_command}\t#{pane_current_command}"],
+            ["list-windows", "-t", name, "-F",
+             "#{window_name}\t#{pane_start_command}\t#{pane_current_command}\t#{pane_title}\t#{pane_pid}"],
             binary,
         )
         if out.returncode != 0:
             raise RuntimeError(out.stderr.strip() or f"cannot list windows of {name}")
-        # name -> command line as tmux started it (plus the running command).
+        # name -> command line as tmux started it (plus the running command),
+        # in tmux index order.
         self.windows: dict[str, str] = {}
+        self.panes: dict[str, dict] = {}
+        self._table: list | None = None
         for line in out.stdout.splitlines():
             parts = line.split("\t")
             if len(parts) < 2 or not parts[0].strip():
                 continue
-            self.windows[parts[0].strip()] = " ".join(p for p in parts[1:] if p.strip())
+            self.windows[parts[0].strip()] = " ".join(p for p in parts[1:3] if p.strip())
+            self.panes[parts[0].strip()] = tmux.parse_pane("\t".join(parts[1:]))
+
+    def of_role(self, role: str) -> list[str]:
+        return [w for w in self.windows if tmux.role_of(w) == role]
+
+    def agent(self, window: str) -> str | None:
+        """The agent really running in the window, as tmux-dogwatch detects it."""
+        pane = self.panes.get(window)
+        if pane is None:
+            return None
+        tree: list[str] = []
+        if pane["pid"] is not None and tmux.hosts_agent(str(pane["current"])):
+            if self._table is None:
+                self._table = tmux.process_table()
+            tree = tmux.tree_commands(self._table, int(pane["pid"]))
+        manifest, _hint = tmux.detect_manifest(window, tmux.agent_hints(pane, tree))
+        return str(manifest["id"]) if manifest else None
 
     def idle(self, window: str) -> bool:
         return window in self.windows and is_idle(tmux.capture_pane(self.name, window, 40, self.binary))
@@ -464,7 +485,28 @@ def project_tag(root: Path) -> str:
     return str(project).strip() if project and str(project).strip() else root.name
 
 
-def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str], qa: list[str], telegram: Path, tag: str) -> dict:
+AGENT_TAG = re.compile(r"\[(?:(dev|qa)-)?agent:\s*([a-z0-9_.-]+)\s*\]", re.IGNORECASE)
+
+
+def required_agent(issue: dict, role: str) -> str | None:
+    """[dev-agent:x] / [qa-agent:x] bind one role, [agent:x] both; claude-in-chrome needs Claude in QA."""
+    text = f"{plain(issue.get('name'), 10**9)} {plain(issue.get('description_html'), 10**9)}"
+    both = None
+    for found in AGENT_TAG.finditer(text):
+        scope = (found.group(1) or "").lower()
+        if scope == role:
+            return tmux.canonical_agent(found.group(2))
+        if not scope and both is None:
+            both = tmux.canonical_agent(found.group(2))
+    if both is None and role == "qa" and "claude-in-chrome" in text.lower():
+        return "claude"
+    return both
+
+
+def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str] | None, qa: list[str] | None, telegram: Path, tag: str) -> dict:
+    # No explicit list: every dev* / qa* window of the session, in index order.
+    devs = devs or session.of_role("dev")
+    qa = qa or session.of_role("qa")
     names = plane.state_names()
     issues = plane.issues()
     state = load_state(state_path)
@@ -477,8 +519,14 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
     waiting: list[dict] = []
     cleanups: list[dict] = []
 
-    def free(candidates: list[str]) -> str | None:
-        return next((w for w in candidates if w not in busy and session.idle(w)), None)
+    def free(candidates: list[str], need: str | None = None) -> str | None:
+        return next(
+            (w for w in candidates if w not in busy and (need is None or session.agent(w) == need) and session.idle(w)),
+            None,
+        )
+
+    def no_free(role: str, need: str | None, plain_reason: str) -> str:
+        return f"no free {role} with agent {need}" if need else plain_reason
 
     # The prompt goes first and is recorded at once: a failure further on
     # (Plane down, tmux gone) must not type the same prompt again next cycle.
@@ -516,24 +564,27 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str],
         return [i for i in issues if current[i["id"]] == kind and records.get(i["id"], {}).get("hash") != fingerprint(i, kind)]
 
     for issue in pending("re-open"):
+        need = required_agent(issue, "dev")
         previous = records.get(issue["id"], {}).get("target")
-        target = free([previous] if previous in devs else []) or free(devs)
+        target = free([previous] if previous in devs else [], need) or free(devs, need)
         if not target:
-            waiting.append({"issue": issue.get("sequence_id"), "state": "Re-open", "reason": "no free dev"})
+            waiting.append({"issue": issue.get("sequence_id"), "state": "Re-open", "reason": no_free("dev", need, "no free dev")})
             continue
         delegate(issue, "re-open", "dev", target, reopen_prompt(issue, last_comment(plane, issue["id"])), "In Progress")
 
     for issue in pending("todo"):
-        target = free(devs)
+        need = required_agent(issue, "dev")
+        target = free(devs, need)
         if not target:
-            waiting.append({"issue": issue.get("sequence_id"), "state": "Todo", "reason": "no free dev"})
+            waiting.append({"issue": issue.get("sequence_id"), "state": "Todo", "reason": no_free("dev", need, "no free dev")})
             continue
         delegate(issue, "todo", "dev", target, dev_prompt(issue), "In Progress")
 
     for issue in pending("test"):
-        target = free(qa)
+        need = required_agent(issue, "qa")
+        target = free(qa, need)
         if not target:
-            waiting.append({"issue": issue.get("sequence_id"), "state": "Test", "reason": "QA busy"})
+            waiting.append({"issue": issue.get("sequence_id"), "state": "Test", "reason": no_free("qa", need, "QA busy")})
             continue
         delegate(issue, "test", "qa", target, qa_prompt(issue, last_comment(plane, issue["id"])), None)
 
@@ -616,8 +667,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Delegate Plane tickets to the agents of the project's tmux session.")
     parser.add_argument("--session", help="tmux session name (default: current or project session)")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root with .plane.json (default: cwd)")
-    parser.add_argument("--devs", default="dev1,dev2", help="dev windows, in order of preference")
-    parser.add_argument("--qa", default="qa1,qa", help="QA windows, in order of preference (default: qa1,qa)")
+    parser.add_argument("--devs", default="", help="dev windows, in order of preference (default: every dev* window, by index)")
+    parser.add_argument("--qa", default="", help="QA windows, in order of preference (default: every qa* window, by index)")
     parser.add_argument("--tmux-bin", help="tmux executable (tests can point at a stub)")
     parser.add_argument("--telegram", type=Path, help="telegram-pm.py to notify the PM (default: scripts/telegram-pm.py)")
     mode = parser.add_mutually_exclusive_group(required=True)

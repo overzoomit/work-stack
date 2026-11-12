@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 pub const DB_FILE: &str = ".claude/work.db";
-const SCHEMA_VERSION: &str = "1";
+const SCHEMA_VERSION: &str = "2";
 const MAX_EVENTS: i64 = 1000;
 const SNAPSHOT_EVENTS: i64 = 50;
 pub const ORPHAN_AFTER: i64 = 90;
@@ -25,7 +25,7 @@ const PM_SETTLE: i64 = 5;
 // Keep in step with SCHEMA in scripts/work_db.py.
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS windows(name TEXT PRIMARY KEY, window_id TEXT, session TEXT, agent TEXT, state TEXT NOT NULL, rule TEXT, state_changed_at INTEGER NOT NULL, last_output_change_at INTEGER NOT NULL, output_hash TEXT, last_activity_line TEXT, tail_preview TEXT, current_command TEXT, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS windows(name TEXT PRIMARY KEY, window_id TEXT, session TEXT, agent TEXT, state TEXT NOT NULL, rule TEXT, state_changed_at INTEGER NOT NULL, last_output_change_at INTEGER NOT NULL, output_hash TEXT, last_activity_line TEXT, tail_preview TEXT, current_command TEXT, updated_at INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'generic', start_command TEXT, model TEXT);
 CREATE TABLE IF NOT EXISTS escalations(id INTEGER PRIMARY KEY AUTOINCREMENT, window_name TEXT NOT NULL, fingerprint TEXT NOT NULL, prompt_type TEXT NOT NULL, question TEXT NOT NULL, options_json TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, relayed_at INTEGER, resolved_at INTEGER, answer_text TEXT, answered_by TEXT);
 CREATE TABLE IF NOT EXISTS plane_issues(issue_id TEXT PRIMARY KEY, sequence_id INTEGER, title TEXT, state TEXT NOT NULL, role TEXT, assigned_window TEXT, fingerprint TEXT, handled_state TEXT, delegated_at INTEGER, state_updated_at INTEGER, last_error TEXT);
 CREATE TABLE IF NOT EXISTS prompt_barriers(window_name TEXT PRIMARY KEY, session TEXT, sender TEXT, instruction_preview TEXT, sent_at_ms INTEGER NOT NULL, observed_busy_at_ms INTEGER);
@@ -33,13 +33,21 @@ CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, timestam
 CREATE TABLE IF NOT EXISTS anomalies(id INTEGER PRIMARY KEY AUTOINCREMENT, window_name TEXT NOT NULL, issue_id TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, detected_at INTEGER NOT NULL, notified_to_pm_at INTEGER, resolved_at INTEGER);
 ";
 
+// Columns added after schema 1: added in place to an existing database.
+const WINDOW_COLUMNS: &[(&str, &str)] = &[
+    ("role", "TEXT NOT NULL DEFAULT 'generic'"),
+    ("start_command", "TEXT"),
+    ("model", "TEXT"),
+];
+
 // Upsert that keeps state_changed_at while the state holds, and
 // last_output_change_at while the cleaned output hash holds.
 const UPSERT_WINDOW: &str = "
-INSERT INTO windows(name, window_id, session, agent, state, rule, state_changed_at, last_output_change_at, output_hash, last_activity_line, tail_preview, current_command, updated_at)
-VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?7)
+INSERT INTO windows(name, window_id, session, agent, state, rule, state_changed_at, last_output_change_at, output_hash, last_activity_line, tail_preview, current_command, updated_at, role, start_command, model)
+VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?7, ?12, ?13, ?14)
 ON CONFLICT(name) DO UPDATE SET
   window_id = excluded.window_id, session = excluded.session, agent = excluded.agent, rule = excluded.rule,
+  role = excluded.role, start_command = excluded.start_command, model = excluded.model,
   state_changed_at = CASE WHEN windows.state = excluded.state THEN windows.state_changed_at ELSE excluded.state_changed_at END,
   state = excluded.state,
   last_output_change_at = CASE WHEN excluded.output_hash IS NULL OR windows.output_hash IS excluded.output_hash THEN windows.last_output_change_at ELSE excluded.last_output_change_at END,
@@ -87,12 +95,36 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(SCHEMA)?;
+    migrate(conn)?;
     // opencode_last_prune_at is "0" until the first OpenCode prune.
     conn.execute(
         "INSERT OR IGNORE INTO meta(key, value, updated_at) VALUES('schema_version', ?1, ?2), ('opencode_last_prune_at', '0', ?2)",
         params![SCHEMA_VERSION, now()],
     )?;
     Ok(())
+}
+
+// Idempotent: a column another process added a moment ago is not an error.
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    let present: Vec<String> = conn
+        .prepare("SELECT name FROM pragma_table_info('windows')")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (column, ddl) in WINDOW_COLUMNS {
+        if present.iter().any(|c| c == column) {
+            continue;
+        }
+        match conn.execute(
+            &format!("ALTER TABLE windows ADD COLUMN {column} {ddl}"),
+            [],
+        ) {
+            Err(e) if e.to_string().contains("duplicate column") => {}
+            other => {
+                other?;
+            }
+        }
+    }
+    set_meta(conn, "schema_version", SCHEMA_VERSION, now())
 }
 
 pub fn set_meta(conn: &Connection, key: &str, value: &str, now: i64) -> rusqlite::Result<()> {
@@ -172,6 +204,9 @@ pub fn sync_windows(
                 w.last_activity_line,
                 w.output.tail,
                 w.output.command,
+                w.role,
+                w.start_command,
+                w.model,
             ],
         )?;
         if before.as_deref() != Some(state) {
@@ -561,10 +596,24 @@ pub fn snapshot(conn: &Connection, now: i64) -> rusqlite::Result<Value> {
             )
         })
         .collect();
+    let windows = json_rows(conn, "SELECT * FROM windows ORDER BY name", [])?;
+    let mut roles = Map::new();
+    for role in ["pm", "dev", "qa", "doc", "generic"] {
+        roles.insert(role.into(), json!([]));
+    }
+    for w in windows.iter().filter(|w| w["state"] != "offline") {
+        let role = w["role"].as_str().unwrap_or("generic");
+        if let Some(Value::Array(list)) = roles.get_mut(role) {
+            list.push(json!({
+                "name": w["name"], "agent": w["agent"], "model": w["model"], "state": w["state"],
+            }));
+        }
+    }
     Ok(json!({
         "now": now,
         "meta": meta,
-        "windows": json_rows(conn, "SELECT * FROM windows ORDER BY name", [])?,
+        "roles": roles,
+        "windows": windows,
         "escalations": json_rows(conn, "SELECT * FROM escalations WHERE status IN ('pending', 'relayed') ORDER BY id", [])?,
         "assignments": json_rows(conn, &format!("SELECT * FROM plane_issues WHERE assigned_window IS NOT NULL AND {HELD} ORDER BY sequence_id"), [])?,
         "anomalies": json_rows(conn, "SELECT * FROM anomalies WHERE resolved_at IS NULL ORDER BY id", [])?,
@@ -607,6 +656,9 @@ mod tests {
             name: name.into(),
             prompt: None,
             agent: Some("claude".into()),
+            role: crate::dogwatch::role_of(name),
+            start_command: Some(format!("claude --model m-{name}")),
+            model: Some(format!("m-{name}")),
             state,
             rule: None,
             state_changed_at: None,
@@ -693,6 +745,75 @@ mod tests {
             "SELECT value FROM meta WHERE key = 'opencode_last_prune_at'",
         );
         assert_eq!(pruned, "0", "present before the first prune");
+    }
+
+    #[test]
+    fn an_old_database_gets_the_role_columns_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DB_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let old = Connection::open(&path).unwrap();
+        old.execute_batch(
+            "CREATE TABLE windows(name TEXT PRIMARY KEY, window_id TEXT, session TEXT, agent TEXT, state TEXT NOT NULL, rule TEXT, state_changed_at INTEGER NOT NULL, last_output_change_at INTEGER NOT NULL, output_hash TEXT, last_activity_line TEXT, tail_preview TEXT, current_command TEXT, updated_at INTEGER NOT NULL);
+             INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('dev1', 'idle', 1, 1, 1);
+             CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+             INSERT INTO meta VALUES('schema_version', '1', 1);",
+        )
+        .unwrap();
+        drop(old);
+        let conn = open(&path).unwrap();
+        drop(open(&path).unwrap());
+        let role: String = one(&conn, "SELECT role FROM windows WHERE name = 'dev1'");
+        assert_eq!(role, "generic", "old rows get the default");
+        let version: String = one(&conn, "SELECT value FROM meta WHERE key = 'schema_version'");
+        assert_eq!(version, SCHEMA_VERSION);
+        let mut conn = conn;
+        sync(&mut conn, &mut [win("dev1", AgentState::Idle, "h")], 5);
+        let row: (String, String, String) = conn
+            .query_row(
+                "SELECT role, start_command, model FROM windows WHERE name = 'dev1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                "dev".into(),
+                "claude --model m-dev1".into(),
+                "m-dev1".into()
+            )
+        );
+    }
+
+    #[test]
+    fn the_snapshot_groups_live_windows_by_role() {
+        let (_dir, mut conn) = db();
+        sync(
+            &mut conn,
+            &mut [
+                win("dev1", AgentState::Working, "h"),
+                win("qa1", AgentState::Idle, "h"),
+                win("agent1", AgentState::Idle, "h"),
+            ],
+            0,
+        );
+        sync(
+            &mut conn,
+            &mut [
+                win("dev1", AgentState::Working, "h"),
+                win("qa1", AgentState::Idle, "h"),
+            ],
+            1,
+        );
+        let snap = snapshot(&conn, 1).unwrap();
+        assert_eq!(
+            snap["roles"]["dev"],
+            json!([{ "name": "dev1", "agent": "claude", "model": "m-dev1", "state": "working" }])
+        );
+        assert_eq!(snap["roles"]["qa"][0]["name"], "qa1");
+        assert_eq!(snap["roles"]["generic"], json!([]), "agent1 went offline");
+        assert_eq!(snap["roles"]["pm"], json!([]));
     }
 
     #[test]

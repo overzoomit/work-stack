@@ -277,7 +277,11 @@ def load_manifests() -> list[dict[str, object]]:
         return _MANIFESTS
     manifests: list[dict[str, object]] = []
     if MANIFEST_DIR.is_dir():
-        paths = sorted(MANIFEST_DIR.glob("*.toml"), key=lambda p: (p.name == "generic.toml", p.name))
+        # The order of MANIFEST_SOURCES in dogwatch.rs: it breaks ties the same way.
+        paths = sorted(
+            MANIFEST_DIR.glob("*.toml"),
+            key=lambda p: (p.name == "generic.toml", MANIFEST_ORDER.index(p.stem) if p.stem in MANIFEST_ORDER else 99, p.name),
+        )
         for path in paths:
             try:
                 content = path.read_text(encoding="utf-8")
@@ -315,6 +319,7 @@ def _role_matches(alias: str, role: str) -> bool:
 
 
 def manifest_for_window(name: str) -> dict[str, object] | None:
+    """The role default: dev* -> opencode, qa* -> codex, pm -> antigravity."""
     role = name.lower()
     manifests = load_manifests()
     for manifest in manifests:
@@ -323,6 +328,125 @@ def manifest_for_window(name: str) -> dict[str, object] | None:
         if any(_role_matches(alias, role) for alias in manifest["aliases"]):
             return manifest
     return next((m for m in manifests if m["id"] == "generic"), manifests[-1] if manifests else None)
+
+
+# ── Real agent of a window (same rules as dogwatch.rs) ───────
+
+MANIFEST_ORDER = ["antigravity", "claude", "opencode", "codex", "gemini"]
+# Aliases that name a team role, not a CLI: `npm run dev` must not pick one.
+ROLE_ALIASES = {"pm", "dev", "qa", "doc", "agent", "generic", "generico"}
+# Shells and runtimes that host an agent started by hand.
+HOSTS = {"bash", "zsh", "sh", "fish", "dash", "ksh", "node"}
+COMMAND_TOKEN = re.compile(r"[^a-z0-9._-]+")
+MODEL_FLAG = re.compile(r"(?:^|\s)(?:--model|-m)(?:=|\s+)[\"']?([^\s\"']+)")
+
+
+role_of = work_db.role_of
+
+
+def model_of(command: str | None) -> str | None:
+    found = MODEL_FLAG.search(command or "")
+    return found.group(1) if found else None
+
+
+def parse_ps(text: str) -> list[tuple[int, int, str]]:
+    table = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        table.append((int(parts[0]), int(parts[1]), " ".join(parts[2:])))
+    return table
+
+
+def process_table() -> list[tuple[int, int, str]]:
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,args="], capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return parse_ps(out.stdout)
+
+
+def tree_commands(table: list[tuple[int, int, str]], pid: int) -> list[str]:
+    """The descendants of the pane process, parents first."""
+    out: list[str] = []
+    seen, queue = {pid}, [pid]
+    while queue:
+        parent = queue.pop(0)
+        for child, ppid, args in table:
+            if ppid == parent and child not in seen:
+                seen.add(child)
+                out.append(args)
+                queue.append(child)
+    return out
+
+
+def hosts_agent(current: str) -> bool:
+    return current.rsplit("/", 1)[-1].lstrip("-") in HOSTS
+
+
+def parse_pane(raw: str) -> dict[str, object]:
+    fields = (raw.rstrip("\r\n").split("\t") + ["", "", "", ""])[:4]
+    start, current, title, pid = (f.strip() for f in fields)
+    return {"start": start, "current": current, "title": title, "pid": int(pid) if pid.isdigit() else None}
+
+
+def pane_command(session: str, window: str, binary: str | None = None) -> dict[str, object]:
+    out = run_tmux(
+        ["display-message", "-p", "-t", f"{session}:{window}",
+         "#{pane_start_command}\t#{pane_current_command}\t#{pane_title}\t#{pane_pid}"],
+        binary,
+    )
+    return parse_pane(out.stdout if out.returncode == 0 else "")
+
+
+def agent_hints(pane: dict[str, object], tree: list[str]) -> list[str]:
+    """Strongest first: the process tree (only under a shell), then foreground, start command, title."""
+    hints = list(tree) if hosts_agent(str(pane["current"])) else []
+    hints += [str(pane["current"]), str(pane["start"]), str(pane["title"])]
+    return [h for h in hints if h]
+
+
+def detect_manifest(name: str, hints: list[str]) -> tuple[dict[str, object] | None, str | None]:
+    """(manifest, hint that named it): the first hint naming an agent wins, else the role default."""
+    specific = [m for m in load_manifests() if m["id"] != "generic"]
+    for hint in hints:
+        tokens = set(COMMAND_TOKEN.split(hint.lower()))
+        for manifest in specific:
+            if any(a in tokens for a in manifest["aliases"] if a not in ROLE_ALIASES):
+                return manifest, hint
+    return manifest_for_window(name), None
+
+
+def canonical_agent(name: str) -> str:
+    """'ollama' -> 'opencode': the manifest id for an id or alias, else the name."""
+    name = name.strip().lower()
+    for manifest in load_manifests():
+        if manifest["id"] == name or (name in manifest["aliases"] and name not in ROLE_ALIASES):
+            return str(manifest["id"])
+    return name
+
+
+def detect_window(session: str, name: str, binary: str | None = None, table=None) -> dict[str, object]:
+    """Agent, start command, model and foreground command of one window.
+
+    `table` is a callable returning the process table, so `ps` runs once per
+    scan and only when a pane hosts a shell or runtime.
+    """
+    pane = pane_command(session, name, binary)
+    tree: list[str] = []
+    if pane["pid"] is not None and hosts_agent(str(pane["current"])):
+        tree = tree_commands((table or process_table)(), int(pane["pid"]))
+    manifest, matched = detect_manifest(name, agent_hints(pane, tree))
+    start = pane["start"] or (matched if matched in tree else None) or (tree[0] if tree else None)
+    return {
+        "manifest": manifest,
+        "agent": manifest["id"] if manifest else None,
+        "role": role_of(name),
+        "start_command": start or None,
+        "current_command": pane["current"] or None,
+        "model": model_of(matched) or model_of(start),
+    }
 
 
 def prompt_block_lines(text: str) -> list[str]:
@@ -364,9 +488,9 @@ def _rule_matches(rule: dict[str, object], text: str) -> bool:
     return any(rx.search(line) for rx in rule["line_regex"] for line in region.splitlines())
 
 
-def classify(text: str, window_name: str = "generic") -> tuple[str, str | None, str | None]:
-    """(state, rule id, prompt type) from the window's agent manifest."""
-    manifest = manifest_for_window(window_name)
+def classify(text: str, window_name: str = "generic", manifest: dict | None = None) -> tuple[str, str | None, str | None]:
+    """(state, rule id, prompt type) from the window's agent manifest (default: its role's)."""
+    manifest = manifest or manifest_for_window(window_name)
     if not manifest:
         return "idle", None, None
     for rule in manifest["rules"]:
@@ -375,13 +499,13 @@ def classify(text: str, window_name: str = "generic") -> tuple[str, str | None, 
     return "idle", None, None
 
 
-def detect_prompt(text: str, window_name: str = "generic") -> dict[str, object] | None:
+def detect_prompt(text: str, window_name: str = "generic", manifest: dict | None = None) -> dict[str, object] | None:
     """Return {prompt_type, question, options} for a prompt still waiting for input, else None.
 
     A prompt is pending only when nothing but its own options and key hints
     follows it: any other later line means the process went on.
     """
-    state, _rule, prompt_type = classify(text, window_name)
+    state, _rule, prompt_type = classify(text, window_name, manifest)
     if state != "blocked" or not prompt_type:
         return None
     block = prompt_block_lines(text)
@@ -398,18 +522,28 @@ def scan_windows(
 ) -> list[dict[str, object]]:
     """Every agent window with its manifest-decided state and pending prompt."""
     windows = []
+    table: list | None = None
+
+    def processes() -> list:
+        nonlocal table
+        if table is None:
+            table = process_table()
+        return table
+
     for window in agent_windows(session, binary):
         name = str(window["name"])
         text = capture_pane(session, name, lines, binary)
-        state, rule, _prompt_type = classify(text, name)
-        prompt = detect_prompt(text, name)
+        # The real agent's rules, never the role default when a command names one.
+        found = detect_window(session, name, binary, processes)
+        manifest = found.pop("manifest")
+        state, rule, _prompt_type = classify(text, name, manifest)
+        prompt = detect_prompt(text, name, manifest)
         if prompt is not None:
             state = "blocked"
-        manifest = manifest_for_window(name)
         windows.append({
             "id": window["id"],
             "name": name,
-            "agent": manifest["id"] if manifest else None,
+            **found,
             "state": state,
             "rule": rule,
             "prompt": prompt,

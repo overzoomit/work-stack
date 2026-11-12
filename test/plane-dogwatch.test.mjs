@@ -17,7 +17,9 @@ const skip = !hasPython;
 const FAKE_TMUX = `#!/bin/sh
 printf '%s\\n' "$*" >> "$TMUX_LOG"
 case "$1" in
-  list-windows) printf 'pm\\tagy\\tagy\\ndev1\\tollama launch opencode --model x\\tollama\\ndev2\\tollama launch opencode --model x\\tollama\\nqa1\\tcodex --full-auto\\tcodex\\n' ;;
+  list-windows)
+    if [ -n "$FAKE_WINDOWS" ]; then printf '%b' "$FAKE_WINDOWS"; exit 0; fi
+    printf 'pm\\tagy\\tagy\\ndev1\\tollama launch opencode --model x\\tollama\\ndev2\\tollama launch opencode --model x\\tollama\\nqa1\\tcodex --full-auto\\tcodex\\n' ;;
   capture-pane)
     for w in $FAKE_BUSY; do
       case "$*" in *":$w "*) printf 'running\\n* Working (12s - esc to interrupt)\\n> \\n'; exit 0 ;; esac
@@ -385,3 +387,38 @@ test('cleanup of a finished ticket never wipes a new task delegated to the same 
     assert.ok(!log.slice(promptAt).includes('-l -- /new'), 'no reset after ticket 2 was written');
   });
 });
+
+// qa1 runs Codex, qa2 Claude: the role default would say codex for both.
+const MIXED_QA = 'pm\\tagy\\tagy\\ndev1\\tollama launch opencode --model x\\tollama\\nqa1\\tcodex --full-auto\\tcodex\\nqa2\\tclaude --model opus\\tclaude\\n';
+
+test('a claude-in-chrome test goes to the qa window really running Claude', { skip }, () => {
+  const ticket = issue(3, 's-test');
+  ticket.description_html = '<p>Verifica E2E nel browser con mcp__claude-in-chrome</p>';
+  return scenario([ticket], {}, async (api, box) => {
+    const out = await run(box, ['--once'], { FAKE_WINDOWS: MIXED_QA });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(out.json().actions.map((a) => [a.issue, a.target]), [[3, 'qa2']]);
+    assert.match(box.sends()[0], /-t work_test:qa2 -l -- /);
+  });
+});
+
+test('no free window with the required agent is an explicit wait', { skip }, () => {
+  const ticket = issue(1, 's-todo');
+  ticket.name = 'Refactor [dev-agent:claude]';
+  const test = issue(3, 's-test');
+  test.description_html = '<p>[qa-agent:gemini]</p>';
+  return scenario([ticket, test], {}, async (api, box) => {
+    const out = await run(box, ['--once'], { FAKE_WINDOWS: MIXED_QA });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(out.json().actions, []);
+    assert.deepEqual(out.json().waiting.map((w) => w.reason), ['no free dev with agent claude', 'no free qa with agent gemini']);
+    assert.deepEqual(box.sends(), []);
+  });
+});
+
+test('dev and qa windows are found in the session in index order', { skip }, () =>
+  scenario([issue(1, 's-todo'), issue(3, 's-test')], {}, async (api, box) => {
+    const out = await run(box, ['--once'], { FAKE_WINDOWS: 'dev7\\tclaude\\tclaude\\nshell\\tbash\\tbash\\nqa9\\tcodex\\tcodex\\n' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(out.json().actions.map((a) => [a.issue, a.target]), [[1, 'dev7'], [3, 'qa9']]);
+  }));

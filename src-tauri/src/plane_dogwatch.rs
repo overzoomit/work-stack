@@ -10,6 +10,7 @@
 //   Test     to the QA agent, who moves it to "Done" or "Re-open";
 //   Done     the PM is told on Telegram, for a ticket seen before it was done.
 use crate::{dogwatch, state_db, store, tmux};
+use regex::Regex;
 use reqwest::Method;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -17,7 +18,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
@@ -29,7 +30,7 @@ const DEFAULT_BASE_URL: &str = "https://plane.overzoom.it";
 const DEFAULT_WORKSPACE: &str = "overzoom";
 const MAX_TEXT: usize = 3000;
 const CAPTURE_LINES: &str = "-40";
-// Windows in order of preference: dev1 and dev2 develop; qa1 and qa perform QA.
+// The windows an agent source offers when it cannot list a session.
 const DEVS: [&str; 2] = ["dev1", "dev2"];
 const QA: [&str; 2] = ["qa1", "qa"];
 // Agent TUIs show these while they run.
@@ -392,6 +393,31 @@ fn title(issue: &Value) -> String {
     plain(issue["name"].as_str(), 200)
 }
 
+// [dev-agent:x] / [qa-agent:x] bind one role, [agent:x] both; a browser test
+// through claude-in-chrome needs Claude in the QA window.
+pub fn required_agent(issue: &Value, role: &str) -> Option<String> {
+    static TAG: OnceLock<Regex> = OnceLock::new();
+    let tag = TAG.get_or_init(|| {
+        Regex::new(r"(?i)\[(?:(dev|qa)-)?agent:\s*([a-z0-9_.-]+)\s*\]").expect("agent tag regex")
+    });
+    let text = format!(
+        "{} {}",
+        plain(issue["name"].as_str(), usize::MAX),
+        plain(issue["description_html"].as_str(), usize::MAX)
+    );
+    let mut both = None;
+    for found in tag.captures_iter(&text) {
+        match found.get(1).map(|r| r.as_str().to_lowercase()) {
+            Some(r) if r == role => return Some(dogwatch::canonical_agent(&found[2])),
+            None if both.is_none() => both = Some(dogwatch::canonical_agent(&found[2])),
+            _ => {}
+        }
+    }
+    both.or_else(|| {
+        (role == "qa" && text.to_lowercase().contains("claude-in-chrome")).then(|| "claude".into())
+    })
+}
+
 fn description(issue: &Value) -> String {
     plain(issue["description_html"].as_str(), MAX_TEXT)
 }
@@ -480,11 +506,23 @@ pub trait Agents {
     fn reset(&self, _window: &str) -> Result<(), String> {
         Ok(())
     }
+    // Every window of the session in tmux index order; dev* and qa* ones
+    // are the candidates of their role.
+    fn windows(&self) -> Vec<String> {
+        DEVS.iter()
+            .chain(QA.iter())
+            .map(|w| w.to_string())
+            .collect()
+    }
+    // The agent id really running in the window (claude, opencode…).
+    fn agent(&self, _window: &str) -> Option<String> {
+        None
+    }
 }
 
 struct Tmux {
     session: String,
-    windows: HashSet<String>,
+    windows: Vec<String>,
 }
 
 impl Tmux {
@@ -503,7 +541,7 @@ impl Tmux {
 impl Agents for Tmux {
     fn idle(&self, window: &str) -> bool {
         let target = format!("{}:{window}", self.session);
-        self.windows.contains(window)
+        self.windows.iter().any(|w| w == window)
             && tmux::run_tmux(&[
                 "capture-pane",
                 "-p",
@@ -536,6 +574,14 @@ impl Agents for Tmux {
         dogwatch::answer(&self.session, window, OPENCODE_RESET)?;
         std::thread::sleep(RESET_SETTLE);
         Ok(())
+    }
+
+    fn windows(&self) -> Vec<String> {
+        self.windows.clone()
+    }
+
+    fn agent(&self, window: &str) -> Option<String> {
+        dogwatch::window_agent(&self.session, window)
     }
 }
 
@@ -730,14 +776,22 @@ struct Run<'a> {
     busy: HashSet<String>,
     actions: Vec<Action>,
     waiting: Vec<Waiting>,
+    devs: Vec<String>,
+    qa: Vec<String>,
 }
 
 impl Run<'_> {
-    fn free(&self, candidates: &[&str]) -> Option<String> {
+    // The first idle window not holding a ticket and, if the ticket asks for
+    // one, running the required agent.
+    fn free(&self, candidates: &[String], need: Option<&str>) -> Option<String> {
         candidates
             .iter()
-            .find(|w| !self.busy.contains(**w) && self.agents.idle(w))
-            .map(|w| w.to_string())
+            .find(|w| {
+                !self.busy.contains(*w)
+                    && need.is_none_or(|a| self.agents.agent(w).as_deref() == Some(a))
+                    && self.agents.idle(w)
+            })
+            .cloned()
     }
 
     fn pending<'i>(&self, issues: &'i [Value], kind: &str) -> Vec<&'i Value> {
@@ -862,7 +916,17 @@ pub fn run_cycle(
         .filter_map(|(issue, r)| holder(r, current.get(issue).map(String::as_str)))
         .map(String::from)
         .collect();
+    let windows = agents.windows();
+    let of_role = |role: &str| -> Vec<String> {
+        windows
+            .iter()
+            .filter(|w| dogwatch::role_of(w) == role)
+            .cloned()
+            .collect()
+    };
     let mut run = Run {
+        devs: of_role("dev"),
+        qa: of_role("qa"),
         plane,
         agents,
         path: state_path,
@@ -877,17 +941,26 @@ pub fn run_cycle(
         waiting: vec![],
     };
 
+    let no_free = |role: &str, need: Option<&str>, plain: &str| {
+        need.map_or(plain.to_string(), |a| {
+            format!("no free {role} with agent {a}")
+        })
+    };
     for issue in run.pending(&issues, "re-open") {
+        let need = required_agent(issue, "dev");
         let previous = run.state["issues"][id(issue)]["target"]
             .as_str()
-            .filter(|t| DEVS.contains(t))
+            .filter(|t| run.devs.iter().any(|d| d == t))
             .map(String::from);
         let target = previous
-            .as_deref()
-            .and_then(|p| run.free(&[p]))
-            .or_else(|| run.free(&DEVS));
+            .and_then(|p| run.free(&[p], need.as_deref()))
+            .or_else(|| run.free(&run.devs, need.as_deref()));
         let Some(target) = target else {
-            run.wait(issue, "Re-open", "no free dev");
+            run.wait(
+                issue,
+                "Re-open",
+                &no_free("dev", need.as_deref(), "no free dev"),
+            );
             continue;
         };
         let prompt = reopen_prompt(issue, &plane.last_comment(id(issue))?);
@@ -902,8 +975,13 @@ pub fn run_cycle(
     }
 
     for issue in run.pending(&issues, "todo") {
-        let Some(target) = run.free(&DEVS) else {
-            run.wait(issue, "Todo", "no free dev");
+        let need = required_agent(issue, "dev");
+        let Some(target) = run.free(&run.devs, need.as_deref()) else {
+            run.wait(
+                issue,
+                "Todo",
+                &no_free("dev", need.as_deref(), "no free dev"),
+            );
             continue;
         };
         run.delegate(
@@ -917,8 +995,9 @@ pub fn run_cycle(
     }
 
     for issue in run.pending(&issues, "test") {
-        let Some(target) = run.free(&QA) else {
-            run.wait(issue, "Test", "QA busy");
+        let need = required_agent(issue, "qa");
+        let Some(target) = run.free(&run.qa, need.as_deref()) else {
+            run.wait(issue, "Test", &no_free("qa", need.as_deref(), "QA busy"));
             continue;
         };
         let prompt = qa_prompt(issue, &plane.last_comment(id(issue))?);
@@ -1390,6 +1469,8 @@ mod tests {
         opencode: RefCell<HashSet<String>>,
         resets: RefCell<Vec<String>>,
         events: RefCell<Vec<String>>,
+        window_list: Vec<String>,
+        agent_of: HashMap<String, String>,
     }
 
     fn agents(idle: &[&str]) -> Fake {
@@ -1417,6 +1498,36 @@ mod tests {
             self.events.borrow_mut().push(format!("reset:{window}"));
             Ok(())
         }
+        fn windows(&self) -> Vec<String> {
+            if self.window_list.is_empty() {
+                return DEVS
+                    .iter()
+                    .chain(QA.iter())
+                    .map(|w| w.to_string())
+                    .collect();
+            }
+            self.window_list.clone()
+        }
+        fn agent(&self, window: &str) -> Option<String> {
+            self.agent_of.get(window).cloned()
+        }
+    }
+
+    // A session listing `windows` in index order, each running its agent.
+    fn team(windows: &[(&str, &str)], idle: &[&str]) -> Fake {
+        let mut fake = agents(idle);
+        fake.window_list = windows.iter().map(|(w, _)| w.to_string()).collect();
+        fake.agent_of = windows
+            .iter()
+            .map(|(w, a)| (w.to_string(), a.to_string()))
+            .collect();
+        fake
+    }
+
+    fn described(n: u64, state: &str, text: &str) -> Value {
+        let mut i = issue(n, state);
+        i["description_html"] = format!("<p>{text}</p>").into();
+        i
     }
 
     struct Scene {
@@ -1563,6 +1674,101 @@ mod tests {
             .filter(|e| e["kind"] == "delegated")
             .count();
         assert_eq!(delegated, 2, "an unchanged ticket is not delegated again");
+    }
+
+    #[test]
+    fn a_ticket_names_the_agent_it_needs_per_role() {
+        let chrome = described(1, "s-test", "Verifica E2E con mcp__claude-in-chrome");
+        assert_eq!(required_agent(&chrome, "qa").as_deref(), Some("claude"));
+        assert_eq!(
+            required_agent(&chrome, "dev"),
+            None,
+            "the browser test is QA's"
+        );
+
+        let both = described(2, "s-todo", "Serve [Agent:Claude] per tutti");
+        assert_eq!(required_agent(&both, "dev").as_deref(), Some("claude"));
+        assert_eq!(required_agent(&both, "qa").as_deref(), Some("claude"));
+
+        let split = described(
+            3,
+            "s-todo",
+            "[agent:codex] ma [qa-agent:claude] e [dev-agent:ollama]",
+        );
+        assert_eq!(required_agent(&split, "qa").as_deref(), Some("claude"));
+        assert_eq!(required_agent(&split, "dev").as_deref(), Some("opencode"));
+
+        let mut titled = issue(4, "s-todo");
+        titled["name"] = "Fix [dev-agent:claude] login".into();
+        assert_eq!(required_agent(&titled, "dev").as_deref(), Some("claude"));
+        assert_eq!(required_agent(&issue(5, "s-todo"), "dev"), None);
+    }
+
+    #[test]
+    fn a_claude_in_chrome_test_goes_to_the_qa_window_running_claude() {
+        let b = scenario(vec![described(
+            3,
+            "s-test",
+            "Test E2E con claude-in-chrome",
+        )]);
+        let a = team(&[("qa1", "opencode"), ("qa2", "claude")], &["qa1", "qa2"]);
+        let r = b.cycle(&a);
+        assert_eq!(
+            moves(&r),
+            [(Some(3), "test".into(), "test".into(), Some("qa2".into()))]
+        );
+        assert_eq!(a.sent.borrow()[0].0, "qa2");
+    }
+
+    #[test]
+    fn no_window_with_the_agent_is_an_explicit_wait() {
+        let b = scenario(vec![
+            described(3, "s-test", "[qa-agent:claude]"),
+            described(1, "s-todo", "[dev-agent:claude]"),
+        ]);
+        let busy_claude = team(
+            &[("dev1", "opencode"), ("qa1", "opencode"), ("qa2", "claude")],
+            &["dev1", "qa1"],
+        );
+        let r = b.cycle(&busy_claude);
+        assert!(r.actions.is_empty(), "{:?}", r.actions);
+        let reasons: Vec<&str> = r.waiting.iter().map(|w| w.reason.as_str()).collect();
+        assert_eq!(
+            reasons,
+            [
+                "no free dev with agent claude",
+                "no free qa with agent claude"
+            ]
+        );
+        assert!(busy_claude.sent.borrow().is_empty());
+    }
+
+    #[test]
+    fn devs_and_qa_are_found_in_the_session_in_index_order() {
+        let b = scenario(vec![issue(1, "s-todo"), issue(3, "s-test")]);
+        let a = team(
+            &[
+                ("pm", "antigravity"),
+                ("dev3", "claude"),
+                ("shell", ""),
+                ("dev1", "opencode"),
+                ("qa4", "codex"),
+            ],
+            &["dev3", "dev1", "qa4"],
+        );
+        let r = b.cycle(&a);
+        assert_eq!(
+            moves(&r),
+            [
+                (
+                    Some(1),
+                    "todo".into(),
+                    "In Progress".into(),
+                    Some("dev3".into())
+                ),
+                (Some(3), "test".into(), "test".into(), Some("qa4".into())),
+            ]
+        );
     }
 
     #[test]

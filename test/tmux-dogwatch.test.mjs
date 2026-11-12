@@ -3,9 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/tmux-dogwatch.py', import.meta.url));
@@ -227,4 +227,74 @@ test('--once fills .claude/work.db and answer records the reply on the open ques
   } finally {
     box.cleanup();
   }
+});
+
+test('an agent started by hand in a shell is detected from the pane process tree, with its model', { skip: !hasPython }, async () => {
+  const box = sandbox();
+  // A shell (the pane process) running a "claude" in the qa1 window, whose role default is codex.
+  const claude = join(box.dir, 'bin', 'claude');
+  mkdirSync(dirname(claude), { recursive: true });
+  writeFileSync(claude, '#!/bin/sh\nsleep 30\n');
+  chmodSync(claude, 0o755);
+  const shell = spawn('bash', ['-c', `"${claude}" --model opus-4 & wait`], { stdio: 'ignore' });
+  const fake = join(box.dir, 'tmux-tree');
+  writeFileSync(fake, `#!/bin/sh
+case "$1" in
+  list-windows) printf '@0\\tqa1\\t1\\t/p\\n@1\\tdev1\\t0\\t/p\\n' ;;
+  capture-pane) printf 'done\\n> \\n' ;;
+  display-message)
+    case "$*" in
+      *:qa1*) printf '\\tbash\\tqa1-host\\t${shell.pid}\\n' ;;
+      *:dev1*) printf 'ollama launch opencode --model deepseek-v4.1-flash:cloud\\tollama\\tdev1\\t1\\n' ;;
+      *) printf 'work_test\\n' ;;
+    esac ;;
+esac
+`);
+  chmodSync(fake, 0o755);
+  try {
+    let windows = [];
+    for (let i = 0; i < 50 && !windows.find((w) => w.name === 'qa1' && w.agent === 'claude'); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const out = run(box, ['--once', '--session', 'work_test'], { TMUX_DOGWATCH_TMUX: fake });
+      assert.equal(out.status, 0, out.stderr);
+      windows = JSON.parse(readFileSync(join(box.dir, '.claude', 'dogwatch_state.json'), 'utf8')).windows;
+    }
+    const qa1 = windows.find((w) => w.name === 'qa1');
+    assert.equal(qa1.agent, 'claude', 'the real agent, not the codex default of the qa role');
+    assert.equal(qa1.role, 'qa');
+    assert.equal(qa1.model, 'opus-4');
+    assert.match(qa1.start_command, /bin\/claude --model opus-4$/);
+    assert.equal(qa1.current_command, 'bash');
+    const dev1 = windows.find((w) => w.name === 'dev1');
+    assert.deepEqual([dev1.agent, dev1.role, dev1.model], ['opencode', 'dev', 'deepseek-v4.1-flash:cloud']);
+
+    const db = spawnSync('python3', ['-c', `import json, sqlite3; c = sqlite3.connect(${JSON.stringify(join(box.dir, '.claude', 'work.db'))}); print(json.dumps(c.execute("SELECT name, role, agent, model FROM windows ORDER BY name").fetchall()))`], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(db.stdout), [['dev1', 'dev', 'opencode', 'deepseek-v4.1-flash:cloud'], ['qa1', 'qa', 'claude', 'opus-4']]);
+  } finally {
+    shell.kill();
+    box.cleanup();
+  }
+});
+
+test('Python detects the agent with the same rules as dogwatch.rs', { skip: !hasPython }, () => {
+  // The inputs of an_agent_started_by_hand_in_a_shell_beats_the_role_default (Rust).
+  const code = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("t", ${JSON.stringify(SCRIPT)}); t = importlib.util.module_from_spec(spec); spec.loader.exec_module(t)
+table = t.parse_ps("  100     1 -zsh\\n  200   100 node /home/u/.npm/bin/claude --model opus\\n  300   200 npx @playwright/mcp\\n bad line\\n")
+tree = t.tree_commands(table, 100)
+out = []
+for name, pane, tr in [("qa1", "\\tzsh\\tqa1-host\\t100", tree), ("dev1", "opencode\\tcodex\\t\\t100", tree), ("dev2", "\\tbash\\tdev2\\t7", ["npm run dev"])]:
+    m, hint = t.detect_manifest(name, t.agent_hints(t.parse_pane(pane), tr))
+    out.append([m["id"], t.model_of(hint)])
+print(json.dumps([tree, out, t.canonical_agent("ollama"), t.canonical_agent("qa")]))
+`;
+  const out = spawnSync('python3', ['-c', code], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(JSON.parse(out.stdout), [
+    ['node /home/u/.npm/bin/claude --model opus', 'npx @playwright/mcp'],
+    [['claude', 'opus'], ['codex', null], ['opencode', null]],
+    'opencode',
+    'qa',
+  ]);
 });
