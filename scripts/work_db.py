@@ -341,6 +341,25 @@ def sync_plane_issues(conn: sqlite3.Connection, rows: list[dict], stamp: int | N
         set_meta(conn, "plane_dogwatch_last_poll_at", str(stamp), stamp)
 
 
+def ticket_workers(conn: sqlite3.Connection, sequence_id: int) -> list[str]:
+    """The windows a ticket was delegated to, in delegation order.
+
+    shortcut: read from the events ring buffer (MAX_EVENTS rows), so a delegation
+    older than the buffer is missed; a per-ticket history table would keep it.
+    """
+    rows = conn.execute(
+        "SELECT window_name FROM events WHERE category = 'plane' AND kind = 'delegated' "
+        "AND window_name IS NOT NULL AND summary LIKE ? GROUP BY window_name ORDER BY MIN(id)",
+        (f"[{sequence_id}] delegated to %",),
+    )
+    return [row[0] for row in rows]
+
+
+def window_state(conn: sqlite3.Connection, name: str) -> str | None:
+    row = conn.execute("SELECT state FROM windows WHERE name = ?", (name,)).fetchone()
+    return row[0] if row else None
+
+
 def set_barrier(conn: sqlite3.Connection, session: str, window: str, sender: str | None, instruction: str) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO prompt_barriers(window_name, session, sender, instruction_preview, sent_at_ms, observed_busy_at_ms) "

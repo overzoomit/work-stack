@@ -54,6 +54,8 @@ PTY_CLIENT = re.compile(r"_pty_\d+$")
 # with /new, whose documented alias is /clear. One active session per task.
 OPENCODE_AGENTS = {"opencode", "ollama"}
 OPENCODE_RESET = "/new"
+# Claude Code, Codex and Gemini start a fresh conversation with /clear.
+CLEAR_RESET = "/clear"
 # Give the TUI a moment to open the fresh session before typing the task.
 RESET_SETTLE = float(os.environ.get("WORK_AGENT_RESET_SETTLE", "0.4"))
 
@@ -293,9 +295,9 @@ def send_literal(tmux, pane: str, text: str, binary: str | None) -> None:
         raise AgentError(enter.stderr.strip() or f"cannot press Enter in {pane}")
 
 
-def reset_session(tmux, pane: str, binary: str | None) -> None:
-    """Open a fresh OpenCode session: /new is its documented reset command."""
-    send_literal(tmux, pane, OPENCODE_RESET, binary)
+def reset_session(tmux, pane: str, binary: str | None, command: str = OPENCODE_RESET) -> None:
+    """Open a fresh session with the agent's own reset command."""
+    send_literal(tmux, pane, command, binary)
     if RESET_SETTLE > 0:
         time.sleep(RESET_SETTLE)
 
@@ -311,6 +313,14 @@ def target_is_opencode(tmux, session: str, target: str, window: dict[str, object
         return "opencode" in command
     agent = str((window or {}).get("agent") or "").lower()
     return agent in OPENCODE_AGENTS
+
+
+def explicit_reset(tmux, session: str, target: str, window: dict[str, object] | None, binary: str | None) -> str | None:
+    """--clean: /new for OpenCode/Ollama, /clear for any other known agent, None otherwise."""
+    if target_is_opencode(tmux, session, target, window, binary):
+        return OPENCODE_RESET
+    agent = str((window or {}).get("agent") or "")
+    return CLEAR_RESET if agent and agent != "generic" else None
 
 
 def strip_ansi(text: str) -> str:
@@ -424,18 +434,21 @@ def cmd_prompt(args, tmux, root: Path, path: Path, session: str) -> int:
         raise AgentError(f"{target} runs {window.get('agent') or 'no known agent'}, not {need}")
     text = " ".join(args.text)
     pane = f"{session}:{target}"
-    # A new task starts from a clean session: for OpenCode/Ollama only, and
-    # only when the target is idle (a follow-up to a running task keeps its
-    # context). --clean forces it, --no-clean disables the automatic reset.
-    opencode = target_is_opencode(tmux, session, target, window, args.tmux_bin)
+    # A new task starts from a clean session automatically for OpenCode/Ollama
+    # only, and only when the target is idle (a follow-up to a running task
+    # keeps its context). --clean forces the agent's own reset (/clear for
+    # Claude, Codex, Gemini), --no-clean disables the automatic one.
+    command = None
     if args.clean is None:
-        do_clean = opencode and str(window.get("state", "idle")) in IDLE_LIKE
-    else:
-        do_clean = bool(args.clean) and opencode
-        if args.clean and not opencode:
-            print(f"work-agent: {target} is not an OpenCode/Ollama agent; no session reset", file=sys.stderr)
-    if do_clean:
-        reset_session(tmux, pane, args.tmux_bin)
+        idle = str(window.get("state", "idle")) in IDLE_LIKE
+        if idle and target_is_opencode(tmux, session, target, window, args.tmux_bin):
+            command = OPENCODE_RESET
+    elif args.clean:
+        command = explicit_reset(tmux, session, target, window, args.tmux_bin)
+        if command is None:
+            print(f"work-agent: {target} runs no known agent; no session reset", file=sys.stderr)
+    if command:
+        reset_session(tmux, pane, args.tmux_bin, command)
     send_literal(tmux, pane, text, args.tmux_bin)
     # The agent may still look idle for one Dogwatch poll: remember the prompt
     # so an immediate `wait --until done` cannot accept that pre-start snapshot.
@@ -461,11 +474,11 @@ def state_mtime(path: Path) -> int | None:
 def clean_after_wait(args, tmux, state: dict[str, object], session: str, target: str, binary: str | None) -> None:
     if not getattr(args, "clean", False):
         return
-    window = window_of(state, target)
-    if not target_is_opencode(tmux, session, target, window, binary):
+    command = explicit_reset(tmux, session, target, window_of(state, target), binary)
+    if command is None:
         return
     try:
-        reset_session(tmux, f"{session}:{target}", binary)
+        reset_session(tmux, f"{session}:{target}", binary, command)
     except AgentError as exc:
         # The task did complete: a failed reset must not turn it into a timeout.
         print(f"work-agent: session reset for {target} failed: {exc}", file=sys.stderr)
@@ -776,7 +789,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="clean",
         action="store_true",
         default=None,
-        help="reset an OpenCode/Ollama session with /new before the prompt (default: only when the target is idle)",
+        help="reset the session before the prompt: /new for OpenCode/Ollama, /clear for other agents (default: OpenCode/Ollama only, when idle)",
     )
     clean.add_argument("--no-clean", dest="clean", action="store_false", help="never reset the session before the prompt")
     prompt.add_argument(
@@ -790,7 +803,7 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("target", help="role/window name, e.g. dev1")
     wait.add_argument("--until", choices=("blocked", "idle", "done"), default="idle", help="state to wait for (default: idle; done is an alias for idle/finished)")
     wait.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help=f"seconds before exit 2 (default: {DEFAULT_TIMEOUT:g}; 0 waits forever)")
-    wait.add_argument("--clean", action="store_true", help="reset an OpenCode/Ollama session with /new once the target reaches the state")
+    wait.add_argument("--clean", action="store_true", help="reset the session once the target reaches the state: /new for OpenCode/Ollama, /clear for other agents")
 
     read = sub.add_parser("read", help="read an agent's recent output")
     add_common(read, suppress=True)

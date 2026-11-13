@@ -8,7 +8,9 @@ changed since the last cycle:
            "In Progress" with the QA rejection in the prompt;
   Todo     to the first free dev, moved to "In Progress";
   Test     to the QA agent, asked to move it to "Done" or "Re-open";
-  Done     recorded, and the PM is notified on Telegram when it is configured.
+  Done     recorded, and the PM is notified on Telegram when it is configured;
+           every window that worked on it (delegations in .claude/work.db)
+           gets its agent's reset (/clear, /new for OpenCode) once idle.
 
 OpenCode/Ollama agents start each delegated task from a fresh session
 (`/new`, OpenCode's documented reset) and are reset again when their ticket
@@ -41,6 +43,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -70,10 +73,21 @@ INPUT_LINE = re.compile(r"^\s*(?:[│|┃]\s*)?(?:[>❯›]|(?:Build|Ask|Chat)\s
 # OpenCode's TUI resets to a fresh session with /new (alias /clear). The
 # settle pause lets the new session open before the task is typed.
 OPENCODE_RESET = "/new"
+# Claude Code, Codex and Gemini start a fresh conversation with /clear.
+CLEAR_RESET = "/clear"
+# A window still working when its ticket reached Done is retried this long.
+CLEAR_RETRY = 600
 OPENCODE_SETTLE = float(os.environ.get("WORK_OPENCODE_SETTLE", "0.4"))
 PRUNE_STATE = Path(".claude") / "opencode_cleanup.json"
 PRUNE_INTERVAL = 6 * 3600
 KEEP_SESSIONS = 5
+
+
+def reset_command(agent: str | None) -> str | None:
+    """The agent's own command for a fresh session; None when no agent is known."""
+    if not agent or agent == "generic":
+        return None
+    return OPENCODE_RESET if agent == "opencode" else CLEAR_RESET
 
 
 def load_module(name: str, path: Path):
@@ -322,9 +336,9 @@ class Session:
     def send(self, window: str, text: str) -> None:
         tmux.send_answer(window, text, session=self.name, binary=self.binary)
 
-    def reset(self, window: str) -> None:
+    def reset(self, window: str, command: str = OPENCODE_RESET) -> None:
         """Open a fresh session, so the next task cannot inherit old context."""
-        tmux.send_answer(window, OPENCODE_RESET, session=self.name, binary=self.binary)
+        tmux.send_answer(window, command, session=self.name, binary=self.binary)
         if OPENCODE_SETTLE > 0:
             time.sleep(OPENCODE_SETTLE)
 
@@ -471,6 +485,31 @@ def busy_roles(records: dict, current: dict[str, str]) -> set[str]:
     }
 
 
+def holds_ticket(window: str, busy: set[str], records: dict, current: dict[str, str]) -> bool:
+    """Delegated a ticket this cycle, or the target of one In Progress or in Test."""
+    return window in busy or any(
+        r.get("target") == window and current.get(issue_id) in ("in progress", "test")
+        for issue_id, r in records.items()
+    )
+
+
+def open_db(path: Path) -> sqlite3.Connection | None:
+    try:
+        return tmux.work_db.connect(path)
+    except (sqlite3.Error, OSError):
+        return None
+
+
+def idle_in_db(db: sqlite3.Connection | None, window: str) -> bool:
+    """No row (no dogwatch writing work.db) or idle/ready; a read error is not idle."""
+    if db is None:
+        return True
+    try:
+        return tmux.work_db.window_state(db, window) in (None, "idle", "ready")
+    except sqlite3.Error:
+        return False
+
+
 def last_comment(plane: Plane, issue_id: str) -> str:
     comments = plane.comments(issue_id)
     return plain(comments[-1].get("comment_html"), 1500) if comments else ""
@@ -588,18 +627,61 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str] 
             continue
         delegate(issue, "test", "qa", target, qa_prompt(issue, last_comment(plane, issue["id"])), None)
 
+    db = open_db(state_path.with_name("work.db"))
+    cleared: set[str] = set()
+
+    def clear_workers(issue: dict, record: dict) -> None:
+        """Every window that worked on a Done ticket gets its agent's reset once it
+        is idle on screen and in work.db. A window that took a new ticket in the
+        meantime is dropped, never reset; one still working waits for a later
+        cycle until clear_until."""
+        windows = record.get("clear")
+        if not isinstance(windows, list):
+            return
+        still_open = record.get("clear_until", 0) >= time.time() and current[issue["id"]] == "done"
+        seq = issue.get("sequence_id") if issue.get("sequence_id") is not None else "?"
+        waiting = []
+        for window in windows:
+            if not still_open or window in cleared or holds_ticket(window, busy, records, current):
+                continue
+            if not idle_in_db(db, window) or not session.idle(window):
+                waiting.append(window)
+                continue
+            command = reset_command(session.agent(window))
+            if command is None:
+                continue
+            entry = {"target": window, "reason": "task reached done", "issue": seq, "command": command}
+            try:
+                session.reset(window, command)
+            except RuntimeError as exc:
+                cleanups.append({**entry, "error": str(exc)})
+                continue
+            cleanups.append(entry)
+            cleared.add(window)
+            if db is not None:
+                with contextlib.suppress(sqlite3.Error):
+                    tmux.work_db.log_event(
+                        db, tmux.work_db.now(), window, "agent", "cleared", f"[{seq}] {window} cleared with {command}"
+                    )
+        if waiting:
+            record["clear"] = waiting
+        else:
+            record.pop("clear", None)
+            record.pop("clear_until", None)
+
     for issue in issues:
         record = records.setdefault(issue["id"], {})
         seen = record.get("state")
         now = current[issue["id"]]
         prev_state, prev_target = before_cycle.get(issue["id"], (None, None))
-        # The task is over: reset the window that held it, if it is idle and
-        # runs OpenCode, so the next ticket starts from a fresh session. Never
+        # The task left its holder: reset the window, if it is idle and runs
+        # OpenCode, so the next ticket starts from a fresh session. Never
         # touch a window that received a new ticket in this same cycle: its
         # delegation already opened a fresh session and this cleanup would wipe it.
+        # Done is left to clear_workers, which resets every agent kind.
         if (
             prev_state != now
-            and now in ("test", "done", "re-open")
+            and now in ("test", "re-open")
             and prev_target
             and prev_target not in busy
             and session.is_opencode(prev_target)
@@ -612,12 +694,23 @@ def run_cycle(plane: Plane, session: Session, state_path: Path, devs: list[str] 
                 cleanups.append({"target": prev_target, "reason": f"task reached {now}", "issue": issue.get("sequence_id"), "error": str(exc)})
         # A ticket already Done at the first look is history, not news.
         if now == "done" and seen and seen != "done":
+            workers: list[str] = []
+            if db is not None and issue.get("sequence_id") is not None:
+                with contextlib.suppress(sqlite3.Error):
+                    workers = tmux.work_db.ticket_workers(db, issue["sequence_id"])
+            if prev_target and prev_target not in workers:
+                workers.append(prev_target)
+            record["clear"] = workers
+            record["clear_until"] = int(time.time()) + CLEAR_RETRY
             sent = notify_telegram(telegram, f"[{tag}] ✅ {ticket(issue)} completato: {plain(issue.get('name'), 200)}")
             actions.append({"issue": issue.get("sequence_id"), "id": issue["id"], "from": seen, "to": "done", "telegram": sent})
+        clear_workers(issue, record)
         if seen != now:
             record["state"] = now
             record["timestamp"] = tmux.now_iso()
 
+    if db is not None:
+        db.close()
     save_state(state_path, state)
     record_issues(state_path, issues, names, records, current, actions)
     return {

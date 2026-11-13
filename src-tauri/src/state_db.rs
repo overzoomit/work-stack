@@ -490,6 +490,25 @@ pub fn sync_plane_issues(
     tx.commit()
 }
 
+// The windows a ticket was delegated to, in delegation order.
+// shortcut: read from the events ring buffer (MAX_EVENTS rows), so a delegation
+// older than the buffer is missed; a per-ticket history table would keep it.
+pub fn ticket_workers(conn: &Connection, sequence_id: u64) -> rusqlite::Result<Vec<String>> {
+    conn.prepare(
+        "SELECT window_name FROM events WHERE category = 'plane' AND kind = 'delegated'
+         AND window_name IS NOT NULL AND summary LIKE ?1 GROUP BY window_name ORDER BY MIN(id)",
+    )?
+    .query_map([format!("[{sequence_id}] delegated to %")], |r| r.get(0))?
+    .collect()
+}
+
+pub fn window_state(conn: &Connection, name: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT state FROM windows WHERE name = ?1", [name], |r| {
+        r.get(0)
+    })
+    .optional()
+}
+
 // ── Watchdog ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1216,6 +1235,32 @@ mod tests {
             "SELECT status FROM escalations WHERE window_name = 'qa1'",
         );
         assert_eq!(status, "cleared");
+    }
+
+    #[test]
+    fn ticket_workers_are_the_delegations_of_that_ticket_only_in_order() {
+        let (_dir, conn) = db();
+        for (window, summary) in [
+            ("dev1", "[7] delegated to dev1"),
+            ("dev2", "[70] delegated to dev2"),
+            ("qa1", "[7] delegated to qa1"),
+            ("dev1", "[7] delegated to dev1"),
+        ] {
+            log_event(&conn, 1, Some(window), "plane", "delegated", summary).unwrap();
+        }
+        log_event(
+            &conn,
+            1,
+            Some("qa2"),
+            "plane",
+            "state",
+            "[7] delegated to qa2",
+        )
+        .unwrap();
+        assert_eq!(ticket_workers(&conn, 7).unwrap(), ["dev1", "qa1"]);
+        assert_eq!(ticket_workers(&conn, 70).unwrap(), ["dev2"]);
+        assert!(ticket_workers(&conn, 8).unwrap().is_empty());
+        assert_eq!(window_state(&conn, "dev1").unwrap(), None);
     }
 
     #[test]

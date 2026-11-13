@@ -108,8 +108,10 @@ function sandbox(api) {
       WORK_OPENCODE_SETTLE: '0',
     },
     args: ['--root', dir, '--session', 'work_test', '--telegram', telegram],
-    sends: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.startsWith('send-keys') && l.includes(' -l ') && !l.includes(' -l -- /new')),
+    sends: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.startsWith('send-keys') && l.includes(' -l ') && !/ -l -- \/(?:new|clear)$/.test(l)),
     resets: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.includes(' -l -- /new')),
+    clears: () => readFileSync(join(dir, 'tmux.log'), 'utf8').split('\n').filter((l) => l.endsWith(' -l -- /clear')).map((l) => l.match(/work_test:(\S+) -l/)[1]),
+    sql: (query) => spawnSync('python3', ['-c', 'import json, sqlite3, sys; c = sqlite3.connect(sys.argv[1]); print(json.dumps(c.execute(sys.argv[2]).fetchall())); c.commit()', join(dir, '.claude', 'work.db'), query], { encoding: 'utf8' }),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
@@ -422,3 +424,65 @@ test('dev and qa windows are found in the session in index order', { skip }, () 
     assert.equal(out.status, 0, out.stderr);
     assert.deepEqual(out.json().actions.map((a) => [a.issue, a.target]), [[1, 'dev7'], [3, 'qa9']]);
   }));
+
+// ── Reset of every agent that worked on a Done ticket ───────
+
+const TEAM = 'pm\\tagy\\tagy\\ndev1\\tclaude --model opus\\tclaude\\nqa1\\tcodex --full-auto\\tcodex\\n';
+const CLEARED = "SELECT window_name, summary FROM events WHERE category = 'agent' AND kind = 'cleared' ORDER BY id";
+
+const move = (ticket, state, at) => Object.assign(ticket, { state, updated_at: `2026-11-02T1${at}:00:00Z` });
+
+test('Done: the dev and the QA who worked on the ticket get /clear, a working QA only once idle', { skip }, () => {
+  const tickets = [issue(1, 's-todo')];
+  return scenario(tickets, {}, async (api, box) => {
+    const env = { FAKE_WINDOWS: TEAM };
+    assert.equal((await run(box, ['--once'], env)).status, 0);
+    move(tickets[0], 's-test', 0);
+    assert.equal((await run(box, ['--once'], env)).status, 0);
+    assert.deepEqual(box.clears(), [], 'a Claude dev keeps its context until Done');
+
+    // The QA moved the ticket to Done and is still writing its report.
+    move(tickets[0], 's-done', 1);
+    const done = await run(box, ['--once'], { ...env, FAKE_BUSY: 'qa1' });
+    assert.equal(done.status, 0, done.stderr);
+    assert.deepEqual(box.clears(), ['dev1']);
+    assert.deepEqual(done.json().cleanups.map((c) => [c.target, c.issue, c.command]), [['dev1', 1, '/clear']]);
+    assert.deepEqual(JSON.parse(readFileSync(box.stateFile, 'utf8')).issues['issue-1'].clear, ['qa1']);
+
+    const idle = await run(box, ['--once'], env);
+    assert.equal(idle.status, 0, idle.stderr);
+    assert.deepEqual(box.clears(), ['dev1', 'qa1']);
+    assert.deepEqual(JSON.parse(box.sql(CLEARED).stdout), [
+      ['dev1', '[1] dev1 cleared with /clear'],
+      ['qa1', '[1] qa1 cleared with /clear'],
+    ]);
+
+    await run(box, ['--once'], env);
+    assert.deepEqual(box.clears(), ['dev1', 'qa1'], 'once per ticket');
+  });
+});
+
+test('Done: a window that took a new ticket, or that work.db sees working, never gets the reset', { skip }, () => {
+  const tickets = [issue(1, 's-todo')];
+  return scenario(tickets, {}, async (api, box) => {
+    const env = { FAKE_WINDOWS: TEAM };
+    await run(box, ['--once'], env);
+    move(tickets[0], 's-test', 0);
+    await run(box, ['--once'], env);
+
+    // Done while dev1 takes ticket 2 and work.db still sees qa1 working.
+    move(tickets[0], 's-done', 1);
+    tickets.push(issue(2, 's-todo'));
+    box.sql("INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('qa1', 'working', 0, 0, 0)");
+    const out = await run(box, ['--once'], env);
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(out.json().actions.filter((a) => a.target).map((a) => [a.issue, a.target]), [[2, 'dev1']]);
+    assert.deepEqual(box.clears(), []);
+
+    box.sql("UPDATE windows SET state = 'idle' WHERE name = 'qa1'");
+    await run(box, ['--once'], env);
+    await run(box, ['--once'], env);
+    assert.deepEqual(box.clears(), ['qa1'], 'never dev1: it works on ticket 2');
+    assert.doesNotMatch(readFileSync(join(box.dir, 'tmux.log'), 'utf8'), /work_test:dev1 -l -- \/clear/);
+  });
+});

@@ -8,7 +8,9 @@
 //            to "In Progress" with the QA rejection in the prompt;
 //   Todo     to the first free dev, moved to "In Progress";
 //   Test     to the QA agent, who moves it to "Done" or "Re-open";
-//   Done     the PM is told on Telegram, for a ticket seen before it was done.
+//   Done     the PM is told on Telegram, for a ticket seen before it was done,
+//            and every window that worked on it gets its agent's reset once idle.
+use crate::diag::{log, Level};
 use crate::{dogwatch, state_db, store, tmux};
 use regex::Regex;
 use reqwest::Method;
@@ -44,7 +46,11 @@ const BUSY: [&str; 5] = [
 // OpenCode's TUI starts a fresh session with /new (alias /clear). A short
 // pause lets the new session open before the task is typed.
 const OPENCODE_RESET: &str = "/new";
+// Claude Code, Codex and Gemini start a fresh conversation with /clear.
+const CLEAR_RESET: &str = "/clear";
 const RESET_SETTLE: Duration = Duration::from_millis(400);
+// A window still working when its ticket reached Done is retried this long.
+const CLEAR_RETRY_SECS: u64 = 600;
 const PRUNE_FILE: &str = ".claude/opencode_cleanup.json";
 const PRUNE_INTERVAL_SECS: u64 = 6 * 3600;
 const KEEP_SESSIONS: usize = 5;
@@ -497,14 +503,23 @@ pub fn is_idle(capture: &str) -> bool {
     !running && tail.iter().any(|l| input_line(l))
 }
 
+// The agent's own command for a fresh session; None when no agent is known.
+fn reset_command(agent: Option<&str>) -> Option<&'static str> {
+    match agent? {
+        "generic" => None,
+        "opencode" => Some(OPENCODE_RESET),
+        _ => Some(CLEAR_RESET),
+    }
+}
+
 pub trait Agents {
     fn idle(&self, window: &str) -> bool;
     fn send(&self, window: &str, text: &str) -> Result<(), String>;
-    // Reset a fresh OpenCode session; unsupported agents keep their context.
     fn is_opencode(&self, _window: &str) -> bool {
         false
     }
-    fn reset(&self, _window: &str) -> Result<(), String> {
+    // Types the agent's reset command (reset_command) to open a fresh session.
+    fn reset(&self, _window: &str, _command: &str) -> Result<(), String> {
         Ok(())
     }
     // Every window of the session in tmux index order; dev* and qa* ones
@@ -571,8 +586,8 @@ impl Agents for Tmux {
         .is_ok_and(|command| command.to_lowercase().contains("opencode"))
     }
 
-    fn reset(&self, window: &str) -> Result<(), String> {
-        dogwatch::answer(&self.session, window, OPENCODE_RESET)?;
+    fn reset(&self, window: &str, command: &str) -> Result<(), String> {
+        dogwatch::answer(&self.session, window, command)?;
         std::thread::sleep(RESET_SETTLE);
         Ok(())
     }
@@ -828,7 +843,7 @@ impl Run<'_> {
         // A new task starts from a fresh OpenCode session: one active session,
         // no context left over from the ticket the agent just finished.
         if self.agents.is_opencode(&target) {
-            let _ = self.agents.reset(&target);
+            let _ = self.agents.reset(&target, OPENCODE_RESET);
         }
         if let Err(e) = self.agents.send(&target, prompt) {
             self.wait(issue, label, &format!("cannot type into {target}: {e}"));
@@ -870,6 +885,97 @@ impl Run<'_> {
             }
         }
         self.actions.push(action);
+    }
+
+    // Delegated a ticket this cycle, or the target of one In Progress or in Test.
+    fn holds_ticket(&self, window: &str) -> bool {
+        self.busy.contains(window)
+            || self.state["issues"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .any(|(issue, r)| {
+                    r["target"].as_str() == Some(window)
+                        && matches!(
+                            self.current.get(issue).map(String::as_str),
+                            Some("in progress" | "test")
+                        )
+                })
+    }
+
+    // Every window that worked on a Done ticket gets its agent's reset once it
+    // is idle on screen and in work.db. A window that took a new ticket in the
+    // meantime is dropped, never reset; one still working waits for a later
+    // cycle until clear_until.
+    fn clear_workers(
+        &mut self,
+        issue: &Value,
+        db: Option<&rusqlite::Connection>,
+        cleared: &mut HashSet<String>,
+    ) {
+        let record = &self.state["issues"][id(issue)];
+        let Some(windows) = record["clear"].as_array() else {
+            return;
+        };
+        let windows: Vec<String> = windows
+            .iter()
+            .filter_map(|w| w.as_str().map(String::from))
+            .collect();
+        let open = record["clear_until"].as_u64().unwrap_or(0) >= now_secs()
+            && self.current.get(id(issue)).map(String::as_str) == Some("done");
+        let seq = issue["sequence_id"]
+            .as_u64()
+            .map_or("?".into(), |n| n.to_string());
+        let mut waiting = vec![];
+        for window in windows {
+            if !open || cleared.contains(&window) || self.holds_ticket(&window) {
+                continue;
+            }
+            let idle_in_db = db.is_none_or(|db| {
+                matches!(
+                    state_db::window_state(db, &window)
+                        .as_ref()
+                        .map(Option::as_deref),
+                    Ok(None | Some("idle" | "ready"))
+                )
+            });
+            if !idle_in_db || !self.agents.idle(&window) {
+                waiting.push(window);
+                continue;
+            }
+            let Some(command) = reset_command(self.agents.agent(&window).as_deref()) else {
+                continue;
+            };
+            if let Err(e) = self.agents.reset(&window, command) {
+                log(
+                    Level::Warn,
+                    "plane-dogwatch",
+                    format!("[{seq}] {window}: reset failed: {e}"),
+                );
+                continue;
+            }
+            let summary = format!("[{seq}] {window} cleared with {command}");
+            log(Level::Info, "plane-dogwatch", &summary);
+            if let Some(db) = db {
+                let _ = state_db::log_event(
+                    db,
+                    state_db::now(),
+                    Some(&window),
+                    "agent",
+                    "cleared",
+                    &summary,
+                );
+            }
+            cleared.insert(window);
+        }
+        if let Some(record) = record_mut(&mut self.state, id(issue)).as_object_mut() {
+            if waiting.is_empty() {
+                record.remove("clear");
+                record.remove("clear_until");
+            } else {
+                record.insert("clear".into(), json!(waiting));
+            }
+        }
     }
 }
 
@@ -1005,6 +1111,8 @@ pub fn run_cycle(
         run.delegate(issue, ("test", "Test"), "qa", target, &prompt, None);
     }
 
+    let db = state_db::open(&state_path.with_file_name("work.db")).ok();
+    let mut cleared = HashSet::new();
     for issue in &issues {
         let now = run.current[id(issue)].clone();
         let (seen, prev_state, prev_target) = {
@@ -1016,21 +1124,33 @@ pub fn run_cycle(
                 before.map(|(_, t)| t.clone()).unwrap_or_default(),
             )
         };
-        // The task is over: reset the window that held it, if it is idle and
-        // runs OpenCode, so the next ticket starts from a fresh session. Never
+        // The task left its holder: reset the window, if it is idle and runs
+        // OpenCode, so the next ticket starts from a fresh session. Never
         // touch a window that received a new ticket in this same cycle: its
         // delegation already opened a fresh session and this cleanup would wipe it.
+        // Done is left to clear_workers, which resets every agent kind.
         if prev_state != now
-            && matches!(now.as_str(), "test" | "done" | "re-open")
+            && matches!(now.as_str(), "test" | "re-open")
             && !prev_target.is_empty()
             && !run.busy.contains(&prev_target)
             && run.agents.is_opencode(&prev_target)
             && run.agents.idle(&prev_target)
         {
-            let _ = run.agents.reset(&prev_target);
+            let _ = run.agents.reset(&prev_target, OPENCODE_RESET);
         }
         // A ticket already Done at the first look is history, not news.
         if now == "done" && !seen.is_empty() && seen != "done" {
+            let mut workers = db
+                .as_ref()
+                .zip(issue["sequence_id"].as_u64())
+                .and_then(|(db, seq)| state_db::ticket_workers(db, seq).ok())
+                .unwrap_or_default();
+            if !prev_target.is_empty() && !workers.contains(&prev_target) {
+                workers.push(prev_target.clone());
+            }
+            let record = record_mut(&mut run.state, id(issue));
+            record["clear"] = json!(workers);
+            record["clear_until"] = (now_secs() + CLEAR_RETRY_SECS).into();
             let sent = notify(&format!(
                 "✅ {} completato: {}",
                 ticket(issue),
@@ -1046,6 +1166,7 @@ pub fn run_cycle(
                 telegram: Some(sent),
             });
         }
+        run.clear_workers(issue, db.as_ref(), &mut cleared);
         if seen != now {
             let record = record_mut(&mut run.state, id(issue));
             record["state"] = now.into();
@@ -1494,8 +1615,8 @@ mod tests {
         fn is_opencode(&self, window: &str) -> bool {
             self.opencode.borrow().contains(window)
         }
-        fn reset(&self, window: &str) -> Result<(), String> {
-            self.resets.borrow_mut().push(window.into());
+        fn reset(&self, window: &str, command: &str) -> Result<(), String> {
+            self.resets.borrow_mut().push(format!("{window} {command}"));
             self.events.borrow_mut().push(format!("reset:{window}"));
             Ok(())
         }
@@ -2214,7 +2335,7 @@ mod tests {
             ["reset:dev1", "send:dev1"],
             "the fresh session opens before the task is typed"
         );
-        assert_eq!(a.resets.borrow().as_slice(), ["dev1"]);
+        assert_eq!(a.resets.borrow().as_slice(), ["dev1 /new"]);
     }
 
     #[test]
@@ -2227,7 +2348,7 @@ mod tests {
         let r = b.cycle(&a);
         assert_eq!(
             a.resets.borrow().as_slice(),
-            ["dev1", "dev1"],
+            ["dev1 /new", "dev1 /new"],
             "once before the task and once when the ticket reaches Test"
         );
         assert_eq!(
@@ -2243,13 +2364,13 @@ mod tests {
         let a = agents(&["dev1"]); // only dev1 is free: ticket 2 waits for cycle 2
         a.opencode.borrow_mut().insert("dev1".into());
         b.cycle(&a);
-        assert_eq!(a.resets.borrow().as_slice(), ["dev1"]);
+        assert_eq!(a.resets.borrow().as_slice(), ["dev1 /new"]);
         b.mock.set_state(1, "s-test");
 
         let second = b.cycle(&a);
         assert_eq!(
             a.resets.borrow().as_slice(),
-            ["dev1", "dev1"],
+            ["dev1 /new", "dev1 /new"],
             "one reset per new task; the completion cleanup must skip dev1"
         );
         assert_eq!(
@@ -2258,6 +2379,95 @@ mod tests {
             "the last action is ticket 2's prompt, not a reset that would wipe it"
         );
         assert_eq!(moves(&second)[0].0, Some(2));
+    }
+
+    #[test]
+    fn each_agent_resets_with_its_own_command() {
+        assert_eq!(reset_command(Some("claude")), Some("/clear"));
+        assert_eq!(reset_command(Some("codex")), Some("/clear"));
+        assert_eq!(reset_command(Some("opencode")), Some("/new"));
+        assert_eq!(reset_command(Some("generic")), None);
+        assert_eq!(reset_command(None), None);
+    }
+
+    fn cleared_events(dir: &Path) -> Vec<(String, String)> {
+        let db = state_db::open(&dir.join(state_db::DB_FILE)).unwrap();
+        let mut stmt = db
+            .prepare("SELECT window_name, summary FROM events WHERE category = 'agent' AND kind = 'cleared' ORDER BY id")
+            .unwrap();
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        rows.map(Result::unwrap).collect()
+    }
+
+    #[test]
+    fn done_resets_the_idle_dev_and_qa_that_worked_on_the_ticket_each_with_its_command() {
+        let b = scenario(vec![issue(1, "s-todo")]);
+        let a = team(&[("dev1", "claude"), ("qa1", "opencode")], &["dev1", "qa1"]);
+        b.cycle(&a);
+        b.mock.set_state(1, "s-test");
+        b.cycle(&a);
+        assert!(
+            a.resets.borrow().is_empty(),
+            "a Claude dev keeps its context until Done"
+        );
+
+        b.mock.set_state(1, "s-done");
+        b.cycle(&a);
+        assert_eq!(a.resets.borrow().as_slice(), ["dev1 /clear", "qa1 /new"]);
+        assert_eq!(
+            cleared_events(b.dir.path()),
+            [
+                ("dev1".into(), "[1] dev1 cleared with /clear".into()),
+                ("qa1".into(), "[1] qa1 cleared with /new".into())
+            ]
+        );
+        assert!(b.state()["issues"]["issue-1"].get("clear").is_none());
+
+        b.cycle(&a);
+        assert_eq!(a.resets.borrow().len(), 2, "once per ticket");
+    }
+
+    #[test]
+    fn a_working_window_waits_for_idle_and_one_with_a_new_ticket_is_never_reset() {
+        let b = scenario(vec![issue(1, "s-todo")]);
+        let a = team(&[("dev1", "claude"), ("qa1", "codex")], &["dev1", "qa1"]);
+        b.cycle(&a);
+        b.mock.set_state(1, "s-test");
+        b.cycle(&a);
+
+        // QA moves the ticket to Done while still writing its report, and
+        // dev1 takes ticket 2 in the same cycle.
+        b.mock.set_state(1, "s-done");
+        b.mock.issues.lock().unwrap().push(issue(2, "s-todo"));
+        a.idle.borrow_mut().remove("qa1");
+        b.cycle(&a);
+        assert!(a.resets.borrow().is_empty());
+        assert_eq!(b.state()["issues"]["issue-1"]["clear"], json!(["qa1"]));
+
+        // Idle on screen, but work.db still sees qa1 working.
+        a.idle.borrow_mut().insert("qa1".into());
+        let db = state_db::open(&b.dir.path().join(state_db::DB_FILE)).unwrap();
+        db.execute(
+            "INSERT INTO windows(name, state, state_changed_at, last_output_change_at, updated_at) VALUES('qa1', 'working', 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        b.cycle(&a);
+        assert!(a.resets.borrow().is_empty());
+
+        db.execute("UPDATE windows SET state = 'idle' WHERE name = 'qa1'", [])
+            .unwrap();
+        b.cycle(&a);
+        b.cycle(&a);
+        assert_eq!(
+            a.resets.borrow().as_slice(),
+            ["qa1 /clear"],
+            "never dev1: it works on ticket 2"
+        );
+        assert_eq!(
+            a.events.borrow().last().map(String::as_str),
+            Some("reset:qa1")
+        );
     }
 
     #[test]

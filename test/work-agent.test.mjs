@@ -316,14 +316,33 @@ test('--clean forces the reset even when the snapshot still looks busy', { skip:
   }
 });
 
-test('--clean on a non-OpenCode target warns and does not send /new', { skip: !hasPython }, () => {
+test('--clean on a Codex target sends its own /clear before the task, never /new', { skip: !hasPython }, () => {
   const box = sandbox();
   try {
     writeState(box, windows()); // qa1 runs Codex
     const out = run(box, ['prompt', 'qa1', 'task', '--clean'], { WORK_AGENT_RESET_SETTLE: '0' });
     assert.equal(out.status, 0, out.stderr);
-    assert.match(out.stderr, /not an OpenCode\/Ollama agent/);
-    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/new/);
+    const log = readFileSync(box.log, 'utf8');
+    assert.match(log, /send-keys -t work_test:qa1 -l -- \/clear/);
+    assert.doesNotMatch(log, /-l -- \/new/);
+    assert.ok(log.indexOf('-l -- /clear') < log.indexOf('-l -- task'), 'the reset comes before the task');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('an idle non-OpenCode target is reset only on --clean, and an unknown agent never', { skip: !hasPython }, () => {
+  const box = sandbox();
+  try {
+    writeState(box, windows()); // qa1 runs Codex and is idle
+    assert.equal(run(box, ['prompt', 'qa1', 'follow', 'up'], { WORK_AGENT_RESET_SETTLE: '0' }).status, 0);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/(?:clear|new)/, 'the automatic reset is OpenCode-only');
+
+    writeState(box, [windows()[0], { ...windows()[1], agent: null }]);
+    const out = run(box, ['prompt', 'qa1', 'task', '--clean'], { WORK_AGENT_RESET_SETTLE: '0' });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stderr, /runs no known agent; no session reset/);
+    assert.doesNotMatch(readFileSync(box.log, 'utf8'), /-l -- \/(?:clear|new)/);
   } finally {
     box.cleanup();
   }

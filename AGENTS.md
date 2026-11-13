@@ -71,7 +71,7 @@ python3 scripts/tmux-dogwatch.py answer dev1 "sì, procedi"
 - `Re-open` (priorità massima): al dev che aveva il ticket, se libero, altrimenti al primo dev libero; il ticket passa a `In Progress` e il prompt include l'ultimo commento del QA.
 - `Todo`: al primo dev libero (`--devs`, default `dev1,dev2`); il ticket passa a `In Progress` con commento automatico.
 - `Test`: all'agente QA (`--qa`, default `qa1,qa`), con l'ordine di spostare in `Done` o `Re-open`.
-- `Done`: registrato; se il ticket era stato visto in un altro stato, notifica al PM via `scripts/telegram-pm.py`.
+- `Done`: registrato; se il ticket era stato visto in un altro stato, notifica al PM via `scripts/telegram-pm.py`. Ogni finestra dev e QA che ha lavorato al ticket (deleghe in `.claude/work.db`) riceve il reset del proprio agente (`/clear`, `/new` per OpenCode) appena è inattiva sullo schermo e in `windows`; una finestra che nel frattempo ha preso un altro ticket non viene mai resettata. Riprova per 10 minuti, poi rinuncia; ogni reset è un evento `agent/cleared`.
 
 Un agente riceve un prompt solo se la sua finestra è inattiva e non ha già un ticket delegato in lavorazione. `.claude/plane_dogwatch_state.json` conserva stato, hash e timestamp di ogni ticket: un ticket invariato non viene mai delegato due volte.
 
