@@ -17,7 +17,7 @@ import { initUpdate, check as checkUpdate } from './update.js';
 import { initGithub, setGithubVisible, showGithub, updateDot as updateGithubDot, githubPushed } from './github.js';
 import { initRun, showRun, runningIn, detect as detectRun, forgetProject, runningCount, renderRunTab } from './run.js';
 import { initLauncher, launchDefault, resumeClaude, launchWithPrompt, lastUsedAgent, AGENTS } from './launcher.js';
-import { initTeam, showLiveLed } from './team.js';
+import { initTeam, showLiveLed, ensureAgentKb } from './team.js';
 import { createSoundWatcher } from './sound.js';
 import { initAnalytics, openAnalytics } from './analytics.js';
 import { keepActiveTabVisible, revealActiveTab, wheelScroll } from './tabstrip.js';
@@ -84,7 +84,9 @@ function projectFor(cwd) {
   return projects.filter((p) => inside(cwd, p.path)).sort((a, b) => b.path.length - a.path.length)[0] || null;
 }
 
-async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null, remote = null, agentSkills = null } = {}) {
+// provisionKb: a project the user opens gets the shared agent knowledge base;
+// projects restored at startup are left as they are.
+async function addProject(path, { activate = true, withTerminal = true, run = null, terminals = null, remote = null, agentSkills = null, provisionKb = true } = {}) {
   const existing = projects.find((p) => p.path === path);
   if (existing) {
     if (agentSkills && typeof agentSkills === 'object') {
@@ -112,6 +114,7 @@ async function addProject(path, { activate = true, withTerminal = true, run = nu
   projects.push(p);
   // Register the folder first: the main process only allows fs access inside open projects.
   await work.projects.save({ projects: serialize() });
+  if (provisionKb) ensureAgentKb(p);
   if (activate) await activateProject(p);
   if (withTerminal && !terminalsOf(p).length) {
     await ensureInitialTerminal(p);
@@ -1021,7 +1024,7 @@ more.onclick = (e) => {
     }
   }
   for (const { path, run, terminals, remote, agentSkills } of valid) {
-    await addProject(path, { activate: false, withTerminal: false, run, terminals, remote, agentSkills });
+    await addProject(path, { activate: false, withTerminal: false, run, terminals, remote, agentSkills, provisionKb: false });
   }
   // `work <folder>` from a terminal: that folder wins over the last active one.
   const opened = info.open && await addProject(info.open, { activate: false, withTerminal: false });

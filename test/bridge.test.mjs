@@ -192,6 +192,14 @@ test('work.state registers and removes a team member', async () => {
   ]);
 });
 
+test('work.agentKb.provision sets up the shared knowledge base of a project', async () => {
+  const calls = [];
+  const report = { created: ['AGENTS.md'], adopted: [], skipped: [] };
+  const { work } = load((cmd, _wait, args) => { calls.push([cmd, JSON.stringify(args)]); return report; });
+  assert.deepEqual(await work.agentKb.provision('/p'), report);
+  assert.deepEqual(calls, [['agent_kb_provision', JSON.stringify({ path: '/p' })]]);
+});
+
 test('work.telegram exposes status, connect, disconnect, send and events', async () => {
   const calls = [];
   const { work } = load((cmd) => { calls.push(cmd); return null; });

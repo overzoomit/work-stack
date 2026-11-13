@@ -97,6 +97,7 @@ python3 scripts/plane-dogwatch.py --daemon --interval 5          # polling conti
   - `src/github.rs`: integrazione con `gh` CLI per workflow Actions, Secrets e Artifacts.
   - `src/agents.rs` & `src/claudeprocs.rs`: rilevamento e controllo dei processi e sessioni degli agenti AI CLI.
   - `src/fsops.rs`: operazioni sicure sui file (protezione sandbox con `Roots` / canonicalize).
+  - `src/agent_kb.rs`: provisioning idempotente della KB condivisa nel progetto (`AGENTS.md` da template o adottando un `CLAUDE.md` esistente, link `CLAUDE.md`/`GEMINI.md`, hub `docs/agents/skills` con `.claude/skills` e `.opencode/skills`); non sovrascrive nulla e non scrive attraverso symlink fuori dal progetto. IPC `agent_kb_provision` (`window.work.agentKb.provision`), chiamato all'apertura di un progetto locale (non al ripristino all'avvio) e prima di avviare un membro della Squadra Agenti.
   - `src/runconfigs.rs`: autodiscovery dei comandi di avvio del progetto.
   - `src/ngrok.rs`: un tunnel ngrok per progetto (menu Run › `ngrok Tunnel…`, IPC `ngrok_start/stop/status`, evento `ngrok:update`); URL pubblico letto dall'API di ispezione dell'agente, porta presa dal suo log JSON; tunnel chiusi all'uscita da Work.
   - `src/store.rs`: persistenza atomica dello stato tra sessioni.

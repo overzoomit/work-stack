@@ -162,6 +162,41 @@ test('a new teammate is registered as ready in the shared database at once, and 
   env.tmuxAvailable = false;
 });
 
+test('the shared agent knowledge base is in place before a teammate starts, never on a remote project', async () => {
+  env.tmuxAvailable = true;
+  env.tmuxSession = 'work_kb_test';
+  env.tmuxWindows = [];
+  env.createdWindows = [];
+  const order = [];
+  window.work.agentKb = {
+    provision: async (path) => {
+      order.push(['provision', path, env.createdWindows.length]);
+      return { created: ['AGENTS.md', 'CLAUDE.md'], adopted: [], skipped: [] };
+    },
+  };
+  const project = { path: '/home/u/kb-proj', focusedId: null, maximizedId: null };
+  T.showProject(project);
+
+  const claude = Launcher.AGENTS.find((a) => a.id === 'claude');
+  const pane = await Team.createTeamMember(project, 'dev1', claude);
+  assert.deepEqual(order, [['provision', '/home/u/kb-proj', 0]], 'provisioned before the window exists');
+  assert.equal(env.createdWindows.length, 1);
+
+  await Team.ensureAgentKb({ path: '/r', remote: { host: 'h' } });
+  assert.equal(order.length, 1, 'a remote project has no local folder');
+
+  window.work.agentKb = { provision: async () => { throw new Error('read-only folder'); } };
+  assert.equal(await Team.ensureAgentKb(project), null, 'a failure never stops the team');
+
+  assert.equal(Team.kbSummary({ created: ['GEMINI.md'], adopted: ['CLAUDE.md'], skipped: ['x'] }), 'CLAUDE.md → AGENTS.md, GEMINI.md');
+  assert.equal(Team.kbSummary({ created: [], adopted: [], skipped: ['.claude/skills'] }), '', 'nothing changed, nothing to say');
+
+  T.closeTerminal(pane.id);
+  delete window.work.agentKb;
+  await tick(50);
+  env.tmuxAvailable = false;
+});
+
 test('registerMember reads the model from the command line', async () => {
   const calls = [];
   window.work.state = { registerMember: async (...args) => { calls.push(args); } };

@@ -1,4 +1,5 @@
 // Work's backend: the commands behind window.work (see src/renderer/bridge.js).
+mod agent_kb;
 mod agents;
 mod analytics;
 mod app;
@@ -317,6 +318,7 @@ fn main() {
             state_db::work_state_snapshot,
             state_db::work_state_register_member,
             state_db::work_state_remove_member,
+            agent_kb::agent_kb_provision,
             mcp::mcp_status,
             mcp::mcp_launch_browser,
             ngrok::ngrok_start,

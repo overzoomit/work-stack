@@ -188,6 +188,9 @@
       registerMember: call('work_state_register_member', 'project', 'session', 'name', 'windowId', 'role', 'agent', 'startCommand', 'model'),
       removeMember: call('work_state_remove_member', 'project', 'name'),
     },
+    agentKb: {
+      provision: call('agent_kb_provision', 'path'),
+    },
     planeDogwatch: {
       status: call('plane_dogwatch_status'),
       syncNow: call('plane_dogwatch_sync_now'),

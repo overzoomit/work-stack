@@ -824,9 +824,32 @@ export async function killTeamRole(project, roleName) {
   toast(`Role [${roleName.toUpperCase()}] terminated.`);
 }
 
+// "AGENTS.md, CLAUDE.md, .claude/skills" or "CLAUDE.md → AGENTS.md, GEMINI.md":
+// what a provisioning run changed, empty when it changed nothing.
+export function kbSummary(report) {
+  return [...(report?.adopted || []).map((f) => `${f} → AGENTS.md`), ...(report?.created || [])].join(', ');
+}
+
+// The shared knowledge base (AGENTS.md, CLAUDE.md/GEMINI.md links, one skills
+// folder) is in place before an agent starts, so every CLI reads the same
+// rules. Idempotent; a remote project has no local folder; a failure never
+// stops the caller.
+export async function ensureAgentKb(project) {
+  if (!project || isRemote(project) || !work?.agentKb?.provision) return null;
+  try {
+    const report = await work.agentKb.provision(project.path);
+    const changed = kbSummary(report);
+    if (changed) toast(`Agent knowledge base set up in ${projectLabel(project)}: ${changed}.`);
+    return report;
+  } catch {
+    return null;
+  }
+}
+
 // Creates and launches a team window for a specific role and selected agent
 export async function createTeamMember(project, roleName, agent) {
   if (!project || !roleName || !agent) return null;
+  await ensureAgentKb(project);
 
   const cmd = commandFor(agent);
   const isTmux = await tmuxReady(project);
@@ -1479,6 +1502,7 @@ export async function launchTeamMember(project, role) {
     existing.term?.focus();
     return existing;
   }
+  await ensureAgentKb(project);
 
   const isTmux = await tmuxReady(project);
   if (isTmux) {
@@ -1535,6 +1559,7 @@ export async function launchTeamMember(project, role) {
 // Initializes the entire squad: pm, dev1, dev2, qa
 export async function initializeTeam(project) {
   if (!project) return [];
+  await ensureAgentKb(project);
   const isTmux = await tmuxReady(project);
   const panes = [];
 
