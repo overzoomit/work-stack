@@ -437,38 +437,68 @@ fn or_none(text: &str) -> &str {
     }
 }
 
+// Ralph Loop (docs/adr/0006): a fresh session re-anchors on the Knowledge
+// Base before acting. Same text as ralph_loop in scripts/plane-dogwatch.py.
+fn ralph_loop(align: &str, lock: &str, prove: &str, hand_off: &str) -> String {
+    format!(
+        "Segui il Ralph Loop: [R] Read: leggi i criteri del ticket e consulta la SDD e i contratti in docs/KNOWLEDGE_BASE.md \
+         e le decisioni in docs/adr/; [A] Align: {align}; [L] {lock}; [P] Prove: {prove}; [H] Hand-off: {hand_off}."
+    )
+}
+
+const DEV_ALIGN: &str =
+    "verifica la compatibilità con i contratti IPC, gli eventi e lo schema DB prima di modificare";
+const DEV_PROVE: &str =
+    "esegui l'intera suite npm test e cargo clippy, tornando a [L] finché non è tutto verde";
+const DEV_HAND_OFF: &str = "committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano";
+
 pub fn dev_prompt(issue: &Value) -> String {
     format!(
         "[plane-dogwatch] Prendi in carico il {}: {}. Descrizione e criteri: {} \
-         Il ticket è già In Progress su Plane. Sviluppa con i test, verifica npm test e cargo clippy, \
-         committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano.",
+         Il ticket è già In Progress su Plane. {}",
         ticket(issue),
         title(issue),
-        description(issue)
+        description(issue),
+        ralph_loop(
+            DEV_ALIGN,
+            "Lock & Implement: sviluppa con test unitari o di integrazione mirati",
+            DEV_PROVE,
+            DEV_HAND_OFF
+        )
     )
 }
 
 pub fn reopen_prompt(issue: &Value, reason: &str) -> String {
     format!(
         "[plane-dogwatch] Re-open del {}: {}. Motivo del QA: {} Descrizione: {} \
-         Il ticket è già In Progress su Plane. Correggi con test di regressione, verifica npm test e cargo clippy, \
-         committa e sposta il ticket in 'Test' con commento tecnico in italiano.",
+         Il ticket è già In Progress su Plane. {}",
         ticket(issue),
         title(issue),
         or_none(reason),
-        description(issue)
+        description(issue),
+        ralph_loop(
+            DEV_ALIGN,
+            "Lock & Implement: correggi con test di regressione",
+            DEV_PROVE,
+            DEV_HAND_OFF
+        )
     )
 }
 
 pub fn qa_prompt(issue: &Value, notes: &str) -> String {
     format!(
-        "[plane-dogwatch] Valida il {} in Test: {}. Criteri: {} Note del dev (file modificati e test): {} \
-         Esegui le verifiche end-to-end. Se tutti i criteri passano sposta il ticket in 'Done' con report QA in italiano; \
-         altrimenti in 'Re-open' con la descrizione dettagliata del problema.",
+        "[plane-dogwatch] Valida il {} in Test: {}. Criteri: {} Note del dev (file modificati e test): {} {}",
         ticket(issue),
         title(issue),
         description(issue),
-        or_none(notes)
+        or_none(notes),
+        ralph_loop(
+            "verifica che le modifiche del dev rispettino i contratti IPC, gli eventi e lo schema DB",
+            "Lock & Verify: esegui le verifiche end-to-end e di regressione sui criteri",
+            "esegui l'intera suite npm test e cargo clippy sul codice consegnato",
+            "se tutti i criteri passano sposta il ticket in 'Done' con report QA in italiano; \
+             altrimenti in 'Re-open' con la descrizione dettagliata del problema"
+        )
     )
 }
 
@@ -2379,6 +2409,38 @@ mod tests {
             "the last action is ticket 2's prompt, not a reset that would wipe it"
         );
         assert_eq!(moves(&second)[0].0, Some(2));
+    }
+
+    // The same tail is asserted on the script's prompt in test/plane-dogwatch.test.mjs.
+    const DEV_RALPH: &str = "Il ticket è già In Progress su Plane. Segui il Ralph Loop: [R] Read: leggi i criteri del ticket e consulta la SDD e i contratti in docs/KNOWLEDGE_BASE.md e le decisioni in docs/adr/; [A] Align: verifica la compatibilità con i contratti IPC, gli eventi e lo schema DB prima di modificare; [L] Lock & Implement: sviluppa con test unitari o di integrazione mirati; [P] Prove: esegui l'intera suite npm test e cargo clippy, tornando a [L] finché non è tutto verde; [H] Hand-off: committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano.";
+
+    #[test]
+    fn every_prompt_walks_the_ralph_loop_from_the_knowledge_base() {
+        let i = issue(1, "s-todo");
+        assert!(dev_prompt(&i).ends_with(DEV_RALPH), "{}", dev_prompt(&i));
+        for prompt in [dev_prompt(&i), reopen_prompt(&i, "x"), qa_prompt(&i, "x")] {
+            let at = |step: &str| {
+                prompt
+                    .find(step)
+                    .unwrap_or_else(|| panic!("{step} missing: {prompt}"))
+            };
+            let steps = [
+                "[R] Read:",
+                "[A] Align:",
+                "[L] Lock & ",
+                "[P] Prove:",
+                "[H] Hand-off:",
+            ];
+            let order: Vec<usize> = steps.iter().map(|s| at(s)).collect();
+            assert!(order.windows(2).all(|w| w[0] < w[1]), "R-A-L-P-H: {prompt}");
+            assert!(at("docs/KNOWLEDGE_BASE.md") < at("[A] Align:"));
+            assert!(at("docs/adr/") < at("[A] Align:"));
+        }
+        assert!(reopen_prompt(&i, "x")
+            .contains("[L] Lock & Implement: correggi con test di regressione"));
+        let qa = qa_prompt(&i, "x");
+        assert!(qa.contains("[L] Lock & Verify:"));
+        assert!(qa.contains("sposta il ticket in 'Done'") && qa.contains("in 'Re-open'"));
     }
 
     #[test]

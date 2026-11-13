@@ -2,6 +2,10 @@
 
 Dashboard desktop per sviluppatori (Linux e macOS) che unifica gestione multi-progetto, terminali PTY multipli, albero file con anteprima ed editing, Git/GitHub e monitoraggio degli agenti AI CLI.
 
+> **Fonte primaria vincolante:** prima di modificare qualsiasi riga di codice, ogni agente DEVE leggere `docs/KNOWLEDGE_BASE.md` (SDD, contratti IPC, eventi e schema DB) e le decisioni in `docs/adr/`. Ogni modifica deve rispettarle; se un ticket le contraddice, segnalalo al PM invece di divergere.
+> Questo file è l'unico punto di ingresso: `CLAUDE.md` e `GEMINI.md` sono link simbolici ad `AGENTS.md`. Le skill condivise stanno in `docs/agents/skills/`, a cui puntano i link `.claude/skills` e `.opencode/skills`.
+> Ciclo di lavoro di Dev e QA: **Ralph Loop** (ADR 0006) — `[R]` Read KB e criteri, `[A]` Align con contratti IPC/eventi/DB, `[L]` Lock & Implement (o Verify per il QA), `[P]` Prove con `npm test` e `cargo clippy`, `[H]` Hand-off su Plane con commento in italiano. I prompt di `plane-dogwatch` lo riportano per esteso.
+
 ---
 
 ## 1. Flusso Multi-Agente & Integrazione Plane

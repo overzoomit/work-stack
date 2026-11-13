@@ -9,3 +9,4 @@ Layout single-context per Work Stack:
   - `0003-vs-code-single-sidebar-layout.md`: Layout unificato con accordion VS Code.
   - `0004-tmux-dogwatch-escalation-sentinel.md`: Protocollo sentinella Dogwatch ed escalation al PM.
   - `0005-english-ui-internationalization.md`: Internazionalizzazione della UI in lingua inglese.
+  - `0006-unified-agent-kb-and-ralph-loop.md`: Knowledge Base unificata tramite link simbolici e pattern Ralph Loop per riallineamento SDD post-clear.

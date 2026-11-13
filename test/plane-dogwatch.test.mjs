@@ -486,3 +486,22 @@ test('Done: a window that took a new ticket, or that work.db sees working, never
     assert.doesNotMatch(readFileSync(join(box.dir, 'tmux.log'), 'utf8'), /work_test:dev1 -l -- \/clear/);
   });
 });
+
+// ── Ralph Loop in the delegated prompts (docs/adr/0006) ─────
+
+// The same tail is asserted on the Rust prompt in src-tauri/src/plane_dogwatch.rs.
+const DEV_RALPH = "Il ticket è già In Progress su Plane. Segui il Ralph Loop: [R] Read: leggi i criteri del ticket e consulta la SDD e i contratti in docs/KNOWLEDGE_BASE.md e le decisioni in docs/adr/; [A] Align: verifica la compatibilità con i contratti IPC, gli eventi e lo schema DB prima di modificare; [L] Lock & Implement: sviluppa con test unitari o di integrazione mirati; [P] Prove: esegui l'intera suite npm test e cargo clippy, tornando a [L] finché non è tutto verde; [H] Hand-off: committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano.";
+
+test('dev and QA prompts walk the Ralph Loop from the Knowledge Base', { skip }, () =>
+  scenario([issue(1, 's-todo'), issue(3, 's-test')], {}, async (api, box) => {
+    const out = await run(box, ['--once']);
+    assert.equal(out.status, 0, out.stderr);
+    const [dev, qa] = box.sends();
+    assert.ok(dev.endsWith(DEV_RALPH), dev);
+    for (const prompt of [dev, qa]) {
+      const at = ['[R] Read:', '[A] Align:', '[L] Lock & ', '[P] Prove:', '[H] Hand-off:'].map((s) => prompt.indexOf(s));
+      assert.ok(at.every((p, i) => p > 0 && (i === 0 || p > at[i - 1])), `R-A-L-P-H in order: ${prompt}`);
+      assert.match(prompt, /docs\/KNOWLEDGE_BASE\.md e le decisioni in docs\/adr\//);
+    }
+    assert.match(qa, /\[L\] Lock & Verify: .*sposta il ticket in 'Done'.*in 'Re-open'/);
+  }));

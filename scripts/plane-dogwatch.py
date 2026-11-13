@@ -242,12 +242,26 @@ def ticket(issue: dict) -> str:
     return f"Ticket [{issue.get('sequence_id')}] (UUID: {issue['id']})"
 
 
+def ralph_loop(align: str, lock: str, prove: str, hand_off: str) -> str:
+    """Ralph Loop (docs/adr/0006): a fresh session re-anchors on the Knowledge Base before acting."""
+    return (
+        "Segui il Ralph Loop: [R] Read: leggi i criteri del ticket e consulta la SDD e i contratti in docs/KNOWLEDGE_BASE.md "
+        f"e le decisioni in docs/adr/; [A] Align: {align}; [L] {lock}; "
+        f"[P] Prove: {prove}; [H] Hand-off: {hand_off}."
+    )
+
+
+DEV_ALIGN = "verifica la compatibilità con i contratti IPC, gli eventi e lo schema DB prima di modificare"
+DEV_PROVE = "esegui l'intera suite npm test e cargo clippy, tornando a [L] finché non è tutto verde"
+DEV_HAND_OFF = "committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano"
+
+
 def dev_prompt(issue: dict) -> str:
     return (
         f"[plane-dogwatch] Prendi in carico il {ticket(issue)}: {plain(issue.get('name'), 200)}. "
         f"Descrizione e criteri: {plain(issue.get('description_html'))} "
-        "Il ticket è già In Progress su Plane. Sviluppa con i test, verifica npm test e cargo clippy, "
-        "committa secondo le convenzioni del progetto e sposta il ticket in 'Test' con commento tecnico in italiano."
+        "Il ticket è già In Progress su Plane. "
+        + ralph_loop(DEV_ALIGN, "Lock & Implement: sviluppa con test unitari o di integrazione mirati", DEV_PROVE, DEV_HAND_OFF)
     )
 
 
@@ -256,8 +270,8 @@ def reopen_prompt(issue: dict, reason: str) -> str:
         f"[plane-dogwatch] Re-open del {ticket(issue)}: {plain(issue.get('name'), 200)}. "
         f"Motivo del QA: {reason or 'nessun commento'} "
         f"Descrizione: {plain(issue.get('description_html'))} "
-        "Il ticket è già In Progress su Plane. Correggi con test di regressione, verifica npm test e cargo clippy, "
-        "committa e sposta il ticket in 'Test' con commento tecnico in italiano."
+        "Il ticket è già In Progress su Plane. "
+        + ralph_loop(DEV_ALIGN, "Lock & Implement: correggi con test di regressione", DEV_PROVE, DEV_HAND_OFF)
     )
 
 
@@ -266,8 +280,13 @@ def qa_prompt(issue: dict, notes: str) -> str:
         f"[plane-dogwatch] Valida il {ticket(issue)} in Test: {plain(issue.get('name'), 200)}. "
         f"Criteri: {plain(issue.get('description_html'))} "
         f"Note del dev (file modificati e test): {notes or 'nessun commento'} "
-        "Esegui le verifiche end-to-end. Se tutti i criteri passano sposta il ticket in 'Done' con report QA in italiano; "
-        "altrimenti in 'Re-open' con la descrizione dettagliata del problema."
+        + ralph_loop(
+            "verifica che le modifiche del dev rispettino i contratti IPC, gli eventi e lo schema DB",
+            "Lock & Verify: esegui le verifiche end-to-end e di regressione sui criteri",
+            "esegui l'intera suite npm test e cargo clippy sul codice consegnato",
+            "se tutti i criteri passano sposta il ticket in 'Done' con report QA in italiano; "
+            "altrimenti in 'Re-open' con la descrizione dettagliata del problema",
+        )
     )
 
 
